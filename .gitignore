@@ -1,0 +1,8 @@
+*.pyc
+*.o
+*.so
+*~
+*.png
+*.img
+*.pdf
+*.gdb
