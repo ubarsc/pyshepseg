@@ -34,9 +34,8 @@ def doShepherdSegmentation(img, numClusters=60, clusterSubsamplePcnt=1,
     Default values are mostly as suggested by Shepherd et al. 
     
     """
-    clusters = makeSpectralClusters(img, 
-        numClusters=numClusters,
-        subsamplePcnt=clusterSubsamplePcnt)
+    clusters = makeSpectralClusters(img, numClusters,
+        clusterSubsamplePcnt)
     
     # Do clump
     
