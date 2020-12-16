@@ -34,7 +34,7 @@ def doShepherdSegmentation(img, numClusters=60, clusterSubsamplePcnt=1):
 
 
 
-def makeSpectralClusters(img, numClusters=60, subsamplePcnt=1):
+def makeSpectralClusters(img, numClusters, subsamplePcnt):
     """
     First step of Shepherd segmentation. Use K-means clustering
     to create a set of "seed" segments, labelled only with
@@ -61,4 +61,8 @@ def makeSpectralClusters(img, numClusters=60, subsamplePcnt=1):
     clustersImg = clustersFull.reshape((nRows, nCols))
 
     return clustersImg
+
+
+
+# Sam's numba-based clump routine to go here
 
