@@ -19,18 +19,34 @@ from sklearn import KMeans
 from numba import jit
 
 
-def doShepherdSegmentation(img, numClusters=60, clusterSubsamplePcnt=1):
+def doShepherdSegmentation(img, numClusters=60, clusterSubsamplePcnt=1,
+        minSegmentSize=10, maxSpectralDiff=0.1):
     """
     Perform Shepherd segmentation in memory, on the given 
     multi-band img array.
     
     The img array has shape (nBands, nRows, nCols).
+    numClusters and clusterSubsamplePcnt are passed
+    through to makeSpectralClusters(). 
+    minSegmentSize and maxSpectralDiff are passed through
+    to eliminateSmallSegments(). 
+    
+    Default values are mostly as suggested by Shepherd et al. 
     
     """
     clusters = makeSpectralClusters(img, 
         numClusters=numClusters,
         subsamplePcnt=clusterSubsamplePcnt)
     
+    # Do clump
+    
+    # Eliminate small segments. If we wish, start with James' 
+    # memory-efficient method for single pixel clumps. 
+    
+    # Re-label segments to contiguous numbering. 
+    
+    # Return 
+    #  (segment image array, segment spectral summary info, what else?)
 
 
 
@@ -41,6 +57,11 @@ def makeSpectralClusters(img, numClusters, subsamplePcnt):
     their spectral cluster number. 
     
     The img array has shape (nBands, nRows, nCols).
+    numClusters is the number of clusters for the KMeans
+    algorithm to find (i.e. it is 'k'). 
+    subsamplePcnt is the percentage of the pixels to actually use 
+    for KMeans clustering. Shepherd et al find that only
+    a very small percentage is required. 
 
     """
     (nBands, nRows, nCols) = img.shape
