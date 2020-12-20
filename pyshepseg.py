@@ -106,7 +106,8 @@ def eliminateSinglePixels(img, seg, maxSegId):
     # Make an array of segment sizes (in pixels), indexed by segment ID
     (segSize, _) = numpy.histogram(seg, bins=range(maxSegId+2))
     # Save some space
-    segSize = segSize.astype(numpy.uint32)
+    if segSize.max() < numpy.uint32(-1):
+        segSize = segSize.astype(numpy.uint32)
 
     # Array to store info on pixels to be eliminated.
     # Store (row, col, newSegId). 
