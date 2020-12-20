@@ -110,7 +110,7 @@ def makeSegSize(seg, maxSegId):
     if segSize.max() < numpy.uint32(-1):
         segSize = segSize.astype(numpy.uint32)
 
-    return segSize    
+    return segSize
 
 
 def eliminateSinglePixels(img, seg, maxSegId):
@@ -182,7 +182,6 @@ def _mergeSinglePixels(img, seg, segSize, segToElim):
         segSize[newSeg] += 1
 
     return numEliminated
-
 
 
 @jit(nopython=True)
