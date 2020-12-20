@@ -20,7 +20,8 @@ from numba import jit
 
 
 def doShepherdSegmentation(img, numClusters=60, clusterSubsamplePcnt=1,
-        minSegmentSize=10, maxSpectralDiff=0.1):
+        minSegmentSize=10, maxSpectralDiff=0.1, imgNullVal=None,
+        segNullVal=0, fourway=False):
     """
     Perform Shepherd segmentation in memory, on the given 
     multi-band img array.
@@ -33,9 +34,12 @@ def doShepherdSegmentation(img, numClusters=60, clusterSubsamplePcnt=1,
     
     Default values are mostly as suggested by Shepherd et al. 
     
+    If imgNullVal is not None, then pixels with this value in 
+    any band are set to segNullVal in the output segmentation. 
+    
     """
     clusters = makeSpectralClusters(img, numClusters,
-        clusterSubsamplePcnt)
+        clusterSubsamplePcnt, fourway, imgNullVal, segNullVal)
     
     # Do clump
     
@@ -49,7 +53,8 @@ def doShepherdSegmentation(img, numClusters=60, clusterSubsamplePcnt=1,
 
 
 
-def makeSpectralClusters(img, numClusters, subsamplePcnt, fourway=False):
+def makeSpectralClusters(img, numClusters, subsamplePcnt, fourway,
+        imgNullVal, segNullVal):
     """
     First step of Shepherd segmentation. Use K-means clustering
     to create a set of "seed" segments, labelled only with
@@ -62,9 +67,12 @@ def makeSpectralClusters(img, numClusters, subsamplePcnt, fourway=False):
     for KMeans clustering. Shepherd et al find that only
     a very small percentage is required. 
     
-    If fourway is True, then use 4-way connectedness when clumping.
-    Default is to use 8-way connectedness. ???? James and Pete seem to use
+    If fourway is True, then use 4-way connectedness when clumping,
+    otherwise use 8-way connectedness. ???? James and Pete seem to use
     4-way - why is this ????
+    
+    If imgNullVal is not None, then pixels in img with this value in 
+    any band are set to segNullVal in the output. 
 
     """
     (nBands, nRows, nCols) = img.shape
@@ -91,6 +99,20 @@ def makeSpectralClusters(img, numClusters, subsamplePcnt, fourway=False):
 # Sam's numba-based clump routine to go here
 
 
+def makeSegSize(seg, maxSegId):
+    """
+    Use numpy.histogram to generate an array of segment 
+    sizes, from the given seg image. 
+    """
+    # Make an array of segment sizes (in pixels), indexed by segment ID
+    (segSize, _) = numpy.histogram(seg, bins=range(maxSegId+2))
+    # Save some space
+    if segSize.max() < numpy.uint32(-1):
+        segSize = segSize.astype(numpy.uint32)
+
+    return segSize    
+
+
 def eliminateSinglePixels(img, seg, maxSegId):
     """
     Approximate elimination of single pixels, as suggested 
@@ -107,11 +129,7 @@ def eliminateSinglePixels(img, seg, maxSegId):
     Modifies seg array in place. 
     
     """
-    # Make an array of segment sizes (in pixels), indexed by segment ID
-    (segSize, _) = numpy.histogram(seg, bins=range(maxSegId+2))
-    # Save some space
-    if segSize.max() < numpy.uint32(-1):
-        segSize = segSize.astype(numpy.uint32)
+    segSize = makeSegSize(seg, maxSegId)
 
     # Array to store info on pixels to be eliminated.
     # Store (row, col, newSegId). 
@@ -122,8 +140,9 @@ def eliminateSinglePixels(img, seg, maxSegId):
         numElim = _mergeSinglePixels(img, seg, segSize, segToElim)
     
     # Now do a relabel.....
+    segSize = makeSegSize(seg, maxSegId)
+    _relabelSegments(seg, segSize)
 
-    
 
 @jit(nopython=True)
 def _mergeSinglePixels(img, seg, segSize, segToElim):
@@ -198,3 +217,35 @@ def _findNearestNeighbourPixel(img, seg, i, j, segSize):
                     jj = jjj
     
     return (ii, jj)
+
+
+@jit
+def _relabelSegments(seg, segSize):
+    """
+    The given seg array is an image of segment labels, with some 
+    numbers unused, due to elimination of small segments. Go through 
+    and find the unused numbers, and re-label segments above 
+    these so that segment labels are contiguous. 
+    
+    Modifies the seg array in place.
+    
+    """
+    oldNumSeg = len(segSize)
+    subtract = numpy.zeros(oldNumSeg, dtype=numpy.uint32)
+    
+    # For each segid with a count of zero (i.e. it is unused), we 
+    # increase the amount by which segid numbers above this should 
+    # be decremented
+    minSegId = 1    # Should this always be true????
+    for k in range(minSegId+1, oldNumSeg):
+        subtract[k] = subtract[k-1]
+        if segSize[k-1] == 0:
+            subtract[k] += 1
+    
+    # Now decrement the segid of every pixel
+    (nRows, nCols) = seg.shape
+    for i in range(nRows):
+        for j in range(nCols):
+            oldSegId = seg[i, j]
+            newSegId = oldSegId - subtract[oldSegId]
+            seg[i, j] = newSegId
