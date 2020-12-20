@@ -105,6 +105,8 @@ def eliminateSinglePixels(img, seg, maxSegId):
     """
     # Make an array of segment sizes (in pixels), indexed by segment ID
     (segSize, _) = numpy.histogram(seg, bins=range(maxSegId+2))
+    # Save some space
+    segSize = segSize.astype(numpy.uint32)
 
     # Array to store info on pixels to be eliminated.
     # Store (row, col, newSegId). 
@@ -135,7 +137,7 @@ def _mergeSinglePixels(img, seg, segSize, segToElim):
         for j in range(nCols):
             segid = seg[i, j]
             if segSize[segid] == 1:
-                (ii, jj) = _findNearestNeighbourPixel(img, i, j, segSize)
+                (ii, jj) = _findNearestNeighbourPixel(img, seg, i, j, segSize)
                 # Record the new segment ID for the current pixel
                 if (ii >= 0 and jj >= 0):
                     segToElim[0, numEliminated] = i
@@ -160,7 +162,7 @@ def _mergeSinglePixels(img, seg, segSize, segToElim):
 
 
 @jit(nopython=True)
-def _findNearestNeighbourPixel(img, i, j, segSize):
+def _findNearestNeighbourPixel(img, seg, i, j, segSize):
     """
     For the (i, j) pixel, choose which of the neighbouring
     pixels is the most similar, spectrally. 
