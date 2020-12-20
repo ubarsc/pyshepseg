@@ -49,7 +49,7 @@ def doShepherdSegmentation(img, numClusters=60, clusterSubsamplePcnt=1,
 
 
 
-def makeSpectralClusters(img, numClusters, subsamplePcnt):
+def makeSpectralClusters(img, numClusters, subsamplePcnt, fourway=False):
     """
     First step of Shepherd segmentation. Use K-means clustering
     to create a set of "seed" segments, labelled only with
@@ -61,6 +61,10 @@ def makeSpectralClusters(img, numClusters, subsamplePcnt):
     subsamplePcnt is the percentage of the pixels to actually use 
     for KMeans clustering. Shepherd et al find that only
     a very small percentage is required. 
+    
+    If fourway is True, then use 4-way connectedness when clumping.
+    Default is to use 8-way connectedness. ???? James and Pete seem to use
+    4-way - why is this ????
 
     """
     (nBands, nRows, nCols) = img.shape
