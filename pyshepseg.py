@@ -25,7 +25,7 @@ SEGNULLVAL = 0
 MINSEGID = SEGNULLVAL + 1
 
 def doShepherdSegmentation(img, numClusters=60, clusterSubsamplePcnt=1,
-        minSegmentSize=10, maxSpectralDiff=0.1, imgNullVal=None,
+        minSegmentSize=50, maxSpectralDiff=0.1, imgNullVal=None,
         fourConnected=False, verbose=False):
     """
     Perform Shepherd segmentation in memory, on the given 
@@ -74,6 +74,10 @@ def doShepherdSegmentation(img, numClusters=60, clusterSubsamplePcnt=1,
         print("Eliminated", numElim, "single pixels, in", 
             round(time.time()-t0, 1), "seconds")
     
+    
+    if verbose:
+        print("Final result has", maxSegId, "segments")
+    
     # Return 
     #  (segment image array, segment spectral summary info, what else?)
     return seg
@@ -103,14 +107,16 @@ def makeSpectralClusters(img, numClusters, subsamplePcnt, imgNullVal):
     xFull = numpy.transpose(img, axes=(1, 2, 0))
     xFull = xFull.reshape((nRows*nCols, nBands))
 
+    nonNull = (xFull != imgNullVal).all(axis=1)
+    xNonNull = xFull[nonNull]
     skip = int(round(100./subsamplePcnt))
-    xSample = xFull[::skip]
+    xSample = xNonNull[::skip]
 
     km = KMeans(n_clusters=numClusters)
     km.fit(xSample)
 
     clustersFull = km.predict(xFull)
-    del xFull, xSample
+    del xFull, xNonNull, xSample
     clustersImg = clustersFull.reshape((nRows, nCols))
     
     # Make the cluster ID numbers start from 1, and use SEGNULLVAL
@@ -375,4 +381,3 @@ def buildSegmentSpectra(seg, img, maxSegId):
                 spectSum[segid, k] += img[k, i, j]
 
     return spectSum
-        
