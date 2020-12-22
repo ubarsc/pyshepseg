@@ -14,6 +14,8 @@ numba compiled code for the other main components.
 # Just in case anyone is trying to use this with Python-2
 from __future__ import print_function, division
 
+import time
+
 import numpy
 from sklearn.cluster import KMeans
 from numba import njit
@@ -23,7 +25,7 @@ SEGNULLVAL = 0
 
 def doShepherdSegmentation(img, numClusters=60, clusterSubsamplePcnt=1,
         minSegmentSize=10, maxSpectralDiff=0.1, imgNullVal=None,
-        fourway=False):
+        fourway=False, verbose=False):
     """
     Perform Shepherd segmentation in memory, on the given 
     multi-band img array.
@@ -46,19 +48,28 @@ def doShepherdSegmentation(img, numClusters=60, clusterSubsamplePcnt=1,
     Segment ID numbers start from 1. 
     
     """
+    t0 = time.time()
     clusters = makeSpectralClusters(img, numClusters,
         clusterSubsamplePcnt, fourway, imgNullVal)
+    if verbose:
+        print("Kmeans", round(time.time()-t0, 1))
     
     # Do clump
+    t0 = time.time()
+    (seg, maxSegId) = clump(clusters, SEGNULLVAL, fourConnected=False, clumpId=1)
+    if verbose:
+        print("Clumping", round(time.time()-t0, 1))
     
     # Eliminate small segments. If we wish, start with James' 
     # memory-efficient method for single pixel clumps. 
-    
-    # Re-label segments to contiguous numbering. 
+    t0 = time.time()
+    eliminateSinglePixels(img, seg, maxSegId)
+    if verbose:
+        print("ElimSingle", round(time.time()-t0, 1))
     
     # Return 
     #  (segment image array, segment spectral summary info, what else?)
-
+    return seg
 
 
 def makeSpectralClusters(img, numClusters, subsamplePcnt, fourway,
@@ -123,7 +134,7 @@ def clump(img, ignoreVal, fourConnected=True, clumpId=1):
     
     ysize, xsize = img.shape
     output = numpy.zeros((ysize, xsize), dtype=numpy.uint32)
-    search_list = numpy.empty((xsize * ysize, 2), dtype=numpy.int)
+    search_list = numpy.empty((xsize * ysize, 2), dtype=numpy.uint32)
     
     searchIdx = 0
     
@@ -132,7 +143,7 @@ def clump(img, ignoreVal, fourConnected=True, clumpId=1):
         for x in range(xsize):
             # check if we have visited this one before
             if img[y, x] != ignoreVal and output[y, x] == 0:
-                val = input[y, x]
+                val = img[y, x]
                 searchIdx = 0
                 search_list[searchIdx, 0] = y
                 search_list[searchIdx, 1] = x
