@@ -107,14 +107,22 @@ def makeSpectralClusters(img, numClusters, subsamplePcnt, imgNullVal):
     xFull = numpy.transpose(img, axes=(1, 2, 0))
     xFull = xFull.reshape((nRows*nCols, nBands))
 
-    nonNull = (xFull != imgNullVal).all(axis=1)
-    xNonNull = xFull[nonNull]
+    if imgNullVal is not None:
+        # Only use non-null values for fitting
+        nonNull = (xFull != imgNullVal).all(axis=1)
+        xNonNull = xFull[nonNull]
+        del nonNull
+    else:
+        xNonNull = xFull
     skip = int(round(100./subsamplePcnt))
     xSample = xNonNull[::skip]
 
     km = KMeans(n_clusters=numClusters)
     km.fit(xSample)
 
+    # Predict on the whole image. In principle we could omit the nulls,
+    # but it makes little difference to run time, and just adds complexity. 
+    
     clustersFull = km.predict(xFull)
     del xFull, xNonNull, xSample
     clustersImg = clustersFull.reshape((nRows, nCols))
