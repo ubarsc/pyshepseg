@@ -22,6 +22,7 @@ from numba import njit
 
 # This value used for null in both cluster ID and segment ID images
 SEGNULLVAL = 0
+MINSEGID = SEGNULLVAL + 1
 
 def doShepherdSegmentation(img, numClusters=60, clusterSubsamplePcnt=1,
         minSegmentSize=10, maxSpectralDiff=0.1, imgNullVal=None,
@@ -56,14 +57,15 @@ def doShepherdSegmentation(img, numClusters=60, clusterSubsamplePcnt=1,
     
     # Do clump
     t0 = time.time()
-    (seg, maxSegId) = clump(clusters, SEGNULLVAL, fourConnected=False, clumpId=1)
+    (seg, maxSegId) = clump(clusters, SEGNULLVAL, fourConnected=False, 
+        clumpId=MINSEGID)
     if verbose:
         print("Clumping", round(time.time()-t0, 1))
     
     # Eliminate small segments. If we wish, start with James' 
     # memory-efficient method for single pixel clumps. 
     t0 = time.time()
-    eliminateSinglePixels(img, seg, maxSegId)
+    eliminateSinglePixels(img, seg, MINSEGID, maxSegId)
     if verbose:
         print("ElimSingle", round(time.time()-t0, 1))
     
@@ -204,7 +206,7 @@ def makeSegSize(seg, maxSegId):
     return segSize
 
 
-def eliminateSinglePixels(img, seg, maxSegId):
+def eliminateSinglePixels(img, seg, minSegId, maxSegId):
     """
     Approximate elimination of single pixels, as suggested 
     by Shepherd et al (section 2.3, page 6). This step suggested as 
@@ -232,7 +234,7 @@ def eliminateSinglePixels(img, seg, maxSegId):
     
     # Now do a relabel.....
     segSize = makeSegSize(seg, maxSegId)
-    _relabelSegments(seg, segSize)
+    _relabelSegments(seg, segSize, minSegId)
 
 
 @njit
@@ -310,7 +312,7 @@ def _findNearestNeighbourPixel(img, seg, i, j, segSize):
 
 
 @njit
-def _relabelSegments(seg, segSize):
+def _relabelSegments(seg, segSize, minSegId):
     """
     The given seg array is an image of segment labels, with some 
     numbers unused, due to elimination of small segments. Go through 
@@ -326,7 +328,6 @@ def _relabelSegments(seg, segSize):
     # For each segid with a count of zero (i.e. it is unused), we 
     # increase the amount by which segid numbers above this should 
     # be decremented
-    minSegId = 1    # Should this always be true????
     for k in range(minSegId+1, oldNumSeg):
         subtract[k] = subtract[k-1]
         if segSize[k-1] == 0:
