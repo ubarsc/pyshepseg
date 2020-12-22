@@ -151,7 +151,7 @@ def clump(img, ignoreVal, fourConnected=True, clumpId=1):
     clumpId is the start clump id to use    
 
     returns a 2d uint32 array containing the clump ids
-    and the highest clumpid used + 1
+    and the highest clumpid used
     
     """
     
