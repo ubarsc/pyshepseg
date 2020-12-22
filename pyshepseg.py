@@ -53,21 +53,26 @@ def doShepherdSegmentation(img, numClusters=60, clusterSubsamplePcnt=1,
     clusters = makeSpectralClusters(img, numClusters,
         clusterSubsamplePcnt, imgNullVal)
     if verbose:
-        print("Kmeans", round(time.time()-t0, 1), "seconds")
+        print("Kmeans, ", round(time.time()-t0, 1), "seconds")
     
     # Do clump
     t0 = time.time()
     (seg, maxSegId) = clump(clusters, SEGNULLVAL, fourConnected=fourConnected, 
         clumpId=MINSEGID)
     if verbose:
-        print("Clumping", round(time.time()-t0, 1), "seconds")
+        print("Found", maxSegId, "clumps, in", round(time.time()-t0, 1), "seconds")
     
-    # Eliminate small segments. If we wish, start with James' 
+    # Make segment size array
+    segSize = makeSegSize(seg, maxSegId)
+    
+    # Eliminate small segments. Start with James' 
     # memory-efficient method for single pixel clumps. 
     t0 = time.time()
-    eliminateSinglePixels(img, seg, MINSEGID, maxSegId)
+    (segSize, maxSegId, numElim) = eliminateSinglePixels(img, seg, segSize, 
+        MINSEGID, maxSegId)
     if verbose:
-        print("ElimSingle", round(time.time()-t0, 1), "seconds")
+        print("Eliminated", numElim, "single pixels, in", 
+            round(time.time()-t0, 1), "seconds")
     
     # Return 
     #  (segment image array, segment spectral summary info, what else?)
@@ -191,6 +196,7 @@ def clump(img, ignoreVal, fourConnected=True, clumpId=1):
                 
     return output, clumpId                
 
+
 def makeSegSize(seg, maxSegId):
     """
     Use numpy.histogram to generate an array of segment 
@@ -205,7 +211,7 @@ def makeSegSize(seg, maxSegId):
     return segSize
 
 
-def eliminateSinglePixels(img, seg, minSegId, maxSegId):
+def eliminateSinglePixels(img, seg, segSize, minSegId, maxSegId):
     """
     Approximate elimination of single pixels, as suggested 
     by Shepherd et al (section 2.3, page 6). This step suggested as 
@@ -221,19 +227,22 @@ def eliminateSinglePixels(img, seg, minSegId, maxSegId):
     Modifies seg array in place. 
     
     """
-    segSize = makeSegSize(seg, maxSegId)
-
     # Array to store info on pixels to be eliminated.
     # Store (row, col, newSegId). 
     segToElim = numpy.zeros((3, maxSegId), dtype=seg.dtype)
     
+    totalNumElim = 0
     numElim = _mergeSinglePixels(img, seg, segSize, segToElim)
     while numElim > 0:
+        totalNumElim += numElim
         numElim = _mergeSinglePixels(img, seg, segSize, segToElim)
     
     # Now do a relabel.....
     segSize = makeSegSize(seg, maxSegId)
-    _relabelSegments(seg, segSize, minSegId)
+    segSize = _relabelSegments(seg, segSize, minSegId)
+    maxSegId = len(segSize) + 1
+    
+    return (segSize, maxSegId, totalNumElim)
 
 
 @njit
@@ -339,6 +348,9 @@ def _relabelSegments(seg, segSize, minSegId):
             oldSegId = seg[i, j]
             newSegId = oldSegId - subtract[oldSegId]
             seg[i, j] = newSegId
+    
+    newSegSize = segSize[segSize>0]
+    return newSegSize
 
 
 @njit
