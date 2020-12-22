@@ -26,7 +26,7 @@ MINSEGID = SEGNULLVAL + 1
 
 def doShepherdSegmentation(img, numClusters=60, clusterSubsamplePcnt=1,
         minSegmentSize=10, maxSpectralDiff=0.1, imgNullVal=None,
-        fourway=False, verbose=False):
+        fourConnected=False, verbose=False):
     """
     Perform Shepherd segmentation in memory, on the given 
     multi-band img array.
@@ -51,13 +51,13 @@ def doShepherdSegmentation(img, numClusters=60, clusterSubsamplePcnt=1,
     """
     t0 = time.time()
     clusters = makeSpectralClusters(img, numClusters,
-        clusterSubsamplePcnt, fourway, imgNullVal)
+        clusterSubsamplePcnt, imgNullVal)
     if verbose:
         print("Kmeans", round(time.time()-t0, 1))
     
     # Do clump
     t0 = time.time()
-    (seg, maxSegId) = clump(clusters, SEGNULLVAL, fourConnected=False, 
+    (seg, maxSegId) = clump(clusters, SEGNULLVAL, fourConnected=fourConnected, 
         clumpId=MINSEGID)
     if verbose:
         print("Clumping", round(time.time()-t0, 1))
@@ -74,8 +74,7 @@ def doShepherdSegmentation(img, numClusters=60, clusterSubsamplePcnt=1,
     return seg
 
 
-def makeSpectralClusters(img, numClusters, subsamplePcnt, fourway,
-        imgNullVal):
+def makeSpectralClusters(img, numClusters, subsamplePcnt, imgNullVal):
     """
     First step of Shepherd segmentation. Use K-means clustering
     to create a set of "seed" segments, labelled only with
