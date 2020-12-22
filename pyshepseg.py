@@ -59,6 +59,7 @@ def doShepherdSegmentation(img, numClusters=60, clusterSubsamplePcnt=1,
     t0 = time.time()
     (seg, maxSegId) = clump(clusters, SEGNULLVAL, fourConnected=fourConnected, 
         clumpId=MINSEGID)
+    maxSegId -= 1
     if verbose:
         print("Found", maxSegId, "clumps, in", round(time.time()-t0, 1), "seconds")
     
@@ -151,7 +152,7 @@ def clump(img, ignoreVal, fourConnected=True, clumpId=1):
     clumpId is the start clump id to use    
 
     returns a 2d uint32 array containing the clump ids
-    and the highest clumpid used
+    and the highest clumpid used + 1
     
     """
     
@@ -211,7 +212,7 @@ def clump(img, ignoreVal, fourConnected=True, clumpId=1):
                                 
                 clumpId += 1
                 
-    return (output, (clumpId-1))
+    return (output, clumpId)
 
 
 @njit
