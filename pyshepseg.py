@@ -63,10 +63,7 @@ def doShepherdSegmentation(img, numClusters=60, clusterSubsamplePcnt=1,
         print("Found", maxSegId, "clumps, in", round(time.time()-t0, 1), "seconds")
     
     # Make segment size array
-    t0 = time.time()
     segSize = makeSegSize(seg)
-    if verbose:
-        print("Made seg sizes, in", round(time.time()-t0, 1), "seconds")
     
     # Eliminate small segments. Start with James' 
     # memory-efficient method for single pixel clumps. 
