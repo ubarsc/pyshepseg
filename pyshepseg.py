@@ -53,21 +53,21 @@ def doShepherdSegmentation(img, numClusters=60, clusterSubsamplePcnt=1,
     clusters = makeSpectralClusters(img, numClusters,
         clusterSubsamplePcnt, imgNullVal)
     if verbose:
-        print("Kmeans", round(time.time()-t0, 1))
+        print("Kmeans", round(time.time()-t0, 1), "seconds")
     
     # Do clump
     t0 = time.time()
     (seg, maxSegId) = clump(clusters, SEGNULLVAL, fourConnected=fourConnected, 
         clumpId=MINSEGID)
     if verbose:
-        print("Clumping", round(time.time()-t0, 1))
+        print("Clumping", round(time.time()-t0, 1), "seconds")
     
     # Eliminate small segments. If we wish, start with James' 
     # memory-efficient method for single pixel clumps. 
     t0 = time.time()
     eliminateSinglePixels(img, seg, MINSEGID, maxSegId)
     if verbose:
-        print("ElimSingle", round(time.time()-t0, 1))
+        print("ElimSingle", round(time.time()-t0, 1), "seconds")
     
     # Return 
     #  (segment image array, segment spectral summary info, what else?)
