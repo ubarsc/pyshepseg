@@ -121,7 +121,7 @@ def makeSpectralClusters(img, numClusters, subsamplePcnt, imgNullVal):
     skip = int(round(100./subsamplePcnt))
     xSample = xNonNull[::skip]
 
-    km = KMeans(n_clusters=numClusters)
+    km = KMeans(n_clusters=numClusters, n_init=5)
     km.fit(xSample)
 
     # Predict on the whole image. In principle we could omit the nulls,
