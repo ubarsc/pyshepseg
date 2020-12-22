@@ -16,12 +16,14 @@ from __future__ import print_function, division
 
 import numpy
 from sklearn.cluster import KMeans
-from numba import jit
+from numba import njit
 
+# This value used for null in both cluster ID and segment ID images
+SEGNULLVAL = 0
 
 def doShepherdSegmentation(img, numClusters=60, clusterSubsamplePcnt=1,
         minSegmentSize=10, maxSpectralDiff=0.1, imgNullVal=None,
-        segNullVal=0, fourway=False):
+        fourway=False):
     """
     Perform Shepherd segmentation in memory, on the given 
     multi-band img array.
@@ -34,12 +36,18 @@ def doShepherdSegmentation(img, numClusters=60, clusterSubsamplePcnt=1,
     
     Default values are mostly as suggested by Shepherd et al. 
     
+    If fourway is True, then use 4-way connectedness when clumping,
+    otherwise use 8-way connectedness. ???? James and Pete seem to use
+    4-way - why is this ????
+    
     If imgNullVal is not None, then pixels with this value in 
-    any band are set to segNullVal in the output segmentation. 
+    any band are set to zero (SEGNULLVAL) in the output segmentation. 
+    
+    Segment ID numbers start from 1. 
     
     """
     clusters = makeSpectralClusters(img, numClusters,
-        clusterSubsamplePcnt, fourway, imgNullVal, segNullVal)
+        clusterSubsamplePcnt, fourway, imgNullVal)
     
     # Do clump
     
@@ -54,7 +62,7 @@ def doShepherdSegmentation(img, numClusters=60, clusterSubsamplePcnt=1,
 
 
 def makeSpectralClusters(img, numClusters, subsamplePcnt, fourway,
-        imgNullVal, segNullVal):
+        imgNullVal):
     """
     First step of Shepherd segmentation. Use K-means clustering
     to create a set of "seed" segments, labelled only with
@@ -66,10 +74,6 @@ def makeSpectralClusters(img, numClusters, subsamplePcnt, fourway,
     subsamplePcnt is the percentage of the pixels to actually use 
     for KMeans clustering. Shepherd et al find that only
     a very small percentage is required. 
-    
-    If fourway is True, then use 4-way connectedness when clumping,
-    otherwise use 8-way connectedness. ???? James and Pete seem to use
-    4-way - why is this ????
     
     If imgNullVal is not None, then pixels in img with this value in 
     any band are set to segNullVal in the output. 
@@ -91,6 +95,13 @@ def makeSpectralClusters(img, numClusters, subsamplePcnt, fourway,
     clustersFull = km.predict(xFull)
     del xFull, xSample
     clustersImg = clustersFull.reshape((nRows, nCols))
+    
+    # Make the cluster ID numbers start from 1, and use SEGNULLVAL
+    # (i.e. zero) in null pixels
+    clustersImg += 1
+    if imgNullVal is not None:
+        nullmask = (img == imgNullVal).any(axis=0)
+        clustersImg[nullmask] = SEGNULLVAL
 
     return clustersImg
 
@@ -213,7 +224,7 @@ def eliminateSinglePixels(img, seg, maxSegId):
     _relabelSegments(seg, segSize)
 
 
-@jit(nopython=True)
+@njit
 def _mergeSinglePixels(img, seg, segSize, segToElim):
     """
     Search for single-pixel segments, and decide which neighbouring
@@ -253,7 +264,7 @@ def _mergeSinglePixels(img, seg, segSize, segToElim):
     return numEliminated
 
 
-@jit(nopython=True)
+@njit
 def _findNearestNeighbourPixel(img, seg, i, j, segSize):
     """
     For the (i, j) pixel, choose which of the neighbouring
@@ -287,7 +298,7 @@ def _findNearestNeighbourPixel(img, seg, i, j, segSize):
     return (ii, jj)
 
 
-@jit
+@njit
 def _relabelSegments(seg, segSize):
     """
     The given seg array is an image of segment labels, with some 
