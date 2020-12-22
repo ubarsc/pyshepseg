@@ -68,15 +68,18 @@ def doShepherdSegmentation(img, numClusters=60, clusterSubsamplePcnt=1,
     # Eliminate small segments. Start with James' 
     # memory-efficient method for single pixel clumps. 
     t0 = time.time()
-    (segSize, maxSegId, numElim) = eliminateSinglePixels(img, seg, segSize, 
-        MINSEGID, maxSegId)
+    oldMaxSegId = maxSegId
+    eliminateSinglePixels(img, seg, segSize, MINSEGID, maxSegId)
+    maxSegId = seg.max()
     if verbose:
+        numElim = oldMaxSegId - maxSegId
         print("Eliminated", numElim, "single pixels, in", 
             round(time.time()-t0, 1), "seconds")
+        
     
     
     if verbose:
-        print("Final result has", maxSegId, "segments")
+        print("Final result has", seg.max(), "segments")
     
     # Return 
     #  (segment image array, segment spectral summary info, what else?)
@@ -255,10 +258,7 @@ def eliminateSinglePixels(img, seg, segSize, minSegId, maxSegId):
         numElim = _mergeSinglePixels(img, seg, segSize, segToElim)
     
     # Now do a relabel.....
-    segSize = _relabelSegments(seg, segSize, minSegId)
-    maxSegId = len(segSize) + 1
-    
-    return (segSize, maxSegId, totalNumElim)
+    _relabelSegments(seg, segSize, minSegId)
 
 
 @njit
@@ -365,9 +365,6 @@ def _relabelSegments(seg, segSize, minSegId):
             newSegId = oldSegId - subtract[oldSegId]
             seg[i, j] = newSegId
     
-    newSegSize = segSize[segSize>0]
-    return newSegSize
-
 
 @njit
 def buildSegmentSpectra(seg, img, maxSegId):
