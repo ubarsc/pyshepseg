@@ -340,3 +340,28 @@ def _relabelSegments(seg, segSize, minSegId):
             oldSegId = seg[i, j]
             newSegId = oldSegId - subtract[oldSegId]
             seg[i, j] = newSegId
+
+
+@njit
+def buildSegmentSpectra(seg, img, maxSegId):
+    """
+    Build an array of the spectral statistics for each segment. 
+    Return an array of shape
+        (numSegments+1, numBands)
+    where each row is the entry for that segment ID, and each 
+    column is the sum of the spectral values for that band. 
+    The zero-th entry is empty, as zero is not a valid
+    segment ID. 
+    
+    """
+    (nBands, nRows, nCols) = img.shape
+    spectSum = numpy.zeros((maxSegId+1, nBands), dtype=numpy.float32)
+
+    for i in range(nRows):
+        for j in range(nCols):
+            segid = seg[i, j]
+            for k in range(nBands):
+                spectSum[segid, k] += img[k, i, j]
+
+    return spectSum
+        
