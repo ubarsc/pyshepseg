@@ -53,18 +53,23 @@ def doShepherdSegmentation(img, numClusters=60, clusterSubsamplePcnt=1,
     clusters = makeSpectralClusters(img, numClusters,
         clusterSubsamplePcnt, imgNullVal)
     if verbose:
-        print("Kmeans, ", round(time.time()-t0, 1), "seconds")
+        print("Kmeans, in", round(time.time()-t0, 1), "seconds")
     
     # Do clump
     t0 = time.time()
     (seg, maxSegId) = clump(clusters, SEGNULLVAL, fourConnected=fourConnected, 
         clumpId=MINSEGID)
+    print('maxSegId', seg.max(), maxSegId)
     if verbose:
         print("Found", maxSegId, "clumps, in", round(time.time()-t0, 1), "seconds")
     
     # Make segment size array
-    segSize = makeSegSize(seg, maxSegId)
+    t0 = time.time()
+    segSize = makeSegSize(seg)
+    if verbose:
+        print("Made seg sizes, in", round(time.time()-t0, 1), "seconds")
     
+    print('maxSegId', seg.max(), maxSegId)
     # Eliminate small segments. Start with James' 
     # memory-efficient method for single pixel clumps. 
     t0 = time.time()
@@ -73,6 +78,7 @@ def doShepherdSegmentation(img, numClusters=60, clusterSubsamplePcnt=1,
     if verbose:
         print("Eliminated", numElim, "single pixels, in", 
             round(time.time()-t0, 1), "seconds")
+    print('maxSegId', seg.max(), maxSegId)
     
     
     if verbose:
@@ -208,19 +214,22 @@ def clump(img, ignoreVal, fourConnected=True, clumpId=1):
                                 
                 clumpId += 1
                 
-    return output, clumpId                
+    return (output, (clumpId-1))
 
 
-def makeSegSize(seg, maxSegId):
+@njit
+def makeSegSize(seg):
     """
-    Use numpy.histogram to generate an array of segment 
-    sizes, from the given seg image. 
+    Return an array of segment sizes, from the given seg image. The
+    returned array is indexed by segment ID. Each element is the 
+    number of pixels in that segment. 
     """
-    # Make an array of segment sizes (in pixels), indexed by segment ID
-    (segSize, _) = numpy.histogram(seg, bins=range(maxSegId+2))
-    # Save some space
-    if segSize.max() < numpy.uint32(-1):
-        segSize = segSize.astype(numpy.uint32)
+    maxSegId = seg.max()
+    segSize = numpy.zeros(maxSegId+1, dtype=numpy.uint32)
+    (nRows, nCols) = seg.shape
+    for i in range(nRows):
+        for j in range(nCols):
+            segSize[seg[i, j]] += 1
 
     return segSize
 
@@ -252,7 +261,6 @@ def eliminateSinglePixels(img, seg, segSize, minSegId, maxSegId):
         numElim = _mergeSinglePixels(img, seg, segSize, segToElim)
     
     # Now do a relabel.....
-    segSize = makeSegSize(seg, maxSegId)
     segSize = _relabelSegments(seg, segSize, minSegId)
     maxSegId = len(segSize) + 1
     
