@@ -121,7 +121,13 @@ def makeSpectralClusters(img, numClusters, subsamplePcnt, imgNullVal):
     skip = int(round(100./subsamplePcnt))
     xSample = xNonNull[::skip]
 
-    km = KMeans(n_clusters=numClusters, n_init=5)
+    # Note that we limit the number of trials that KMeans does, using 
+    # the n_init argument. Multiple trials are used to avoid getting 
+    # stuck in local minima, but 5 seems plenty, and this is the 
+    # slowest part, so let's not get carried away. 
+    numKmeansTrials = 5
+    
+    km = KMeans(n_clusters=numClusters, n_init=numKmeansTrials)
     km.fit(xSample)
 
     # Predict on the whole image. In principle we could omit the nulls,
