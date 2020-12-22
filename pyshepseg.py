@@ -95,9 +95,78 @@ def makeSpectralClusters(img, numClusters, subsamplePcnt, fourway,
     return clustersImg
 
 
+@njit
+def clump(img, ignoreVal, fourConnected=True, clumpId=1):
+    """
+    Implementation of clumping using Numba
+    Uses the 4 connected algorithm if fourConnected is True,
+    Otherwise 8 connected
+    img should be an integer 2d array containing the data to be clumped.
+    ignoreVal should be the no data value for the input
+    clumpId is the start clump id to use    
 
-# Sam's numba-based clump routine to go here
+    returns a 2d uint32 array containing the clump ids
+    and the highest clumpid used + 1
+    
+    """
+    
+    ysize, xsize = img.shape
+    output = numpy.zeros((ysize, xsize), dtype=numpy.uint32)
+    search_list = numpy.empty((xsize * ysize, 2), dtype=numpy.int)
+    
+    searchIdx = 0
+    
+    # run through the image
+    for y in range(ysize):
+        for x in range(xsize):
+            # check if we have visited this one before
+            if img[y, x] != ignoreVal and output[y, x] == 0:
+                val = input[y, x]
+                searchIdx = 0
+                search_list[searchIdx, 0] = y
+                search_list[searchIdx, 1] = x
+                searchIdx += 1
+                output[y, x] = clumpId  # marked as visited
+                
+                while searchIdx > 0:
+                    # search the last one
+                    searchIdx -= 1
+                    sy = search_list[searchIdx, 0]
+                    sx = search_list[searchIdx, 1]
 
+                    # work out the 3x3 window to vist
+                    tlx = sx - 1
+                    if tlx < 0:
+                        tlx = 0
+                    tly = sy - 1
+                    if tly < 0:
+                        tly = 0
+                    brx = sx + 1
+                    if brx > xsize - 1:
+                        brx = xsize - 1
+                    bry = sy + 1
+                    if bry > ysize - 1:
+                        bry = ysize - 1
+
+                    # do a '4 neighbour search'
+                    for cx in range(tlx, brx+1):
+                        for cy in range(tly, bry+1):
+                            connected = not fourConnected or (cy == sy or cx == sx)
+                            # don't have to check we are the middle
+                            # cell since output will be != 0
+                            # since we do that before we add it to search_list
+                            if connected and (img[cy, cx] != ignoreVal and 
+                                    output[cy, cx] == 0 and 
+                                    img[cy, cx] == val):
+                                output[cy, cx] = clumpId # mark as visited
+                                # add this one to the ones to search the neighbours
+                                search_list[searchIdx, 0] = cy
+                                search_list[searchIdx, 1] = cx
+                                searchIdx += 1
+                                
+                clumpId += 1
+                
+    return output, clumpId                
 
 def makeSegSize(seg, maxSegId):
     """
