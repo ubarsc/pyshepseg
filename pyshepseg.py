@@ -144,7 +144,7 @@ def eliminateSinglePixels(img, seg, maxSegId):
     _relabelSegments(seg, segSize)
 
 
-@jit(nopython=True)
+@njit
 def _mergeSinglePixels(img, seg, segSize, segToElim):
     """
     Search for single-pixel segments, and decide which neighbouring
@@ -184,7 +184,7 @@ def _mergeSinglePixels(img, seg, segSize, segToElim):
     return numEliminated
 
 
-@jit(nopython=True)
+@njit
 def _findNearestNeighbourPixel(img, seg, i, j, segSize):
     """
     For the (i, j) pixel, choose which of the neighbouring
@@ -218,7 +218,7 @@ def _findNearestNeighbourPixel(img, seg, i, j, segSize):
     return (ii, jj)
 
 
-@jit
+@njit
 def _relabelSegments(seg, segSize):
     """
     The given seg array is an image of segment labels, with some 
