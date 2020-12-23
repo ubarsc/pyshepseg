@@ -19,6 +19,9 @@ import time
 import numpy
 from sklearn.cluster import KMeans
 from numba import njit
+from numba.experimental import jitclass
+from numba.core import types
+from numba.typed import Dict
 
 # This value used for null in both cluster ID and segment ID images
 SEGNULLVAL = 0
@@ -76,7 +79,7 @@ def doShepherdSegmentation(img, numClusters=60, clusterSubsamplePcnt=1,
         numElim = oldMaxSegId - maxSegId
         print("Eliminated", numElim, "single pixels, in", 
             round(time.time()-t0, 1), "seconds")
-        
+
     
     
     if verbose:
@@ -395,3 +398,41 @@ def buildSegmentSpectra(seg, img, maxSegId):
                 spectSum[segid, k] += img[k, i, j]
 
     return spectSum
+
+
+# This data structure is used to store the locations of
+# every pixel, indexed by the segment ID. This means we can
+# quickly find all the pixels belonging to a particular segment.
+spec = [('idx', types.uint32), ('rowcols', types.uint32[:,:])]
+@jitclass(spec)
+class RowColArray(object):
+    def __init__(self, length):
+        self.idx = 0
+        self.rowcols = numpy.empty((length, 2), dtype=numpy.uint32)
+
+    def append(self, row, col):
+        self.rowcols[self.idx, 0] = row
+        self.rowcols[self.idx, 1] = col
+        self.idx += 1
+
+RowColArray_Type = RowColArray.class_type.instance_type
+
+@njit
+def smallSegmentLocations(seg, segSize):
+    """
+    Create a data structure to hold the locations of all pixels
+    in all segments.
+    """
+    d = Dict.empty(key_type=types.uint32, value_type=RowColArray_Type)
+    numSeg = len(segSize)
+    for segid in range(numSeg):
+        numPix = segSize[segid]
+        obj = RowColArray(numPix)
+        d[numpy.uint32(segid)] = obj
+
+    (nRows, nCols) = seg.shape
+    for row in range(nRows):
+        for col in range(nCols):
+            d[segid].append(row, col)
+
+    return d
