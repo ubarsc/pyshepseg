@@ -80,7 +80,11 @@ def doShepherdSegmentation(img, numClusters=60, clusterSubsamplePcnt=1,
         print("Eliminated", numElim, "single pixels, in", 
             round(time.time()-t0, 1), "seconds")
 
-    
+    t0 = time.time()
+    numElim = eliminateSmallSegments(seg, img, maxSegId, minSegmentSize, 
+        fourConnected, MINSEGID)
+    if verbose:
+        print("Eliminated", numElim, "segments, in", round(time.time()-t0, 1), "seconds")
     
     if verbose:
         print("Final result has", seg.max(), "segments")
@@ -418,7 +422,7 @@ class RowColArray(object):
 RowColArray_Type = RowColArray.class_type.instance_type
 
 @njit
-def smallSegmentLocations(seg, segSize):
+def makeSegmentLocations(seg, segSize):
     """
     Create a data structure to hold the locations of all pixels
     in all segments.
@@ -431,8 +435,130 @@ def smallSegmentLocations(seg, segSize):
         d[numpy.uint32(segid)] = obj
 
     (nRows, nCols) = seg.shape
-    for row in range(nRows):
-        for col in range(nCols):
+    for row in numpy.arange(nRows, dtype=numpy.uint32):
+        for col in numpy.arange(nCols, dtype=numpy.uint32):
+            segid = seg[row, col]
             d[segid].append(row, col)
 
     return d
+
+
+@njit
+def eliminateSmallSegments(seg, img, maxSegId, minSegSize, fourConnected,
+        minSegId):
+    """
+    Eliminate small segments. Start with smallest, and merge
+    them into spectrally most similar neighbour. Repeat for 
+    larger segments. 
+    
+    minSegSize is the smallest segment which will NOT be eliminated
+    
+    """
+    spectSum = buildSegmentSpectra(seg, img, maxSegId)
+    segSize = makeSegSize(seg)
+    segLoc = makeSegmentLocations(seg, segSize)
+
+    # A list of the segment ID numbers to merge with. The i-th
+    # element is the segment ID to merge segment 'i' into
+    mergeSeg = numpy.empty(maxSegId+1, dtype=numpy.uint32)
+    mergeSeg.fill(SEGNULLVAL)
+
+    # Range of seg id numbers, as uint32, suitable as indexes into segloc
+    segIdRange = numpy.arange(1, maxSegId+1, dtype=numpy.uint32)
+
+    # Start with smallest segments, move through to just 
+    # smaller than minSegSize (i.e. minSegSize is smallest 
+    # which will NOT be eliminated)
+    numElim = 0
+    for targetSize in range(1, minSegSize):
+        # Find all merges for segments of the target size
+        for segId in segIdRange:
+            if segSize[segId] == targetSize:
+                mergeSeg[segId] = findMergeSegment(segId, segLoc, 
+                    seg, segSize, spectSum, fourConnected)
+
+        # Carry out the merges found above
+        for segId in segIdRange:
+            if mergeSeg[segId] != SEGNULLVAL:
+                doMerge(segId, mergeSeg[segId], seg, segSize, segLoc,
+                    spectSum)
+                mergeSeg[segId] = SEGNULLVAL
+                numElim += 1
+
+    _relabelSegments(seg, segSize, minSegId)
+    return numElim
+
+
+@njit
+def findMergeSegment(segId, segLoc, seg, segSize, spectSum, fourConnected):
+    """
+    For the given segId, find which neighboring segment it 
+    should be merged with. The chosen merge segment is the one
+    which is spectrally most similar to the given one, as
+    measured by minimum Euclidean distance in spectral space. 
+    """
+    bestNbrSeg = SEGNULLVAL
+    bestDistSqr = 0    # This value is never used
+
+    (nRows, nCols) = seg.shape
+    segRowcols = segLoc[segId].rowcols
+    numPix = len(segRowcols)
+    # Mean spectral bands
+    spect = spectSum[segId] / numPix
+    
+    for k in range(numPix):
+        (i, j) = segRowcols[k]
+        for ii in range(max(i-1, 0), min(i+1, nRows)):
+            for jj in range(max(j-1, 0), min(j+1, nCols)):
+                connected = (not fourConnected) or (ii == i or jj == j)
+                nbrSegId = seg[ii, jj]
+                if (connected and (nbrSegId != segId) and 
+                        (segSize[nbrSegId] > segSize[segId])):
+                    nbrSpect = spectSum[nbrSegId] / segSize[nbrSegId]
+                    
+                    distSqr = ((spect - nbrSpect) ** 2).sum()
+                    if ((bestNbrSeg == SEGNULLVAL) or (distSqr < bestDistSqr)):
+                        bestDistSqr = distSqr
+                        bestNbrSeg = nbrSegId
+
+    return bestNbrSeg
+
+
+@njit
+def doMerge(segId, nbrSegId, seg, segSize, segLoc, spectSum):
+    """
+    Carry out a single merge. The segId segment is merged to the
+    neighbouring nbrSegId. 
+    Modifies seg, segSize, segLoc and spectSum in place. 
+    """
+    segRowcols = segLoc[segId].rowcols
+    numPix = len(segRowcols)
+    nbrSegRowcols = segLoc[nbrSegId].rowcols
+    nbrNumPix = len(nbrSegRowcols)
+    mergedNumPix = numPix + nbrNumPix
+    
+    # New segLoc entry for merged segment
+    mergedSegLoc = RowColArray(mergedNumPix)
+    # Copy over the existing rowcols
+    for k in range(nbrNumPix):
+        (r, c) = nbrSegRowcols[k]
+        mergedSegLoc.append(r, c)
+    
+    # Append the segment being merged
+    for k in range(numPix):
+        (r, c) = segRowcols[k]
+        seg[r, c] = nbrSegId
+        mergedSegLoc.append(r, c)
+
+    # Replace the previous segLoc entry, and delete the one we merged
+    segLoc[nbrSegId] = mergedSegLoc
+    del segLoc[segId]
+    
+    # Update the spectral sums for the two segments
+    numBands = spectSum.shape[1]
+    for m in range(numBands):
+        spectSum[nbrSegId, m] += spectSum[segId, m]
+        spectSum[segId, m] = 0
+    # Update the segment sizes
+    segSize[nbrSegId] += segSize[segId]
+    segSize[segId] = 0
