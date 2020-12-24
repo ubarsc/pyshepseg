@@ -42,7 +42,7 @@ def doShepherdSegmentation(img, numClusters=60, clusterSubsamplePcnt=1,
     
     Default values are mostly as suggested by Shepherd et al. 
     
-    If fourway is True, then use 4-way connectedness when clumping,
+    If fourConnected is True, then use 4-way connectedness when clumping,
     otherwise use 8-way connectedness. ???? James and Pete seem to use
     4-way - why is this ????
     
@@ -73,7 +73,7 @@ def doShepherdSegmentation(img, numClusters=60, clusterSubsamplePcnt=1,
     # memory-efficient method for single pixel clumps. 
     t0 = time.time()
     oldMaxSegId = maxSegId
-    eliminateSinglePixels(img, seg, segSize, MINSEGID, maxSegId)
+    eliminateSinglePixels(img, seg, segSize, MINSEGID, maxSegId, fourConnected)
     maxSegId = seg.max()
     if verbose:
         numElim = oldMaxSegId - maxSegId
@@ -245,7 +245,7 @@ def makeSegSize(seg):
     return segSize
 
 
-def eliminateSinglePixels(img, seg, segSize, minSegId, maxSegId):
+def eliminateSinglePixels(img, seg, segSize, minSegId, maxSegId, fourConnected):
     """
     Approximate elimination of single pixels, as suggested 
     by Shepherd et al (section 2.3, page 6). This step suggested as 
@@ -266,17 +266,17 @@ def eliminateSinglePixels(img, seg, segSize, minSegId, maxSegId):
     segToElim = numpy.zeros((3, maxSegId), dtype=seg.dtype)
     
     totalNumElim = 0
-    numElim = _mergeSinglePixels(img, seg, segSize, segToElim)
+    numElim = _mergeSinglePixels(img, seg, segSize, segToElim, fourConnected)
     while numElim > 0:
         totalNumElim += numElim
-        numElim = _mergeSinglePixels(img, seg, segSize, segToElim)
+        numElim = _mergeSinglePixels(img, seg, segSize, segToElim, fourConnected)
     
     # Now do a relabel.....
     _relabelSegments(seg, segSize, minSegId)
 
 
 @njit
-def _mergeSinglePixels(img, seg, segSize, segToElim):
+def _mergeSinglePixels(img, seg, segSize, segToElim, fourConnected):
     """
     Search for single-pixel segments, and decide which neighbouring
     segment they should be merged with. Finds all to eliminate,
@@ -292,7 +292,8 @@ def _mergeSinglePixels(img, seg, segSize, segToElim):
         for j in range(nCols):
             segid = seg[i, j]
             if segSize[segid] == 1:
-                (ii, jj) = _findNearestNeighbourPixel(img, seg, i, j, segSize)
+                (ii, jj) = _findNearestNeighbourPixel(img, seg, i, j, 
+                        segSize, fourConnected)
                 # Record the new segment ID for the current pixel
                 if (ii >= 0 and jj >= 0):
                     segToElim[0, numEliminated] = i
@@ -316,7 +317,7 @@ def _mergeSinglePixels(img, seg, segSize, segToElim):
 
 
 @njit
-def _findNearestNeighbourPixel(img, seg, i, j, segSize):
+def _findNearestNeighbourPixel(img, seg, i, j, segSize, fourConnected):
     """
     For the (i, j) pixel, choose which of the neighbouring
     pixels is the most similar, spectrally. 
@@ -335,16 +336,18 @@ def _findNearestNeighbourPixel(img, seg, i, j, segSize):
     
     for iii in range(iiiStrt, iiiEnd+1):
         for jjj in range(jjjStrt, jjjEnd+1):
-            segNbr = seg[iii, jjj]
-            if segSize[segNbr] > 1:
-                # Euclidean distance in spectral space. Note that because 
-                # we are only interested in the order, we don't actually 
-                # need to do the sqrt (which is expensive)
-                dSqr = ((img[:, i, j] - img[:, iii, jjj]) ** 2).sum()
-                if minDsqr < 0 or dSqr < minDsqr:
-                    minDsqr = dSqr
-                    ii = iii
-                    jj = jjj
+            connected = ((not fourConnected) or ((iii == i) or (jjj == j)))
+            if connected:
+                segNbr = seg[iii, jjj]
+                if segSize[segNbr] > 1:
+                    # Euclidean distance in spectral space. Note that because 
+                    # we are only interested in the order, we don't actually 
+                    # need to do the sqrt (which is expensive)
+                    dSqr = ((img[:, i, j] - img[:, iii, jjj]) ** 2).sum()
+                    if minDsqr < 0 or dSqr < minDsqr:
+                        minDsqr = dSqr
+                        ii = iii
+                        jj = jjj
     
     return (ii, jj)
 
