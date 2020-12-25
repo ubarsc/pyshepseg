@@ -266,17 +266,17 @@ def eliminateSinglePixels(img, seg, segSize, minSegId, maxSegId, fourConnected):
     segToElim = numpy.zeros((3, maxSegId), dtype=seg.dtype)
     
     totalNumElim = 0
-    numElim = _mergeSinglePixels(img, seg, segSize, segToElim, fourConnected)
+    numElim = mergeSinglePixels(img, seg, segSize, segToElim, fourConnected)
     while numElim > 0:
         totalNumElim += numElim
-        numElim = _mergeSinglePixels(img, seg, segSize, segToElim, fourConnected)
+        numElim = mergeSinglePixels(img, seg, segSize, segToElim, fourConnected)
     
     # Now do a relabel.....
-    _relabelSegments(seg, segSize, minSegId)
+    relabelSegments(seg, segSize, minSegId)
 
 
 @njit
-def _mergeSinglePixels(img, seg, segSize, segToElim, fourConnected):
+def mergeSinglePixels(img, seg, segSize, segToElim, fourConnected):
     """
     Search for single-pixel segments, and decide which neighbouring
     segment they should be merged with. Finds all to eliminate,
@@ -292,7 +292,7 @@ def _mergeSinglePixels(img, seg, segSize, segToElim, fourConnected):
         for j in range(nCols):
             segid = seg[i, j]
             if segSize[segid] == 1:
-                (ii, jj) = _findNearestNeighbourPixel(img, seg, i, j, 
+                (ii, jj) = findNearestNeighbourPixel(img, seg, i, j, 
                         segSize, fourConnected)
                 # Record the new segment ID for the current pixel
                 if (ii >= 0 and jj >= 0):
@@ -317,7 +317,7 @@ def _mergeSinglePixels(img, seg, segSize, segToElim, fourConnected):
 
 
 @njit
-def _findNearestNeighbourPixel(img, seg, i, j, segSize, fourConnected):
+def findNearestNeighbourPixel(img, seg, i, j, segSize, fourConnected):
     """
     For the (i, j) pixel, choose which of the neighbouring
     pixels is the most similar, spectrally. 
@@ -353,14 +353,15 @@ def _findNearestNeighbourPixel(img, seg, i, j, segSize, fourConnected):
 
 
 @njit
-def _relabelSegments(seg, segSize, minSegId):
+def relabelSegments(seg, segSize, minSegId):
     """
     The given seg array is an image of segment labels, with some 
     numbers unused, due to elimination of small segments. Go through 
     and find the unused numbers, and re-label segments above 
     these so that segment labels are contiguous. 
     
-    Modifies the seg array in place.
+    Modifies the seg array in place. The segSize array is not 
+    updated, and should be recomputed. 
     
     """
     oldNumSeg = len(segSize)
@@ -488,7 +489,7 @@ def eliminateSmallSegments(seg, img, maxSegId, minSegSize, fourConnected,
                 mergeSeg[segId] = SEGNULLVAL
                 numElim += 1
 
-    _relabelSegments(seg, segSize, minSegId)
+    relabelSegments(seg, segSize, minSegId)
     return numElim
 
 
