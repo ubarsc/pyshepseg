@@ -9,7 +9,26 @@ Implemented using scikit-learn's K-Means algorithm, and using
 numba compiled code for the other main components. 
 
 """
-# Licence......
+#Copyright 2021 Neil Flood and Sam Gillingham. All rights reserved.
+#
+#Permission is hereby granted, free of charge, to any person 
+#obtaining a copy of this software and associated documentation 
+#files (the "Software"), to deal in the Software without restriction, 
+#including without limitation the rights to use, copy, modify, 
+#merge, publish, distribute, sublicense, and/or sell copies of the 
+#Software, and to permit persons to whom the Software is furnished 
+#to do so, subject to the following conditions:
+#
+#The above copyright notice and this permission notice shall be 
+#included in all copies or substantial portions of the Software.
+#
+#THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, 
+#EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES 
+#OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. 
+#IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR 
+#ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF 
+#CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION 
+#WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 # Just in case anyone is trying to use this with Python-2
 from __future__ import print_function, division
@@ -81,7 +100,7 @@ def doShepherdSegmentation(img, numClusters=60, clusterSubsamplePcnt=1,
             round(time.time()-t0, 1), "seconds")
 
     t0 = time.time()
-    numElim = eliminateSmallSegments(seg, img, maxSegId, minSegmentSize, 
+    numElim = eliminateSmallSegments(seg, img, maxSegId, minSegmentSize, maxSpectralDiff,
         fourConnected, MINSEGID)
     if verbose:
         print("Eliminated", numElim, "segments, in", round(time.time()-t0, 1), "seconds")
@@ -448,8 +467,8 @@ def makeSegmentLocations(seg, segSize):
 
 
 @njit
-def eliminateSmallSegments(seg, img, maxSegId, minSegSize, fourConnected,
-        minSegId):
+def eliminateSmallSegments(seg, img, maxSegId, minSegSize, maxSpectralDiff, 
+        fourConnected, minSegId):
     """
     Eliminate small segments. Start with smallest, and merge
     them into spectrally most similar neighbour. Repeat for 
@@ -479,7 +498,7 @@ def eliminateSmallSegments(seg, img, maxSegId, minSegSize, fourConnected,
         for segId in segIdRange:
             if segSize[segId] == targetSize:
                 mergeSeg[segId] = findMergeSegment(segId, segLoc, 
-                    seg, segSize, spectSum, fourConnected)
+                    seg, segSize, spectSum, maxSpectralDiff, fourConnected)
 
         # Carry out the merges found above
         for segId in segIdRange:
@@ -494,7 +513,8 @@ def eliminateSmallSegments(seg, img, maxSegId, minSegSize, fourConnected,
 
 
 @njit
-def findMergeSegment(segId, segLoc, seg, segSize, spectSum, fourConnected):
+def findMergeSegment(segId, segLoc, seg, segSize, spectSum, maxSpectralDiff,
+                fourConnected):
     """
     For the given segId, find which neighboring segment it 
     should be merged with. The chosen merge segment is the one
@@ -524,6 +544,9 @@ def findMergeSegment(segId, segLoc, seg, segSize, spectSum, fourConnected):
                     if ((bestNbrSeg == SEGNULLVAL) or (distSqr < bestDistSqr)):
                         bestDistSqr = distSqr
                         bestNbrSeg = nbrSegId
+
+    if bestDistSqr > maxSpectralDiff**2:
+        bestNbrSeg = SEGNULLVAL
 
     return bestNbrSeg
 
