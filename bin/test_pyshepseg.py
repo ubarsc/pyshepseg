@@ -91,7 +91,10 @@ def main():
     b.WriteArray(seg)
     b.SetMetadataItem('LAYER_TYPE', 'thematic')
     b.SetNoDataValue(shepseg.SEGNULLVAL)
+    
     setColourTable(b, segSize, spectSum)
+    estimateStatsFromHisto(b, segSize)
+    
     del outDs
 
 
@@ -114,6 +117,8 @@ def setColourTable(bandObj, segSize, spectSum):
         minVal = meanVals[1:].min()
         maxVal = meanVals[1:].max()
         colour = 255 * ((meanVals - minVal) / (maxVal - minVal))
+        # reset this as it is the ignore
+        colour[shepseg.SEGNULLVAL] = 0
         
         attrTbl.CreateColumn(colNames[band], gdal.GFT_Integer, colUsages[band])
         colNum = attrTbl.GetColumnCount() - 1
@@ -121,15 +126,54 @@ def setColourTable(bandObj, segSize, spectSum):
         
     # alpha
     alpha = numpy.full((nRows,), 255, dtype=numpy.uint8)
+    alpha[shepseg.SEGNULLVAL] = 0
     attrTbl.CreateColumn('Alpha', gdal.GFT_Integer, gdal.GFU_Alpha)
     colNum = attrTbl.GetColumnCount() - 1
     attrTbl.WriteArray(alpha, colNum)
     
     # histo
+    # since the ignore value is shepseg.SEGNULLVAL
+    # we should reset the histogram for this bin
+    # so the stats are correctly calculated
+    segSize[shepseg.SEGNULLVAL] = 0
     attrTbl.CreateColumn('Histogram', gdal.GFT_Integer, gdal.GFU_PixelCount)
     colNum = attrTbl.GetColumnCount() - 1
     attrTbl.WriteArray(segSize, colNum)
     
+def estimateStatsFromHisto(bandObj, hist):
+    """
+    As a shortcut to calculating stats with GDAL, use the histogram 
+    that we already have from calculating the RAT and calc the stats
+    from that. 
+    """
+    # https://stackoverflow.com/questions/47269390/numpy-how-to-find-first-non-zero-value-in-every-column-of-a-numpy-array
+    mask = hist > 0
+    nVals = hist.sum()
+    minVal = mask.argmax()
+    maxVal = hist.shape[0] - numpy.flip(mask).argmax() - 1
+    
+    values = numpy.arange(hist.shape[0])
+    
+    meanVal = (values * hist).sum() / nVals
+    
+    stdDevVal = (hist * numpy.power(values - meanVal, 2)).sum() / nVals
+    stdDevVal = numpy.sqrt(stdDevVal)
+    
+    modeVal = numpy.argmax(hist)
+    # estimate the median - bin with the middle number
+    middlenum = hist.sum() / 2
+    gtmiddle = hist.cumsum() >= middlenum
+    medianVal = gtmiddle.nonzero()[0][0]
+    
+    bandObj.SetMetadataItem("STATISTICS_MINIMUM", repr(minVal))
+    bandObj.SetMetadataItem("STATISTICS_MAXIMUM", repr(maxVal))
+    bandObj.SetMetadataItem("STATISTICS_MEAN", repr(meanVal))
+    bandObj.SetMetadataItem("STATISTICS_STDDEV", repr(stdDevVal))
+    bandObj.SetMetadataItem("STATISTICS_MODE", repr(modeVal))
+    bandObj.SetMetadataItem("STATISTICS_MEDIAN", repr(medianVal))
+    bandObj.SetMetadataItem("STATISTICS_SKIPFACTORX", "1")
+    bandObj.SetMetadataItem("STATISTICS_SKIPFACTORY", "1")
+    bandObj.SetMetadataItem("STATISTICS_HISTOBINFUNCTION", "direct")
     
 if __name__ == "__main__":
     main()
