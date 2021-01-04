@@ -111,9 +111,9 @@ def setColourTable(bandObj, segSize, spectSum):
     
     for band in range(nBands):
         meanVals = spectSum[..., band] / segSize
-        minVal = meanVals[1:].min()
-        maxVal = meanVals[1:].max()
-        colour = 255 * ((meanVals - minVal) / (maxVal - minVal))
+        minVal = numpy.percentile(meanVals[1:], 5)
+        maxVal = numpy.percentile(meanVals[1:], 95)
+        colour = (255 * ((meanVals - minVal) / (maxVal - minVal))).clip(0, 255)
         
         attrTbl.CreateColumn(colNames[band], gdal.GFT_Integer, colUsages[band])
         colNum = attrTbl.GetColumnCount() - 1
