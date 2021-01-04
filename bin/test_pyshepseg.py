@@ -68,7 +68,7 @@ def main():
     
     seg = shepseg.doShepherdSegmentation(img, 
         numClusters=60, clusterSubsamplePcnt=0.5,
-        minSegmentSize=100, maxSpectralDiff=100000, imgNullVal=refNull,
+        minSegmentSize=100, maxSpectralDiff='auto', imgNullVal=refNull,
         fourConnected=cmdargs.fourway, verbose=True)
         
     segSize = shepseg.makeSegSize(seg)
