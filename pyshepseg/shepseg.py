@@ -47,7 +47,7 @@ SEGNULLVAL = 0
 MINSEGID = SEGNULLVAL + 1
 
 def doShepherdSegmentation(img, numClusters=60, clusterSubsamplePcnt=1,
-        minSegmentSize=50, maxSpectralDiff=0.1, imgNullVal=None,
+        minSegmentSize=50, maxSpectralDiff='auto', imgNullVal=None,
         fourConnected=False, verbose=False):
     """
     Perform Shepherd segmentation in memory, on the given 
@@ -72,7 +72,7 @@ def doShepherdSegmentation(img, numClusters=60, clusterSubsamplePcnt=1,
     
     """
     t0 = time.time()
-    clusters = makeSpectralClusters(img, numClusters,
+    (clusters, km) = makeSpectralClusters(img, numClusters,
         clusterSubsamplePcnt, imgNullVal)
     if verbose:
         print("Kmeans, in", round(time.time()-t0, 1), "seconds")
@@ -98,6 +98,8 @@ def doShepherdSegmentation(img, numClusters=60, clusterSubsamplePcnt=1,
         numElim = oldMaxSegId - maxSegId
         print("Eliminated", numElim, "single pixels, in", 
             round(time.time()-t0, 1), "seconds")
+
+    maxSpectralDiff = autoMaxSpectralDiff(km, maxSpectralDiff)
 
     t0 = time.time()
     numElim = eliminateSmallSegments(seg, img, maxSegId, minSegmentSize, maxSpectralDiff,
@@ -170,7 +172,40 @@ def makeSpectralClusters(img, numClusters, subsamplePcnt, imgNullVal):
         nullmask = (img == imgNullVal).any(axis=0)
         clustersImg[nullmask] = SEGNULLVAL
 
-    return clustersImg
+    return (clustersImg, km)
+
+
+def autoMaxSpectralDiff(km, maxSpectralDiff):
+    """
+    Work out what to use as the maxSpectralDiff.
+
+    If current value is 'auto', then return the median spectral
+    distance between cluster centres from the KMeans clustering
+    object km.
+
+    If current value is None, return 10 times the largest distance
+    between cluster centres (i.e. too large ever to make a difference)
+
+    Otherwise, return the given current value.
+
+    """
+    # Calculate distances between pairs of cluster centres
+    centres = km.cluster_centers_
+    numClusters = centres.shape[0]
+    numPairs = numClusters * (numClusters - 1) // 2
+    clusterDist = numpy.full(numPairs, -1, dtype=numpy.float32)
+    k = 0
+    for i in range(numClusters-1):
+        for j in range(i+1, numClusters):
+            clusterDist[k] = numpy.sqrt(((centres[i] - centres[j])**2).sum())
+            k += 1
+
+    if maxSpectralDiff == 'auto':
+        maxSpectralDiff = numpy.median(clusterDist)
+    elif maxSpectralDiff is None:
+        maxSpectralDiff = 10 * clusterDist.max()
+
+    return maxSpectralDiff
 
 
 @njit
