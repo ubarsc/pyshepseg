@@ -24,6 +24,7 @@
 from __future__ import print_function, division
 
 import os
+import sys
 import argparse
 import time
 
@@ -32,11 +33,18 @@ from osgeo import gdal
 
 from pyshepseg import shepseg
 
+DFLT_OUTPUT_DRIVER = 'KEA'
+GDAL_DRIVER_CREATION_OPTIONS = {'KEA' : [], 'HFA' : ['COMPRESS=YES']}
+
+DFLT_MAX_SPECTRAL_DIFF = 100000
+
 def getCmdargs():
+    """     
+    Get the command line arguments.
+    """
     p = argparse.ArgumentParser()
     p.add_argument("-i", "--infile", 
-        default="l8olre_p090r079_m201909201911_dbim6.img",
-        help="Input Landsat file (default=%(default)s)")
+        help="Input Raster file")
     p.add_argument("-o", "--outfile")
     p.add_argument("-n", "--nclusters", default=30, type=int,
         help="Number of clusters (default=%(default)s)")
@@ -44,7 +52,25 @@ def getCmdargs():
         help="Percentage to subsample for fitting (default=%(default)s)")
     p.add_argument("--fourway", default=False, action="store_true",
         help="Use 4-way instead of 8-way")
+    p.add_argument("-f", "--format", default=DFLT_OUTPUT_DRIVER, 
+        choices=[DFLT_OUTPUT_DRIVER, "HFA"],
+        help="Name of output GDAL format that supports RATs (default=%(default)s)")
+    p.add_argument("-m", "--maxspectraldiff", default=DFLT_MAX_SPECTRAL_DIFF,
+        type=int, help=("Maximum Spectral Difference to use when merging " +
+                "segments (default=%(default)s)"))
+        
     cmdargs = p.parse_args()
+    
+    if cmdargs.infile is None:
+        print('Must supply input file name')
+        p.print_help()
+        sys.exit()
+
+    if cmdargs.outfile is None:
+        print('Must supply output file name')
+        p.print_help()
+        sys.exit()
+        
     return cmdargs
 
 
@@ -68,7 +94,8 @@ def main():
     
     seg = shepseg.doShepherdSegmentation(img, 
         numClusters=60, clusterSubsamplePcnt=0.5,
-        minSegmentSize=100, maxSpectralDiff=100000, imgNullVal=refNull,
+        minSegmentSize=100, maxSpectralDiff=cmdargs.maxspectraldiff, 
+        imgNullVal=refNull,
         fourConnected=cmdargs.fourway, verbose=True)
         
     segSize = shepseg.makeSegSize(seg)
@@ -80,11 +107,18 @@ def main():
     
     (nRows, nCols) = seg.shape
     outDrvr = ds.GetDriver()
-    outDrvr = gdal.GetDriverByName('KEA')
+    outDrvr = gdal.GetDriverByName(cmdargs.format)
+    if outDrvr is None:
+        msg = 'This GDAL does not support driver {}'.format(cmdargs.format)
+        raise SystemExit(msg)
+    
     if os.path.exists(cmdargs.outfile):
         outDrvr.Delete(cmdargs.outfile)
-    outDs = outDrvr.Create(cmdargs.outfile, nCols, nRows, 1, outType)
-        #options=['COMPRESS=YES'])
+    
+    creationOptions = GDAL_DRIVER_CREATION_OPTIONS[cmdargs.format]
+        
+    outDs = outDrvr.Create(cmdargs.outfile, nCols, nRows, 1, outType,
+        options=creationOptions)
     outDs.SetProjection(ds.GetProjection())
     outDs.SetGeoTransform(ds.GetGeoTransform())
     b = outDs.GetRasterBand(1)
