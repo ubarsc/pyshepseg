@@ -95,12 +95,12 @@ def main():
     del bandList
     print(round(time.time()-t0, 1), "seconds")
     
-    seg = shepseg.doShepherdSegmentation(img, 
+    segResult = shepseg.doShepherdSegmentation(img, 
         numClusters=60, clusterSubsamplePcnt=0.5,
-        minSegmentSize=100, maxSpectralDiff=cmdargs.maxspectraldiff, 
-        imgNullVal=refNull,
+        minSegmentSize=100, maxSpectralDiff='auto', imgNullVal=refNull,
         fourConnected=cmdargs.fourway, verbose=True)
-        
+    
+    seg = segResult.segimg
     segSize = shepseg.makeSegSize(seg)
     maxSegId = seg.max()
     spectSum = shepseg.buildSegmentSpectra(seg, img, maxSegId)
@@ -156,9 +156,9 @@ def setColourTable(bandObj, segSize, spectSum):
     
     for band in range(nBands):
         meanVals = spectSum[..., band] / segSize
-        minVal = meanVals[1:].min()
-        maxVal = meanVals[1:].max()
-        colour = 255 * ((meanVals - minVal) / (maxVal - minVal))
+        minVal = numpy.percentile(meanVals[1:], 5)
+        maxVal = numpy.percentile(meanVals[1:], 95)
+        colour = (255 * ((meanVals - minVal) / (maxVal - minVal))).clip(0, 255)
         # reset this as it is the ignore
         colour[shepseg.SEGNULLVAL] = 0
         
