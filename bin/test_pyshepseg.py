@@ -66,11 +66,12 @@ def main():
     del bandList
     print(round(time.time()-t0, 1), "seconds")
     
-    seg = shepseg.doShepherdSegmentation(img, 
+    segResult = shepseg.doShepherdSegmentation(img, 
         numClusters=60, clusterSubsamplePcnt=0.5,
         minSegmentSize=100, maxSpectralDiff='auto', imgNullVal=refNull,
         fourConnected=cmdargs.fourway, verbose=True)
-        
+    
+    seg = segResult.segimg
     segSize = shepseg.makeSegSize(seg)
     maxSegId = seg.max()
     spectSum = shepseg.buildSegmentSpectra(seg, img, maxSegId)

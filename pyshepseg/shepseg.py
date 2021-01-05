@@ -46,6 +46,18 @@ from numba.typed import Dict
 SEGNULLVAL = 0
 MINSEGID = SEGNULLVAL + 1
 
+
+class SegmentationResult(object):
+    """
+    Results of the segmentation process
+    """
+    segimg = None
+    kmeans = None
+    maxSpectralDiff = None
+    singlePixelsEliminated = None
+    smallSegmentsEliminated = None
+
+
 def doShepherdSegmentation(img, numClusters=60, clusterSubsamplePcnt=1,
         minSegmentSize=50, maxSpectralDiff='auto', imgNullVal=None,
         fourConnected=False, verbose=False):
@@ -95,24 +107,28 @@ def doShepherdSegmentation(img, numClusters=60, clusterSubsamplePcnt=1,
     eliminateSinglePixels(img, seg, segSize, MINSEGID, maxSegId, fourConnected)
     maxSegId = seg.max()
     if verbose:
-        numElim = oldMaxSegId - maxSegId
-        print("Eliminated", numElim, "single pixels, in", 
+        numElimSinglepix = oldMaxSegId - maxSegId
+        print("Eliminated", numElimSinglepix, "single pixels, in", 
             round(time.time()-t0, 1), "seconds")
 
     maxSpectralDiff = autoMaxSpectralDiff(km, maxSpectralDiff)
 
     t0 = time.time()
-    numElim = eliminateSmallSegments(seg, img, maxSegId, minSegmentSize, maxSpectralDiff,
+    numElimSmall = eliminateSmallSegments(seg, img, maxSegId, minSegmentSize, maxSpectralDiff,
         fourConnected, MINSEGID)
     if verbose:
-        print("Eliminated", numElim, "segments, in", round(time.time()-t0, 1), "seconds")
+        print("Eliminated", numElimSmall, "segments, in", round(time.time()-t0, 1), "seconds")
     
     if verbose:
         print("Final result has", seg.max(), "segments")
     
-    # Return 
-    #  (segment image array, segment spectral summary info, what else?)
-    return seg
+    segResult = SegmentationResult()
+    segResult.segimg = seg
+    segResult.kmeans = km
+    segResult.maxSpectralDiff = maxSpectralDiff
+    segResult.singlePixelsEliminated = numElimSinglepix
+    segResult.smallSegmentsEliminated = numElimSmall
+    return segResult
 
 
 def makeSpectralClusters(img, numClusters, subsamplePcnt, imgNullVal):
