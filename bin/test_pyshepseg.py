@@ -32,6 +32,7 @@ from __future__ import print_function, division
 
 import os
 import sys
+import json
 import argparse
 import time
 
@@ -47,6 +48,8 @@ DFLT_MAX_SPECTRAL_DIFF = 100000
 
 DEFAULT_MINOVERVIEWDIM = 33
 DEFAULT_OVERVIEWLEVELS = [ 4, 8, 16, 32, 64, 128, 256, 512 ]
+
+CLUSTER_CNTRS_METADATA_NAME = 'pyshepseg_cluster_cntrs'
 
 def getCmdargs():
     """     
@@ -145,6 +148,9 @@ def main():
     # overviews
     addOverviews(outDs)
     
+    # save the cluster centres
+    writeClusterCentresToMetadata(b, segResult.kmeans)
+    
     del outDs
 
 def setColourTable(bandObj, segSize, spectSum):
@@ -240,6 +246,18 @@ def addOverviews(ds):
             nOverviews = nOverviews + 1
             
     ds.BuildOverviews("NEAREST", DEFAULT_OVERVIEWLEVELS[:nOverviews])
+    
+def writeClusterCentresToMetadata(bandObj, km):
+    """
+    Pulls out the cluster centres from the kmeans object 
+    and writes them to the metadata (under CLUSTER_CNTRS_METADATA_NAME)
+    for the given band object.
+    """
+    # convert to list so we can json them
+    ctrsList = [list(r) for r in km.cluster_centers_]
+    ctrsString = json.dumps(ctrsList)
+    
+    bandObj.SetMetadataItem(CLUSTER_CNTRS_METADATA_NAME, ctrsString)
     
 if __name__ == "__main__":
     main()
