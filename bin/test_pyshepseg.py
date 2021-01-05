@@ -1,5 +1,12 @@
 #!/usr/bin/env python
 
+"""
+Testing harness for pyshepseg. Handy for running a basic segmentation
+but it is suggested that users call the module directly from a Python
+script and handle things like scaling the data in an appripriate
+manner for their application.
+
+"""
 #Copyright 2021 Neil Flood and Sam Gillingham. All rights reserved.
 #
 #Permission is hereby granted, free of charge, to any person 
