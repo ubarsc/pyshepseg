@@ -44,7 +44,7 @@ from pyshepseg import shepseg
 DFLT_OUTPUT_DRIVER = 'KEA'
 GDAL_DRIVER_CREATION_OPTIONS = {'KEA' : [], 'HFA' : ['COMPRESS=YES']}
 
-DFLT_MAX_SPECTRAL_DIFF = 100000
+DFLT_MAX_SPECTRAL_DIFF = 'auto'
 
 DEFAULT_MINOVERVIEWDIM = 33
 DEFAULT_OVERVIEWLEVELS = [ 4, 8, 16, 32, 64, 128, 256, 512 ]
@@ -69,8 +69,9 @@ def getCmdargs():
         choices=[DFLT_OUTPUT_DRIVER, "HFA"],
         help="Name of output GDAL format that supports RATs (default=%(default)s)")
     p.add_argument("-m", "--maxspectraldiff", default=DFLT_MAX_SPECTRAL_DIFF,
-        type=int, help=("Maximum Spectral Difference to use when merging " +
-                "segments (default=%(default)s)"))
+        help=("Maximum Spectral Difference to use when merging " +
+                "segments Either 'auto', 'none' or a value to use " +
+                "(default=%(default)s)"))
         
     cmdargs = p.parse_args()
     
@@ -84,6 +85,19 @@ def getCmdargs():
         p.print_help()
         sys.exit()
         
+    try:
+        cmdargs.maxspectraldiff = float(cmdargs.maxspectraldiff)
+    except ValueError:
+        # check for 'auto' or 'none'
+        if cmdargs.maxspectraldiff not in ('auto', 'none'):
+            print("Only 'auto', 'none' or a value supported for --maxspectraldiff")
+            p.print_help()
+            sys.exit()
+          
+        # code expects 'none' -> None
+        if cmdargs.maxspectraldiff == 'none':
+            cmdargs.maxspectraldiff = None
+            
     return cmdargs
 
 
@@ -107,8 +121,8 @@ def main():
     
     segResult = shepseg.doShepherdSegmentation(img, 
         numClusters=60, clusterSubsamplePcnt=0.5,
-        minSegmentSize=100, maxSpectralDiff='auto', imgNullVal=refNull,
-        fourConnected=cmdargs.fourway, verbose=True)
+        minSegmentSize=100, maxSpectralDiff=cmdargs.maxspectraldiff, 
+        imgNullVal=refNull, fourConnected=cmdargs.fourway, verbose=True)
     
     seg = segResult.segimg
     segSize = shepseg.makeSegSize(seg)
