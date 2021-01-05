@@ -38,6 +38,9 @@ GDAL_DRIVER_CREATION_OPTIONS = {'KEA' : [], 'HFA' : ['COMPRESS=YES']}
 
 DFLT_MAX_SPECTRAL_DIFF = 100000
 
+DEFAULT_MINOVERVIEWDIM = 33
+DEFAULT_OVERVIEWLEVELS = [ 4, 8, 16, 32, 64, 128, 256, 512 ]
+
 def getCmdargs():
     """     
     Get the command line arguments.
@@ -126,11 +129,16 @@ def main():
     b.SetMetadataItem('LAYER_TYPE', 'thematic')
     b.SetNoDataValue(shepseg.SEGNULLVAL)
     
+    # write a colour table based on the input values
     setColourTable(b, segSize, spectSum)
+    
+    # since we have the histo we can do the stats
     estimateStatsFromHisto(b, segSize)
     
+    # overviews
+    addOverviews(outDs)
+    
     del outDs
-
 
 def setColourTable(bandObj, segSize, spectSum):
     """
@@ -208,6 +216,23 @@ def estimateStatsFromHisto(bandObj, hist):
     bandObj.SetMetadataItem("STATISTICS_SKIPFACTORX", "1")
     bandObj.SetMetadataItem("STATISTICS_SKIPFACTORY", "1")
     bandObj.SetMetadataItem("STATISTICS_HISTOBINFUNCTION", "direct")
+    
+def addOverviews(ds):
+    """
+    Mimic rios.calcstats behaviour
+    """
+    # first we work out how many overviews to build based on the size
+    if ds.RasterXSize < ds.RasterYSize:
+        mindim = ds.RasterXSize
+    else:
+        mindim = ds.RasterYSize
+    
+    nOverviews = 0
+    for i in DEFAULT_OVERVIEWLEVELS:
+        if (mindim // i ) > DEFAULT_MINOVERVIEWDIM:
+            nOverviews = nOverviews + 1
+            
+    ds.BuildOverviews("NEAREST", DEFAULT_OVERVIEWLEVELS[:nOverviews])
     
 if __name__ == "__main__":
     main()
