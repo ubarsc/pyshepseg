@@ -43,6 +43,10 @@ def main():
     extension = outDriver.GetMetadataItem("DMD_EXTENSION")
     print(extension)
 
+    creationOptions = None
+    if cmdargs.format in GDAL_DRIVER_CREATION_OPTIONS:
+        creationOptions = GDAL_DRIVER_CREATION_OPTIONS[cmdargs.format]
+
     yDone = False
     ypos = 0
     xtile = 0
@@ -51,10 +55,13 @@ def main():
     
         xDone = False
         xpos = 0
+        xtile = 0
         ysize = cmdargs.size
         if (ypos + ysize) > ds.RasterYSize:
             ysize = ds.RasterYSize - ypos
             yDone = True
+            if ysize == 0:
+                break
     
         while not xDone:
             filename = cmdargs.base + '_{}_{}.{}'.format(xtile, ytile, extension)
@@ -64,9 +71,12 @@ def main():
             if (xpos + xsize) > ds.RasterXSize:
                 xsize = ds.RasterXSize - xpos
                 xDone = True
+                if xsize == 0:
+                    break
         
             options = gdal.TranslateOptions(format=cmdargs.format,
-                            srcWin=[xpos, ypos, xsize, ysize])
+                            srcWin=[xpos, ypos, xsize, ysize],
+                            creationOptions=creationOptions)
             print(xpos, ypos, xsize, ysize)
             
             gdal.Translate(filename, ds, options=options)
