@@ -8,6 +8,8 @@ by Shepherd et al
 Implemented using scikit-learn's K-Means algorithm, and using
 numba compiled code for the other main components. 
 
+Main entry point is the doShepherdSegmentation() function. 
+
 """
 #Copyright 2021 Neil Flood and Sam Gillingham. All rights reserved.
 #
@@ -50,6 +52,17 @@ MINSEGID = SEGNULLVAL + 1
 class SegmentationResult(object):
     """
     Results of the segmentation process
+    
+    Attributes:
+      segimg: Segment image, as numpy array (nRows, nCols)
+        Elements are segment ID numbers (starting from 1)
+      kmeans: The sklearn KMeans object, after fitting
+      maxSpectralDiff: The value used to limit segment merging
+      singlePixelsEliminated: Number of single pixels merged 
+        to adjacent segments
+      smallSegmentsEliminated: Number of small segments merged into 
+        adjacent segments
+
     """
     segimg = None
     kmeans = None
@@ -66,21 +79,28 @@ def doShepherdSegmentation(img, numClusters=60, clusterSubsamplePcnt=1,
     multi-band img array.
     
     The img array has shape (nBands, nRows, nCols).
+    
     numClusters and clusterSubsamplePcnt are passed
     through to makeSpectralClusters(). 
+    
     minSegmentSize and maxSpectralDiff are passed through
     to eliminateSmallSegments(). 
     
     Default values are mostly as suggested by Shepherd et al. 
     
     If fourConnected is True, then use 4-way connectedness when clumping,
-    otherwise use 8-way connectedness. ???? James and Pete seem to use
-    4-way - why is this ????
+    otherwise use 8-way connectedness. 
     
     If imgNullVal is not None, then pixels with this value in 
-    any band are set to zero (SEGNULLVAL) in the output segmentation. 
+    any band are set to zero (SEGNULLVAL) in the output 
+    segmentation. If there are null values in the image array,
+    it is important to give this null value, as it can strongly
+    affect the initial spectral clustering, which in turn strongly
+    affects the final segmentation. 
     
-    Segment ID numbers start from 1. 
+    Segment ID numbers start from 1. Zero is a NULL segment ID. 
+    
+    The return value is an instance of SegmentationResult class. 
     
     """
     t0 = time.time()
