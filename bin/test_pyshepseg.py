@@ -60,8 +60,8 @@ def getCmdargs():
         help="Number of clusters (default=%(default)s)")
     p.add_argument("--subsamplepcnt", type=int, default=1,
         help="Percentage to subsample for fitting (default=%(default)s)")
-    p.add_argument("--fourway", default=False, action="store_true",
-        help="Use 4-way instead of 8-way")
+    p.add_argument("--eightway", default=False, action="store_true",
+        help="Use 8-way instead of 4-way")
     p.add_argument("-f", "--format", default=DFLT_OUTPUT_DRIVER, 
         choices=[DFLT_OUTPUT_DRIVER, "HFA"],
         help="Name of output GDAL format that supports RATs (default=%(default)s)")
@@ -130,7 +130,7 @@ def main():
         clusterSubsamplePcnt=cmdargs.clustersubsamplepercent,
         minSegmentSize=cmdargs.minsegmentsize, 
         maxSpectralDiff=cmdargs.maxspectraldiff, 
-        imgNullVal=refNull, fourConnected=cmdargs.fourway, verbose=True)
+        imgNullVal=refNull, fourConnected=not cmdargs.eightway, verbose=True)
     
     seg = segResult.segimg
     segSize = shepseg.makeSegSize(seg)

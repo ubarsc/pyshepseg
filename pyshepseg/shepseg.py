@@ -60,7 +60,7 @@ class SegmentationResult(object):
 
 def doShepherdSegmentation(img, numClusters=60, clusterSubsamplePcnt=1,
         minSegmentSize=50, maxSpectralDiff='auto', imgNullVal=None,
-        fourConnected=False, verbose=False):
+        fourConnected=True, verbose=False):
     """
     Perform Shepherd segmentation in memory, on the given 
     multi-band img array.
