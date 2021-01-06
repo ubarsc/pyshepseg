@@ -54,10 +54,9 @@ def getCmdargs():
     Get the command line arguments.
     """
     p = argparse.ArgumentParser()
-    p.add_argument("-i", "--infile", 
-        help="Input Raster file")
+    p.add_argument("-i", "--infile", help="Input Raster file")
     p.add_argument("-o", "--outfile")
-    p.add_argument("-n", "--nclusters", default=30, type=int,
+    p.add_argument("-n", "--nclusters", default=60, type=int,
         help="Number of clusters (default=%(default)s)")
     p.add_argument("--subsamplepcnt", type=int, default=1,
         help="Percentage to subsample for fitting (default=%(default)s)")
@@ -70,6 +69,12 @@ def getCmdargs():
         help=("Maximum Spectral Difference to use when merging " +
                 "segments Either 'auto', 'none' or a value to use " +
                 "(default=%(default)s)"))
+    p.add_argument("-s", "--minsegmentsize", default=100, type=int,
+        help="Minimum segment size in pixels (default=%(default)s)")
+    p.add_argument("-c", "--clustersubsamplepercent", default=0.5, type=float,
+        help="Percent of data to subsample for clustering (default=%(default)s)")
+    p.add_argument("-b", "--bands", default="3,4,5", 
+        help="Comma seperated list of bands to use. 1-based. (default=%(default)s)")
         
     cmdargs = p.parse_args()
     
@@ -96,6 +101,9 @@ def getCmdargs():
         if cmdargs.maxspectraldiff == 'none':
             cmdargs.maxspectraldiff = None
             
+    # turn string of bands into list of ints
+    cmdargs.bands = [int(x) for x in cmdargs.bands.split(',')]
+            
     return cmdargs
 
 
@@ -107,7 +115,7 @@ def main():
     ds = gdal.Open(cmdargs.infile)
     bandList = []
     imgNullVal_normed = 100
-    for bn in [3, 4, 5]:
+    for bn in cmdargs.bands:
         b = ds.GetRasterBand(bn)
         refNull = b.GetNoDataValue()
         a = b.ReadAsArray()
@@ -118,8 +126,10 @@ def main():
     print(round(time.time()-t0, 1), "seconds")
     
     segResult = shepseg.doShepherdSegmentation(img, 
-        numClusters=60, clusterSubsamplePcnt=0.5,
-        minSegmentSize=100, maxSpectralDiff=cmdargs.maxspectraldiff, 
+        numClusters=cmdargs.nclusters, 
+        clusterSubsamplePcnt=cmdargs.clustersubsamplepercent,
+        minSegmentSize=cmdargs.minsegmentsize, 
+        maxSpectralDiff=cmdargs.maxspectraldiff, 
         imgNullVal=refNull, fourConnected=cmdargs.fourway, verbose=True)
     
     seg = segResult.segimg
