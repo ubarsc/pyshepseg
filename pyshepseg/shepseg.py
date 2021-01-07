@@ -651,7 +651,7 @@ def doMerge(segId, nbrSegId, seg, segSize, segLoc, spectSum):
 
     # Replace the previous segLoc entry, and delete the one we merged
     segLoc[nbrSegId] = mergedSegLoc
-    del segLoc[segId]
+    segLoc.pop(segId)
     
     # Update the spectral sums for the two segments
     numBands = spectSum.shape[1]
