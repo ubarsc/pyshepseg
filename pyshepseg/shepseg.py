@@ -523,7 +523,7 @@ def makeSegmentLocations(seg, segSize):
     """
     d = Dict.empty(key_type=types.uint32, value_type=RowColArray_Type)
     numSeg = len(segSize)
-    for segid in range(numSeg):
+    for segid in range(MINSEGID, numSeg):
         numPix = segSize[segid]
         obj = RowColArray(numPix)
         d[numpy.uint32(segid)] = obj
@@ -532,7 +532,8 @@ def makeSegmentLocations(seg, segSize):
     for row in numpy.arange(nRows, dtype=numpy.uint32):
         for col in numpy.arange(nCols, dtype=numpy.uint32):
             segid = seg[row, col]
-            d[segid].append(row, col)
+            if segid != SEGNULLVAL:
+                d[segid].append(row, col)
 
     return d
 
@@ -558,7 +559,7 @@ def eliminateSmallSegments(seg, img, maxSegId, minSegSize, maxSpectralDiff,
     mergeSeg.fill(SEGNULLVAL)
 
     # Range of seg id numbers, as uint32, suitable as indexes into segloc
-    segIdRange = numpy.arange(1, maxSegId+1, dtype=numpy.uint32)
+    segIdRange = numpy.arange(minSegId, maxSegId+1, dtype=numpy.uint32)
 
     # Start with smallest segments, move through to just 
     # smaller than minSegSize (i.e. minSegSize is smallest 
