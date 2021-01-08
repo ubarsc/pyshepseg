@@ -609,7 +609,6 @@ def eliminateSmallSegments(seg, img, maxSegId, minSegSize, maxSpectralDiff,
     # which will NOT be eliminated)
     numElim = 0
     for targetSize in range(1, minSegSize):
-        # Find all merges for segments of the target size
         for segId in segIdRange:
             if segSize[segId] == targetSize:
                 mergeSeg[segId] = findMergeSegment(segId, segLoc, 
@@ -637,7 +636,7 @@ def findMergeSegment(segId, segLoc, seg, segSize, spectSum, maxSpectralDiff,
     measured by minimum Euclidean distance in spectral space. 
     """
     bestNbrSeg = SEGNULLVAL
-    bestDistSqr = 0    # This value is never used
+    bestDistSqr = 0.0    # This value is never used
 
     (nRows, nCols) = seg.shape
     segRowcols = segLoc[segId].rowcols
@@ -647,11 +646,12 @@ def findMergeSegment(segId, segLoc, seg, segSize, spectSum, maxSpectralDiff,
     
     for k in range(numPix):
         (i, j) = segRowcols[k]
-        for ii in range(max(i-1, 0), min(i+1, nRows)):
-            for jj in range(max(j-1, 0), min(j+1, nCols)):
+        for ii in range(max(i-1, 0), min(i+2, nRows)):
+            for jj in range(max(j-1, 0), min(j+2, nCols)):
                 connected = (not fourConnected) or (ii == i or jj == j)
                 nbrSegId = seg[ii, jj]
                 if (connected and (nbrSegId != segId) and 
+                        (nbrSegId != SEGNULLVAL) and
                         (segSize[nbrSegId] > segSize[segId])):
                     nbrSpect = spectSum[nbrSegId] / segSize[nbrSegId]
                     
