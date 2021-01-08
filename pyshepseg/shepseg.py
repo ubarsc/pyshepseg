@@ -611,7 +611,7 @@ def eliminateSmallSegments(seg, img, maxSegId, minSegSize, maxSpectralDiff,
     for targetSize in range(1, minSegSize):
         countTargetSize = numpy.count_nonzero(segSize == targetSize)
         prevCount = -1
-        # Use multiple passes to eliminate segments o fthis size. A 
+        # Use multiple passes to eliminate segments of this size. A 
         # single pass can leave segments unmerged, due to the rule about
         # only merging with neighbours larger than current. 
         # Note the use of MAXPASSES, just in case, as we hate infinite loops. 
