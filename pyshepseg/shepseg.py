@@ -609,18 +609,33 @@ def eliminateSmallSegments(seg, img, maxSegId, minSegSize, maxSpectralDiff,
     # which will NOT be eliminated)
     numElim = 0
     for targetSize in range(1, minSegSize):
-        for segId in segIdRange:
-            if segSize[segId] == targetSize:
-                mergeSeg[segId] = findMergeSegment(segId, segLoc, 
-                    seg, segSize, spectSum, maxSpectralDiff, fourConnected)
+        countTargetSize = numpy.count_nonzero(segSize == targetSize)
+        prevCount = -1
+        # Use multiple passes to eliminate segments o fthis size. A 
+        # single pass can leave segments unmerged, due to the rule about
+        # only merging with neighbours larger than current. 
+        # Note the use of MAXPASSES, just in case, as we hate infinite loops. 
+        # A very small number can still be left unmerged, if surrounded by 
+        # null segments. 
+        (numPasses, MAXPASSES) = (0, 10)
+        while (countTargetSize != prevCount) and (numPasses < MAXPASSES):
+            prevCount = countTargetSize
 
-        # Carry out the merges found above
-        for segId in segIdRange:
-            if mergeSeg[segId] != SEGNULLVAL:
-                doMerge(segId, mergeSeg[segId], seg, segSize, segLoc,
-                    spectSum)
-                mergeSeg[segId] = SEGNULLVAL
-                numElim += 1
+            for segId in segIdRange:
+                if segSize[segId] == targetSize:
+                    mergeSeg[segId] = findMergeSegment(segId, segLoc, 
+                        seg, segSize, spectSum, maxSpectralDiff, fourConnected)
+
+            # Carry out the merges found above
+            for segId in segIdRange:
+                if mergeSeg[segId] != SEGNULLVAL:
+                    doMerge(segId, mergeSeg[segId], seg, segSize, segLoc,
+                        spectSum)
+                    mergeSeg[segId] = SEGNULLVAL
+                    numElim += 1
+
+            countTargetSize = numpy.count_nonzero(segSize == targetSize)
+            numPasses += 1
 
     relabelSegments(seg, segSize, minSegId)
     return numElim
