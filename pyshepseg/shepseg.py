@@ -73,7 +73,7 @@ class SegmentationResult(object):
 
 def doShepherdSegmentation(img, numClusters=60, clusterSubsamplePcnt=1,
         minSegmentSize=50, maxSpectralDiff='auto', imgNullVal=None,
-        fourConnected=True, verbose=False):
+        fourConnected=True, verbose=False, fixedKMeansInit=False):
     """
     Perform Shepherd segmentation in memory, on the given 
     multi-band img array.
@@ -98,6 +98,13 @@ def doShepherdSegmentation(img, numClusters=60, clusterSubsamplePcnt=1,
     affect the initial spectral clustering, which in turn strongly
     affects the final segmentation. 
     
+    If fixedKMeansInit is True, then choose a fixed set of 
+    cluster centres to initialize the KMeans algorithm. This can
+    be useful to provide strict determinacy of the results by
+    avoiding sklearn's multiple random initial guesses. The default 
+    is to allow sklearn to guess, which is good for avoiding 
+    local minima. 
+    
     Segment ID numbers start from 1. Zero is a NULL segment ID. 
     
     The return value is an instance of SegmentationResult class. 
@@ -105,7 +112,7 @@ def doShepherdSegmentation(img, numClusters=60, clusterSubsamplePcnt=1,
     """
     t0 = time.time()
     (clusters, km) = makeSpectralClusters(img, numClusters,
-        clusterSubsamplePcnt, imgNullVal)
+        clusterSubsamplePcnt, imgNullVal, fixedKMeansInit)
     if verbose:
         print("Kmeans, in", round(time.time()-t0, 1), "seconds")
     
@@ -151,7 +158,8 @@ def doShepherdSegmentation(img, numClusters=60, clusterSubsamplePcnt=1,
     return segResult
 
 
-def makeSpectralClusters(img, numClusters, subsamplePcnt, imgNullVal):
+def makeSpectralClusters(img, numClusters, subsamplePcnt, imgNullVal,
+    fixedKMeansInit):
     """
     First step of Shepherd segmentation. Use K-means clustering
     to create a set of "seed" segments, labelled only with
@@ -166,6 +174,10 @@ def makeSpectralClusters(img, numClusters, subsamplePcnt, imgNullVal):
     
     If imgNullVal is not None, then pixels in img with this value in 
     any band are set to segNullVal in the output. 
+    
+    if fixedKMeansInit is True, then use a simple algorithm to 
+    determine the fixed set of initial cluster centres. Otherwise 
+    allow the sklearn routine to choose its own initial guesses. 
 
     """
     (nBands, nRows, nCols) = img.shape
@@ -191,7 +203,11 @@ def makeSpectralClusters(img, numClusters, subsamplePcnt, imgNullVal):
     # slowest part, so let's not get carried away. 
     numKmeansTrials = 5
     
-    km = KMeans(n_clusters=numClusters, n_init=numKmeansTrials)
+    init = 'k-means++'      # This is sklearn's default
+    if fixedKMeansInit:
+        init = diagonalClusterCentres(xSample, numClusters)
+        numKmeansTrials = 1
+    km = KMeans(n_clusters=numClusters, n_init=numKmeansTrials, init=init)
     km.fit(xSample)
 
     # Predict on the whole image. In principle we could omit the nulls,
@@ -209,6 +225,33 @@ def makeSpectralClusters(img, numClusters, subsamplePcnt, imgNullVal):
         clustersImg[nullmask] = SEGNULLVAL
 
     return (clustersImg, km)
+
+
+def diagonalClusterCentres(xSample, numClusters):
+    """
+    Return an array of initial guesses at cluster centres. 
+    This will be given to the KMeans constructor as the init
+    parameter. 
+    
+    The given array xSample is the (numPoints, numBands) array
+    ready to be used for fitting. 
+    
+    The centres are evenly spaced along the diagonal of 
+    the bounding box of the data. The end points are placed 
+    1 step in from the corners. 
+    
+    """
+    (numPoints, numBands) = xSample.shape
+    bandMin = xSample.min(axis=0)
+    bandMax = xSample.max(axis=0)
+    
+    centres = numpy.empty((numClusters, numBands), dtype=xSample.dtype)
+    
+    step = (bandMax - bandMin) / (numClusters + 1)
+    for i in range(numClusters):
+        centres[i] = bandMin + (i+1) * step
+    
+    return centres
 
 
 def autoMaxSpectralDiff(km, maxSpectralDiff):

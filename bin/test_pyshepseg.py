@@ -75,6 +75,12 @@ def getCmdargs():
         help="Percent of data to subsample for clustering (default=%(default)s)")
     p.add_argument("-b", "--bands", default="3,4,5", 
         help="Comma seperated list of bands to use. 1-based. (default=%(default)s)")
+    p.add_argument("--fixedkmeansinit", default=False, action="store_true",
+        help=("Used a fixed algorithm to select guesses at cluster centres. "+
+            "Default will allow the KMeans routine to select these with a "+
+            "random element, which can make the final results slightly "+
+            "non-determinstic. Use this if you want a completely "+
+            "deterministic, reproducable result"))
         
     cmdargs = p.parse_args()
     
@@ -114,7 +120,6 @@ def main():
     print("Reading ... ", end='')
     ds = gdal.Open(cmdargs.infile)
     bandList = []
-    imgNullVal_normed = 100
     for bn in cmdargs.bands:
         b = ds.GetRasterBand(bn)
         refNull = b.GetNoDataValue()
@@ -130,7 +135,8 @@ def main():
         clusterSubsamplePcnt=cmdargs.clustersubsamplepercent,
         minSegmentSize=cmdargs.minsegmentsize, 
         maxSpectralDiff=cmdargs.maxspectraldiff, 
-        imgNullVal=refNull, fourConnected=not cmdargs.eightway, verbose=True)
+        imgNullVal=refNull, fourConnected=not cmdargs.eightway, 
+        fixedKMeansInit=cmdargs.fixedkmeansinit, verbose=True)
     
     seg = segResult.segimg
     segSize = shepseg.makeSegSize(seg)
