@@ -33,7 +33,7 @@ from . import shepseg
 
 from osgeo import gdal
 
-DEFAULT_MINOVERVIEWDIM = 33
+DEFAULT_MINOVERVIEWDIM = 100
 DEFAULT_OVERVIEWLEVELS = [ 4, 8, 16, 32, 64, 128, 256, 512 ]
 
 def setColourTable(bandObj, segSize, spectSum):
