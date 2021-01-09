@@ -558,6 +558,14 @@ class RowColArray(object):
         self.rowcols[self.idx, 0] = row
         self.rowcols[self.idx, 1] = col
         self.idx += 1
+    
+    def getSegmentIndices(self):
+        """
+        Return the row and column numbers of the segment pixels
+        as a tuple, suitable for indexing the image array. 
+        This supports selection of all pixels for a given segment. 
+        """
+        return (self.rowcols[:, 0], self.rowcols[:, 1])
 
 RowColArray_Type = RowColArray.class_type.instance_type
 
