@@ -44,6 +44,9 @@ from numba.experimental import jitclass
 from numba.core import types
 from numba.typed import Dict
 
+# A symbol for the data type used as a segment ID number
+SegIdType = numpy.uint32
+
 # This value used for null in both cluster ID and segment ID images
 SEGNULLVAL = 0
 MINSEGID = SEGNULLVAL + 1
@@ -120,7 +123,7 @@ def doShepherdSegmentation(img, numClusters=60, clusterSubsamplePcnt=1,
     t0 = time.time()
     (seg, maxSegId) = clump(clusters, SEGNULLVAL, fourConnected=fourConnected, 
         clumpId=MINSEGID)
-    maxSegId -= 1
+    maxSegId = SegIdType(maxSegId - 1)
     if verbose:
         print("Found", maxSegId, "clumps, in", round(time.time()-t0, 1), "seconds")
     
@@ -303,7 +306,7 @@ def clump(img, ignoreVal, fourConnected=True, clumpId=1):
     """
     
     ysize, xsize = img.shape
-    output = numpy.zeros((ysize, xsize), dtype=numpy.uint32)
+    output = numpy.zeros((ysize, xsize), dtype=SegIdType)
     search_list = numpy.empty((xsize * ysize, 2), dtype=numpy.uint32)
     
     searchIdx = 0
@@ -498,7 +501,7 @@ def relabelSegments(seg, segSize, minSegId):
     
     """
     oldNumSeg = len(segSize)
-    subtract = numpy.zeros(oldNumSeg, dtype=numpy.uint32)
+    subtract = numpy.zeros(oldNumSeg, dtype=SegIdType)
     
     # For each segid with a count of zero (i.e. it is unused), we 
     # increase the amount by which segid numbers above this should 
@@ -569,7 +572,7 @@ def makeSegmentLocations(seg, segSize):
     for segid in range(MINSEGID, numSeg):
         numPix = segSize[segid]
         obj = RowColArray(numPix)
-        d[numpy.uint32(segid)] = obj
+        d[SegIdType(segid)] = obj
 
     (nRows, nCols) = seg.shape
     for row in numpy.arange(nRows, dtype=numpy.uint32):
@@ -598,11 +601,11 @@ def eliminateSmallSegments(seg, img, maxSegId, minSegSize, maxSpectralDiff,
 
     # A list of the segment ID numbers to merge with. The i-th
     # element is the segment ID to merge segment 'i' into
-    mergeSeg = numpy.empty(maxSegId+1, dtype=numpy.uint32)
+    mergeSeg = numpy.empty(maxSegId+1, dtype=SegIdType)
     mergeSeg.fill(SEGNULLVAL)
 
-    # Range of seg id numbers, as uint32, suitable as indexes into segloc
-    segIdRange = numpy.arange(minSegId, maxSegId+1, dtype=numpy.uint32)
+    # Range of seg id numbers, as SegIdType, suitable as indexes into segloc
+    segIdRange = numpy.arange(minSegId, maxSegId+1, dtype=SegIdType)
 
     # Start with smallest segments, move through to just 
     # smaller than minSegSize (i.e. minSegSize is smallest 
