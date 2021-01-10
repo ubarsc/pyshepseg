@@ -19,6 +19,12 @@
 #CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION 
 #WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+"""
+Python implementation of image segmentation algorithm by 
+Shepherd et al (2019). See pyshepseg.shepseg module for details. 
+
+"""
+
 SHEPSEG_VERSION = '0.1'
 __version__ = SHEPSEG_VERSION
 

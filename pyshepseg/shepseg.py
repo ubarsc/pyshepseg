@@ -4,11 +4,55 @@ by Shepherd et al
     Shepherd, J., Bunting, P. and Dymond, J. (2019). 
         Operational Large-Scale Segmentation of Imagery Based on 
         Iterative Elimination. Remote Sensing 11(6).
+    https://www.mdpi.com/2072-4292/11/6/658
 
 Implemented using scikit-learn's K-Means algorithm, and using
 numba compiled code for the other main components. 
+    https://scikit-learn.org/stable/modules/generated/sklearn.cluster.KMeans.html
+    https://numba.pydata.org/
 
 Main entry point is the doShepherdSegmentation() function. 
+
+Basic usage:
+    from pyshepseg import shepseg
+    
+    # Read in a multi-band image as a single array, img,
+    # of shape (nBands, nRows, nCols). 
+    # Ensure that any null pixels are all set to a known 
+    # null value in all bands. Failure to correctly identify 
+    # null pixels can result in a poorer quality segmentation. 
+    
+    segRes = shepseg.doShepherdSegmentation(img, imgNullVal=nullVal)
+    
+The segimg attribute of the segRes object is an array
+of segment ID numbers, of shape (nRows, nCols). 
+    
+Resulting segment ID numbers start from 1, and null pixels 
+are set to zero. 
+
+Efficient segment location:
+    After segmentation, the location of individual segments can be
+    found efficiently using the object returned by makeSegmentLocations(). 
+    
+    E.g. 
+      segSize = shepseg.makeSegSize(segimg)
+      segLoc = shepseg.makeSegmentLocations(segimg, segSize)
+    
+    This segLoc object is indexed by segment ID number (must be
+    of type shepseg.SegIdType), and each element contains information
+    about the pixels which are in that segment. This information 
+    can be returned as a slicing object suitable to index the image array
+    
+    E.g. 
+      segNdx = segLoc[segId].getSegmentIndices()
+      vals = img[0][segNdx]
+    
+    This example would give an array of the pixel values from the first 
+    band of the original image, for the given segment ID. 
+    
+    This can be a very efficient way to calculate per-segment 
+    quantities. It can be used in pure Python code, or it can be used
+    inside numba jit functions, for even greater efficiency. 
 
 """
 #Copyright 2021 Neil Flood and Sam Gillingham. All rights reserved.
