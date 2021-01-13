@@ -15,12 +15,15 @@ any mistakes we have made.
 The package requires the [scikit-learn](https://scikit-learn.org/) package,
 and the [numba](https://numba.pydata.org/) package. These need to be installed
 before this package will run. See their instructions on how to install, and
-choose whichever methods best suits you. 
+choose whichever methods best suits you. Both packages are available in 
+mutually consistent builds from the conda-forge archive, but many other 
+options are available. 
 
 Also recommended is the [GDAL](https://gdal.org/) package for reading and 
 writing raster file formats. It is not required by the current package, 
 but is highly recommended as a portable way to interface 
-to a large range of raster formats. 
+to a large range of raster formats. This is also available from conda-forge,
+but again, other installation options are available. 
 
 ## Installation
 The package can be installed directly from the source, using the 
