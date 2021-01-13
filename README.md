@@ -1,7 +1,11 @@
 # pyshepseg
 Python implementation of image segmentation algorithm of 
-[Shepherd et al (2019) Operational Large-Scale Segmentation of Imagery 
+[Shepherd et al (2019). Operational Large-Scale Segmentation of Imagery 
 Based on Iterative Elimination. Remote Sensing 11(6).](https://www.mdpi.com/2072-4292/11/6/658) 
+
+This package is a tool for Python programmers to implement the segmentation 
+algorithm. It is not a stand-alone solution for people with no Python
+experience. 
 
 ## Dependencies
 The package requires the [scikit-learn](https://scikit-learn.org/) package,
