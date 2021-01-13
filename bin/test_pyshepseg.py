@@ -118,18 +118,10 @@ def main():
     
     t0 = time.time()
     print("Reading ... ", end='')
-    ds = gdal.Open(cmdargs.infile)
-    bandList = []
-    for bn in cmdargs.bands:
-        b = ds.GetRasterBand(bn)
-        refNull = b.GetNoDataValue()
-        a = b.ReadAsArray()
-        bandList.append(a)
-    img = numpy.array(bandList)
-    
-    del bandList
+    (img, refNull) = readImageBands(cmdargs)
     print(round(time.time()-t0, 1), "seconds")
     
+    # Do the segmentation
     segResult = shepseg.doShepherdSegmentation(img, 
         numClusters=cmdargs.nclusters, 
         clusterSubsamplePcnt=cmdargs.clustersubsamplepercent,
@@ -137,17 +129,26 @@ def main():
         maxSpectralDiff=cmdargs.maxspectraldiff, 
         imgNullVal=refNull, fourConnected=not cmdargs.eightway, 
         fixedKMeansInit=cmdargs.fixedkmeansinit, verbose=True)
-    
+
+    # The segmentation image, and a few related quantities    
     seg = segResult.segimg
     segSize = shepseg.makeSegSize(seg)
     maxSegId = seg.max()
     spectSum = shepseg.buildSegmentSpectra(seg, img, maxSegId)
+    kmeansObj = segResult.kmeans
 
+    writeOutput(cmdargs, seg, segSize, spectSum, kmeansObj)
+
+
+def writeOutput(cmdargs, seg, segSize, spectSum, kmeansObj):
+    """
+    Write the segmentation to an output image file. Includes a 
+    colour table
+    """
     # Write output    
     outType = gdal.GDT_UInt32
     
     (nRows, nCols) = seg.shape
-    outDrvr = ds.GetDriver()
     outDrvr = gdal.GetDriverByName(cmdargs.format)
     if outDrvr is None:
         msg = 'This GDAL does not support driver {}'.format(cmdargs.format)
@@ -157,11 +158,13 @@ def main():
         outDrvr.Delete(cmdargs.outfile)
     
     creationOptions = GDAL_DRIVER_CREATION_OPTIONS[cmdargs.format]
+    
+    inDs = gdal.Open(cmdargs.infile)
         
     outDs = outDrvr.Create(cmdargs.outfile, nCols, nRows, 1, outType,
         options=creationOptions)
-    outDs.SetProjection(ds.GetProjection())
-    outDs.SetGeoTransform(ds.GetGeoTransform())
+    outDs.SetProjection(inDs.GetProjection())
+    outDs.SetGeoTransform(inDs.GetGeoTransform())
     b = outDs.GetRasterBand(1)
     b.WriteArray(seg)
     b.SetMetadataItem('LAYER_TYPE', 'thematic')
@@ -177,9 +180,27 @@ def main():
     utils.addOverviews(outDs)
     
     # save the cluster centres
-    writeClusterCentresToMetadata(b, segResult.kmeans)
+    writeClusterCentresToMetadata(b, kmeansObj)
     
     del outDs
+
+
+def readImageBands(cmdargs):
+    """
+    Read in the requested bands of the given image. Return
+    a tuple of the image array and the null value.
+    """
+    ds = gdal.Open(cmdargs.infile)
+    bandList = []
+    for bn in cmdargs.bands:
+        b = ds.GetRasterBand(bn)
+        refNull = b.GetNoDataValue()
+        a = b.ReadAsArray()
+        bandList.append(a)
+    img = numpy.array(bandList)
+    
+    return (img, refNull)
+
 
 def writeClusterCentresToMetadata(bandObj, km):
     """
@@ -192,6 +213,7 @@ def writeClusterCentresToMetadata(bandObj, km):
     ctrsString = json.dumps(ctrsList)
     
     bandObj.SetMetadataItem(CLUSTER_CNTRS_METADATA_NAME, ctrsString)
-    
+
+
 if __name__ == "__main__":
     main()
