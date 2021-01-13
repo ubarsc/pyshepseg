@@ -7,6 +7,10 @@ This package is a tool for Python programmers to implement the segmentation
 algorithm. It is not a stand-alone solution for people with no Python
 experience. 
 
+We thank the authors of the paper for their algorithm. This implementation 
+was created independently of them, and they are in no way to blame for 
+any mistakes we have made. 
+
 ## Dependencies
 The package requires the [scikit-learn](https://scikit-learn.org/) package,
 and the [numba](https://numba.pydata.org/) package. These need to be installed
