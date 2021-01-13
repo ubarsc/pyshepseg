@@ -53,4 +53,5 @@ The segimg attribute of the segRes object is an array
 of segment ID numbers, of shape (nRows, nCols). 
 
 See the help in the shepseg module for further details and tips. 
-
+The bin/ subdirectory also contains an example test script showing 
+basic usage. 
