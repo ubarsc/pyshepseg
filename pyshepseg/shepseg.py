@@ -158,8 +158,9 @@ def doShepherdSegmentation(img, numClusters=60, clusterSubsamplePcnt=1,
     
     """
     t0 = time.time()
-    (clusters, km) = makeSpectralClusters(img, numClusters,
+    km = fitSpectralClusters(img, numClusters,
         clusterSubsamplePcnt, imgNullVal, fixedKMeansInit)
+    clusters = applySpectralClusters(km, img, imgNullVal)
     if verbose:
         print("Kmeans, in", round(time.time()-t0, 1), "seconds")
     
@@ -205,7 +206,7 @@ def doShepherdSegmentation(img, numClusters=60, clusterSubsamplePcnt=1,
     return segResult
 
 
-def makeSpectralClusters(img, numClusters, subsamplePcnt, imgNullVal,
+def fitSpectralClusters(img, numClusters, subsamplePcnt, imgNullVal,
     fixedKMeansInit):
     """
     First step of Shepherd segmentation. Use K-means clustering
@@ -225,6 +226,9 @@ def makeSpectralClusters(img, numClusters, subsamplePcnt, imgNullVal,
     if fixedKMeansInit is True, then use a simple algorithm to 
     determine the fixed set of initial cluster centres. Otherwise 
     allow the sklearn routine to choose its own initial guesses. 
+    
+    Return a fitted object of class sklearn.cluster.KMeans. This
+    is suitable to use with the applySpectralClusters() function. 
 
     """
     (nBands, nRows, nCols) = img.shape
@@ -243,6 +247,7 @@ def makeSpectralClusters(img, numClusters, subsamplePcnt, imgNullVal,
         xNonNull = xFull
     skip = int(round(100./subsamplePcnt))
     xSample = xNonNull[::skip]
+    del xFull, xNonNull
 
     # Note that we limit the number of trials that KMeans does, using 
     # the n_init argument. Multiple trials are used to avoid getting 
@@ -256,12 +261,41 @@ def makeSpectralClusters(img, numClusters, subsamplePcnt, imgNullVal,
         numKmeansTrials = 1
     km = KMeans(n_clusters=numClusters, n_init=numKmeansTrials, init=init)
     km.fit(xSample)
+    
+    return km
+
+
+def applySpectralClusters(kmeansObj, img, imgNullVal):
+    """
+    Use the given KMeans object to predict spectral clusters on 
+    a whole image array. 
+    
+    The kmeansObj is an instance of sklearn.cluster.KMeans, 
+    as returned by fitSpectralClusters(). 
+    
+    The img array is a numpy array of the image to predict on,
+    of shape (nBands, nRows, nCols). 
+    
+    Any pixels in img which have value imgNullVal will be set to
+    SEGNULLVAL (i.e. zero) in the output cluster image.
+    
+    Return value is a numpy array of shape (nRows, nCols),
+    with each element being the segment ID value for that pixel. 
+    
+    """
 
     # Predict on the whole image. In principle we could omit the nulls,
     # but it makes little difference to run time, and just adds complexity. 
     
-    clustersFull = km.predict(xFull)
-    del xFull, xNonNull, xSample
+    (nBands, nRows, nCols) = img.shape
+
+    # Re-organise the image data so it matches what sklearn
+    # expects.
+    xFull = numpy.transpose(img, axes=(1, 2, 0))
+    xFull = xFull.reshape((nRows*nCols, nBands))
+
+    clustersFull = kmeansObj.predict(xFull)
+    del xFull
     clustersImg = clustersFull.reshape((nRows, nCols))
     
     # Make the cluster ID numbers start from 1, and use SEGNULLVAL
@@ -271,7 +305,7 @@ def makeSpectralClusters(img, numClusters, subsamplePcnt, imgNullVal,
         nullmask = (img == imgNullVal).any(axis=0)
         clustersImg[nullmask] = SEGNULLVAL
 
-    return (clustersImg, km)
+    return clustersImg
 
 
 def diagonalClusterCentres(xSample, numClusters):
