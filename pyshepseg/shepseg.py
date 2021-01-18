@@ -120,7 +120,8 @@ class SegmentationResult(object):
 
 def doShepherdSegmentation(img, numClusters=60, clusterSubsamplePcnt=1,
         minSegmentSize=50, maxSpectralDiff='auto', imgNullVal=None,
-        fourConnected=True, verbose=False, fixedKMeansInit=False):
+        fourConnected=True, verbose=False, fixedKMeansInit=False,
+        kmeansObj=None):
     """
     Perform Shepherd segmentation in memory, on the given 
     multi-band img array.
@@ -128,7 +129,7 @@ def doShepherdSegmentation(img, numClusters=60, clusterSubsamplePcnt=1,
     The img array has shape (nBands, nRows, nCols).
     
     numClusters and clusterSubsamplePcnt are passed
-    through to makeSpectralClusters(). 
+    through to fitSpectralClusters(). 
     
     minSegmentSize and maxSpectralDiff are passed through
     to eliminateSmallSegments(). 
@@ -152,14 +153,24 @@ def doShepherdSegmentation(img, numClusters=60, clusterSubsamplePcnt=1,
     is to allow sklearn to guess, which is good for avoiding 
     local minima. 
     
+    By default, the spectral clustering step will be fitted using 
+    the given img. However, if kmeansObj is not None, it is taken 
+    to be a fitted instance of sklearn.cluster.KMeans, and will 
+    be used instead. This is useful when enforcing a consistent 
+    clustering across multiple tiles (see the pyshepseg.tiling 
+    module for details). 
+    
     Segment ID numbers start from 1. Zero is a NULL segment ID. 
     
     The return value is an instance of SegmentationResult class. 
     
     """
     t0 = time.time()
-    km = fitSpectralClusters(img, numClusters,
-        clusterSubsamplePcnt, imgNullVal, fixedKMeansInit)
+    if kmeansObj is not None:
+        km = kmeansObj
+    else:
+        km = fitSpectralClusters(img, numClusters,
+            clusterSubsamplePcnt, imgNullVal, fixedKMeansInit)
     clusters = applySpectralClusters(km, img, imgNullVal)
     if verbose:
         print("Kmeans, in", round(time.time()-t0, 1), "seconds")
