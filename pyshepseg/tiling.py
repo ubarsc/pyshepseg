@@ -50,10 +50,11 @@ def fitSpectralClustersWholeFile(filename, numClusters=60,
     calculated such that around one million pixels are sampled
     (Note - this would include null pixels, so if the image is 
     dominated by nulls, this would undersample.) 
+    No further subsampling is carried out by fitSpectralClusters(). 
     
     If imgNullVal is None, the file is queried for a null value. 
     If none is defined there, then no null value is used. If 
-    each band as a different null value, an exception is raised. 
+    each band has a different null value, an exception is raised. 
     
     fixedKMeansInit is passed to fitSpectralClusters(), see there
     for details. 
@@ -64,6 +65,13 @@ def fitSpectralClustersWholeFile(filename, numClusters=60,
     is the subsample percentage actually used. 
     
     """
+    # Notes. 
+    # 1. This does not currently include a general mechanism
+    #    for any image transformations. Is that a problem? 
+    #    Perhaps a function could be passed? 
+    # 2. Default subSampleProp = sqrt(ONEMILLION/(nRows*nCols))
+    # 3. img = empty((nRows*subSampleProp, nCols*subSampleProp))
+    #    band.ReadAsArray(buf_obj=img)
 
 
 def saveKMeansObj(kmeansObj, filename):
@@ -75,6 +83,7 @@ def saveKMeansObj(kmeansObj, filename):
     corresponding function loadKMeansObj() can be used to
     re-create the original object (at least functionally equivalent). 
     """
+    # Check that it really is not pickle-able, I am just assuming....
     
 
 def loadKMeansObj(filename):
