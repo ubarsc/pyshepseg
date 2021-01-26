@@ -92,5 +92,21 @@ def loadKMeansObj(filename):
     """
 
 
+def doTiledShepherdSegmentation(infile, outfile):
+    """
+    Rough pseudocode sketch......
+    """
+    # km = fitSpectralClustersWholeFile() on whole infile
+    #
+    # Work out coords of tiles. There should be
+    # an overlap wide enough so that no segment can extend from 
+    # the middle to the edge of the overlap. (e.g. minSegmentSize/2)
+    #
+    # For each tile, do
+    #     shepseg.doShepherdSegmentation(tile, kmeansObj=km)
+    #
+    # Stitch together output tiles into single mosaic, 
+    # re-writing segment ID numbers to be unique. 
+
 
 class PyShepSegTilingError(Exception): pass
