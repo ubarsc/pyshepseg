@@ -34,7 +34,6 @@ from osgeo import gdal
 
 from . import shepseg
 
-
 def fitSpectralClustersWholeFile(filename, numClusters=60, 
         bandNumbers=None, subsamplePcnt=None, imgNullVal=None, 
         fixedKMeansInit=False):
@@ -136,17 +135,19 @@ class TileInfo(object):
     """
     def __init__(self, filename):
         self.filename = filename
-        self.tiles = []
+        self.tiles = {}
+        self.ncols = None
+        self.nrows = None
         
-    def addTile(self, xpos, ypos, xsize, ysize):
-        self.tiles.append((xpos, ypos, xsize, ysize))
+    def addTile(self, xpos, ypos, xsize, ysize, col, row):
+        self.tiles[(col, row)] = (xpos, ypos, xsize, ysize)
         
     def getNumTiles(self):
         return len(self.tiles)
         
-    def getTile(self, n):
-        return self.tiles[n]
-
+    def getTile(self, col, row):
+        return self.tiles[(col, row)]
+        
 def getTilesForFile(infile, tileSize, overlapSize):
     """
     Return a TileInfo object for a given file and input
@@ -184,12 +185,15 @@ def getTilesForFile(infile, tileSize, overlapSize):
                 if xsize == 0:
                     break
 
-            tileInfo.append(xpos, ypos, xsize, ysize)
+            tileInfo.addTile(xpos, ypos, xsize, ysize, xtile, ytile)
             xpos += (tileSize - overlapSize)
             xtile += 1
             
         ypos += (tileSize - overlapSize)
         ytile += 1
+        
+    tileInfo.ncols = xtile
+    tileInfo.nrows = ytile
         
     return tileInfo
     
@@ -225,9 +229,12 @@ def doTiledShepherdSegmentation(infile, outfile, tileSize, overlapSize=None,
     
     if bandNumbers is None:
         bandNumbers = range(1, inDs.RasterCount+1)
+        
+    transform = inDs.GetGeoTransform()
+    tileFilenames = {}
     
-    for ntile in range(tileInfo.getNumTiles()):
-        xpos, ypos, xsize, ysize = tileInfo.getTile(ntile)
+    for col, row in tileInfo.tiles:
+        xpos, ypos, xsize, ysize = tileInfo.getTile(col, row)
         lyrDataList = []
         for bandNum in bandNumbers:
             lyr = inDs.GetRasterBand(bandNum)
@@ -242,7 +249,8 @@ def doTiledShepherdSegmentation(infile, outfile, tileSize, overlapSize=None,
                     fourConnected=fourConnected, kmeansObj=kmeansObj, 
                     verbose=verbose)
         
-        filename = 'tile_{}.kea'.format(ntile)
+        filename = 'tile_{}_{}.kea'.format(col, row)
+        tileFilenames[(col, row)] = filename
         outDrvr = gdal.GetDriverByName('KEA')
         
         if os.path.exists(filename):
@@ -252,10 +260,116 @@ def doTiledShepherdSegmentation(infile, outfile, tileSize, overlapSize=None,
 
         outDs = outDrvr.Create(filename, xsize, ysize, 1, outType)
         outDs.SetProjection(inDs.GetProjection())
-        outDs.SetGeoTransform(inDs.GetGeoTransform())
+        subsetTransform = list(transform)
+        subsetTransform[0] = transform[0] + xpos * transform[1]
+        subsetTransform[3] = transform[3] + ypos * transform[5]
+        outDs.SetGeoTransform(tuple(subsetTransform))
         b = outDs.GetRasterBand(1)
         b.WriteArray(segResult.segimg)
         b.SetMetadataItem('LAYER_TYPE', 'thematic')
         b.SetNoDataValue(shepseg.SEGNULLVAL)
+        
+        writeRandomColourTable(b, segResult.segimg.max()+1)
+        
+    stitchTiles_simple(outfile, tileFilenames, tileInfo, overlapSize)
+    
+def stitchTiles_simple(outfile, tileFilenames, tileInfo, overlapSize):
+    """
+    """
+
+    marginSize = int(overlapSize / 2)
+
+    inDs = gdal.Open(tileInfo.filename)
+
+    outDrvr = gdal.GetDriverByName('KEA')
+
+    if os.path.exists(outfile):
+        outDrvr.Delete(outfile)
+
+    outType = gdal.GDT_UInt32
+
+    outDs = outDrvr.Create(outfile, inDs.RasterXSize, inDs.RasterYSize, 1, outType)
+    outDs.SetProjection(inDs.GetProjection())
+    outDs.SetGeoTransform(inDs.GetGeoTransform())
+    outBand = outDs.GetRasterBand(1)
+    outBand.SetMetadataItem('LAYER_TYPE', 'thematic')
+    outBand.SetNoDataValue(shepseg.SEGNULLVAL)
+    
+    colRows = sorted(tileInfo.tiles.keys())                
+    maxSegId = 0
+    
+    for col, row in colRows:
+        
+        filename = tileFilenames[(col, row)]
+        ds = gdal.Open(filename)
+        print('reading', col, row)
+        tileData = ds.ReadAsArray()
+        xpos, ypos, xsize, ysize = tileInfo.getTile(col, row)
+        
+        top = marginSize
+        bottom = ysize - marginSize
+        left = marginSize
+        right = xsize - marginSize
+        
+        xout = xpos + marginSize
+        yout = ypos + marginSize
+
+        rightName = 'right_{}_{}.npy'.format(col, row)
+        bottomName = 'bottom_{}_{}.npy'.format(col, row)
+        
+        if row == 0:
+            top = 0
+            yout = ypos
+
+        if row == tileInfo.nrows:
+            bottom = ysize
+            bottomName = None
+            
+        if col == 0:
+            left = 0
+            xout = xpos
+            
+        if col == tileInfo.ncols:
+            right = xsize
+            rightName = None
+            
+        tileData += maxSegId
+        
+        print('writing', col, row)
+        tileDataTrimmed = tileData[top:bottom, left:right]
+        outBand.WriteArray(tileDataTrimmed, xout, yout)
+
+        if rightName is not None:
+            numpy.save(rightName, tileData[:, -overlapSize:])
+        if bottomName is not None:
+            numpy.save(bottomName, tileData[-overlapSize:, :])    
+            
+        maxSegId += tileDataTrimmed.max()
+
+    print('write colour table', maxSegId, type(maxSegId))    
+    nRows = maxSegId+1
+
+    writeRandomColourTable(outBand, nRows)
+    
+def writeRandomColourTable(outBand, nRows):
+
+    nRows = int(nRows)
+    colNames = ["Blue", "Green", "Red"]
+    colUsages = [gdal.GFU_Blue, gdal.GFU_Green, gdal.GFU_Red]
+
+    attrTbl = outBand.GetDefaultRAT()
+    attrTbl.SetRowCount(nRows)
+    
+    for band in range(3):
+        attrTbl.CreateColumn(colNames[band], gdal.GFT_Integer, colUsages[band])
+        colNum = attrTbl.GetColumnCount() - 1
+        colour = numpy.random.random_integers(0, 255, size=nRows)
+        attrTbl.WriteArray(colour, colNum)
+        
+    alpha = numpy.full((nRows,), 255, dtype=numpy.uint8)
+    alpha[shepseg.SEGNULLVAL] = 0
+    attrTbl.CreateColumn('Alpha', gdal.GFT_Integer, gdal.GFU_Alpha)
+    colNum = attrTbl.GetColumnCount() - 1
+    attrTbl.WriteArray(alpha, colNum)
 
 class PyShepSegTilingError(Exception): pass
