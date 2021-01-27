@@ -321,7 +321,7 @@ def stitchTiles_simple(outfile, tileFilenames, tileInfo, overlapSize):
             top = 0
             yout = ypos
 
-        if row == tileInfo.nrows:
+        if row == (tileInfo.nrows-1):
             bottom = ysize
             bottomName = None
             
@@ -329,11 +329,13 @@ def stitchTiles_simple(outfile, tileFilenames, tileInfo, overlapSize):
             left = 0
             xout = xpos
             
-        if col == tileInfo.ncols:
+        if col == (tileInfo.ncols-1):
             right = xsize
             rightName = None
-            
+        
+        nullmask = (tileData == shepseg.SEGNULLVAL)
         tileData += maxSegId
+        tileData[nullmask] = shepseg.SEGNULLVAL
         
         print('writing', col, row)
         tileDataTrimmed = tileData[top:bottom, left:right]
@@ -350,7 +352,31 @@ def stitchTiles_simple(outfile, tileFilenames, tileInfo, overlapSize):
     nRows = maxSegId+1
 
     writeRandomColourTable(outBand, nRows)
+
+
+def recodeTile(tileData, maxSegId, tileRow, tileCol):
+    """
+    Adjust the segment ID numbers in the current tile, 
+    to make them globally unique across the whole mosaic.
     
+    Make use of the overlapping regions of tiles above and left,
+    to identify shared segments, and recode those to segment IDs 
+    from the adjacent tiles (i.e. we change the current tile, not 
+    the adjacent ones). Non-shared segments are increased so they 
+    are larger than previous values. 
+    
+    tileData is the array of segment IDs for a single tile. 
+    maxSegId is the current maximum segment ID for all preceding
+    tiles. 
+    tileRow, tileCol are the row/col numbers of this tile, within
+    the whole-mosaic tile numbering scheme. 
+    
+    Return a copy of tileData, with new segment ID numbers. 
+    
+    """
+    
+
+
 def writeRandomColourTable(outBand, nRows):
 
     nRows = int(nRows)
