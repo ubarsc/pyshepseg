@@ -28,6 +28,7 @@ This module is still under development.
 # Just in case anyone is trying to use this with Python-2
 from __future__ import print_function, division
 
+import numpy
 from osgeo import gdal
 
 from . import shepseg
@@ -45,7 +46,7 @@ def fitSpectralClustersWholeFile(filename, numClusters=60,
     If bandNumbers is not None, this is a list of band numbers 
     (1 is 1st band) to use in fitting the model. 
     
-    If subSamplePcnt is not None, this is the percentage of 
+    If subsamplePcnt is not None, this is the percentage of 
     pixels sampled. If it is None, then a suitable subsample is 
     calculated such that around one million pixels are sampled
     (Note - this would include null pixels, so if the image is 
@@ -60,9 +61,10 @@ def fitSpectralClustersWholeFile(filename, numClusters=60,
     for details. 
     
     Returns a tuple
-        (kmeansObj, subSamplePcnt)
-    where kmeansObj is the fitted object, and subSamplePcnt
-    is the subsample percentage actually used. 
+        (kmeansObj, subsamplePcnt, imgNullVal)
+    where kmeansObj is the fitted object, subsamplePcnt
+    is the subsample percentage actually used, and imgNullVal 
+    is the null value used (perhaps from the file). 
     
     """
     # Notes. 
@@ -72,6 +74,41 @@ def fitSpectralClustersWholeFile(filename, numClusters=60,
     # 2. Default subSampleProp = sqrt(ONEMILLION/(nRows*nCols))
     # 3. img = empty((nRows*subSampleProp, nCols*subSampleProp))
     #    band.ReadAsArray(buf_obj=img)
+    ds = gdal.Open(filename)
+    if bandNumbers is None:
+        bandNumbers = range(1, ds.RasterCount+1)
+    
+    if subsamplePcnt is None:
+        # We will try to sample roughly this many pixels
+        dfltTotalPixels = 1000000
+        totalImagePixels = ds.RasterXSize * ds.RasterYSize
+        subsampleProp = numpy.sqrt(dfltTotalPixels / totalImagePixels)
+        subsamplePcnt = 100 * subsampleProp
+    else:
+        subsampleProp = subsamplePcnt / 100.0
+    
+    if imgNullVal is None:
+        nullValArr = numpy.array([ds.GetRasterBand(i).GetNoDataValue() 
+            for i in bandNumbers])
+        if (nullValArr != nullValArr[0]).any():
+            raise PyShepSegTilingError("Different null values in some bands")
+        imgNullVal = nullValArr[0]
+    
+    nRows_sub = int(round(ds.RasterYSize * subsampleProp))
+    nCols_sub = int(round(ds.RasterXSize * subsampleProp))
+    
+    bandList = []
+    for bandNum in bandNumbers:
+        bandObj = ds.GetRasterBand(bandNum)
+        band = bandObj.ReadAsArray(buf_xsize=nCols_sub, buf_ysize=nRows_sub)
+        bandList.append(band)
+    img = numpy.array(bandList)
+    
+    kmeansObj = shepseg.fitSpectralClusters(img, numClusters=numClusters, 
+        subsamplePcnt=100, imgNullVal=imgNullVal, 
+        fixedKMeansInit=fixedKMeansInit)
+    
+    return (kmeansObj, subsamplePcnt, imgNullVal)
 
 
 def saveKMeansObj(kmeansObj, filename):
