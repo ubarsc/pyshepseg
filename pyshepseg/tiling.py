@@ -270,6 +270,8 @@ def doTiledShepherdSegmentation(infile, outfile, tileSize, overlapSize=None,
         b.SetNoDataValue(shepseg.SEGNULLVAL)
         
         writeRandomColourTable(b, segResult.segimg.max()+1)
+
+        del outDs
         
     stitchTiles_simple(outfile, tileFilenames, tileInfo, overlapSize)
     
