@@ -147,11 +147,13 @@ class TileInfo(object):
     def getTile(self, n):
         return self.tiles[n]
 
-def getTilesForFile(ds, tileSize, overlapSize):
+def getTilesForFile(infile, tileSize, overlapSize):
     """
     Return a TileInfo object for a given file and input
     parameters.
     """
+    ds = gdal.Open(infile)
+    
     # ensure int
     tileSize = int(tileSize)
     overlapSize = int(overlapSize)
@@ -211,7 +213,7 @@ def doTiledShepherdSegmentation(infile, outfile, tileSize, overlapSize=None,
     # Stitch together output tiles into single mosaic, 
     # re-writing segment ID numbers to be unique. 
     
-    kMeansObj, subSamplePcnt, imgNullVal = fitSpectralClustersWholeFile(infile, 
+    kmeansObj, subSamplePcnt, imgNullVal = fitSpectralClustersWholeFile(infile, 
             numClusters, bandNumbers, subsamplePcnt, imgNullVal, fixedKMeansInit)
     
     inDs = gdal.Open(infile)
@@ -219,7 +221,7 @@ def doTiledShepherdSegmentation(infile, outfile, tileSize, overlapSize=None,
     if overlapSize is None:
         overlapSize = minSegmentSize / 2
         
-    tileInfo = getTilesForFile(ds, tileSize, overlapSize)
+    tileInfo = getTilesForFile(infile, tileSize, overlapSize)
     
     if bandNumbers is None:
         bandNumbers = range(1, inDs.RasterCount+1)
@@ -248,7 +250,7 @@ def doTiledShepherdSegmentation(infile, outfile, tileSize, overlapSize=None,
 
         outType = gdal.GDT_UInt32
 
-        outDs = outDrvr.Create(filename, xsize, yszize, 1, outType)
+        outDs = outDrvr.Create(filename, xsize, ysize, 1, outType)
         outDs.SetProjection(inDs.GetProjection())
         outDs.SetGeoTransform(inDs.GetGeoTransform())
         b = outDs.GetRasterBand(1)
