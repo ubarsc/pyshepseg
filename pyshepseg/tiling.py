@@ -28,6 +28,7 @@ This module is still under development.
 # Just in case anyone is trying to use this with Python-2
 from __future__ import print_function, division
 
+import os
 from osgeo import gdal
 
 from . import shepseg
@@ -91,8 +92,73 @@ def loadKMeansObj(filename):
     Load a KMeans object from a file, as saved by saveKMeansObj(). 
     """
 
+class TileInfo(object):
+    """
+    Class that holds the pixel coordinates of the tiles within 
+    an image. 
+    """
+    def __init__(self, filename):
+        self.filename = filename
+        self.tiles = []
+        
+    def addTile(self, xpos, ypos, xsize, ysize):
+        self.tiles.append((xpos, ypos, xsize, ysize))
+        
+    def getNumTiles(self):
+        return len(self.tiles)
+        
+    def getTile(self, n):
+        return self.tiles[n]
 
-def doTiledShepherdSegmentation(infile, outfile):
+def getTilesForFile(ds, tileSize, overlapSize):
+    """
+    Return a TileInfo object for a given file and input
+    parameters.
+    """
+    # ensure int
+    tileSize = int(tileSize)
+    overlapSize = int(overlapSize)
+    
+    tileInfo = TileInfo(infile)
+        
+    yDone = False
+    ypos = 0
+    xtile = 0
+    ytile = 0
+    while not yDone:
+    
+        xDone = False
+        xpos = 0
+        xtile = 0
+        ysize = tileSize
+        if (ypos + ysize) > ds.RasterYSize:
+            ysize = ds.RasterYSize - ypos
+            yDone = True
+            if ysize == 0:
+                break
+    
+        while not xDone:
+            xsize = tileSize
+            if (xpos + xsize) > ds.RasterXSize:
+                xsize = ds.RasterXSize - xpos
+                xDone = True
+                if xsize == 0:
+                    break
+
+            tileInfo.append(xpos, ypos, xsize, ysize)
+            xpos += (tileSize - overlapSize)
+            xtile += 1
+            
+        ypos += (tileSize - overlapSize)
+        ytile += 1
+        
+    return tileInfo
+    
+
+def doTiledShepherdSegmentation(infile, outfile, tileSize, overlapSize=None,
+        minSegmentSize=50, numClusters=60, bandNumbers=None, subsamplePcnt=None, 
+        maxSpectralDiff='auto', imgNullVal=None, fixedKMeansInit=False,
+        fourConnected=True, verbose=False):
     """
     Rough pseudocode sketch......
     """
@@ -107,6 +173,50 @@ def doTiledShepherdSegmentation(infile, outfile):
     #
     # Stitch together output tiles into single mosaic, 
     # re-writing segment ID numbers to be unique. 
+    
+    kMeansObj, subSamplePcnt, imgNullVal = fitSpectralClustersWholeFile(infile, 
+            numClusters, bandNumbers, subsamplePcnt, imgNullVal, fixedKMeansInit)
+    
+    inDs = gdal.Open(infile)
+    
+    if overlapSize is None:
+        overlapSize = minSegmentSize / 2
+        
+    tileInfo = getTilesForFile(ds, tileSize, overlapSize)
+    
+    if bandNumbers is None:
+        bandNumbers = range(1, inDs.RasterCount+1)
+    
+    for ntile in range(tileInfo.getNumTiles()):
+        xpos, ypos, xsize, ysize = tileInfo.getTile(ntile)
+        lyrDataList = []
+        for bandNum in bandNumbers:
+            lyr = inDs.GetRasterBand(bandNum)
+            lyrData = lyr.ReadAsArray(xpos, ypos, xsize, ysize)
+            lyrDataList.append(lyrData)
+            
+        img = numpy.array(lyrDataList)
+    
+        segResult = shepseg.doShepherdSegmentation(img, 
+                    minSegmentSize=minSegmentSize,
+                    maxSpectralDiff=maxSpectralDiff, imgNullVal=imgNullVal, 
+                    fourConnected=fourConnected, kmeansObj=kmeansObj, 
+                    verbose=verbose)
+        
+        filename = 'tile_{}.kea'.format(ntile)
+        outDrvr = gdal.GetDriverByName('KEA')
+        
+        if os.path.exists(filename):
+            outDrvr.Delete(filename)
 
+        outType = gdal.GDT_UInt32
+
+        outDs = outDrvr.Create(filename, xsize, yszize, 1, outType)
+        outDs.SetProjection(inDs.GetProjection())
+        outDs.SetGeoTransform(inDs.GetGeoTransform())
+        b = outDs.GetRasterBand(1)
+        b.WriteArray(segResult.segimg)
+        b.SetMetadataItem('LAYER_TYPE', 'thematic')
+        b.SetNoDataValue(shepseg.SEGNULLVAL)
 
 class PyShepSegTilingError(Exception): pass
