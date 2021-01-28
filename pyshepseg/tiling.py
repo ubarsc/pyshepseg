@@ -70,13 +70,6 @@ def fitSpectralClustersWholeFile(filename, numClusters=60,
     is the null value used (perhaps from the file). 
     
     """
-    # Notes. 
-    # 1. This does not currently include a general mechanism
-    #    for any image transformations. Is that a problem? 
-    #    Perhaps a function could be passed? 
-    # 2. Default subSampleProp = sqrt(ONEMILLION/(nRows*nCols))
-    # 3. img = empty((nRows*subSampleProp, nCols*subSampleProp))
-    #    band.ReadAsArray(buf_obj=img)
     ds = gdal.Open(filename)
     if bandNumbers is None:
         bandNumbers = range(1, ds.RasterCount+1)
@@ -277,10 +270,26 @@ def doTiledShepherdSegmentation(infile, outfile, tileSize, overlapSize=None,
         
     stitchTiles(outfile, tileFilenames, tileInfo, overlapSize,
         simpleTileRecode)
-    
+
+
 def stitchTiles(outfile, tileFilenames, tileInfo, overlapSize,
         simpleTileRecode):
     """
+    Recombine individual tiles into a single segment raster output 
+    file. Segment ID values are recoded to be unique across the whole
+    raster, and contiguous. 
+    
+    outfile is the name of the final output raster. 
+    tileFilenames is a dictionary of the individual tile filenames, 
+    keyed by a tuple of (col, row) defining which tile it is. 
+    tileInfo is the object returned by getTilesForFile. 
+    overlapSize is the number of pixels in the overlap between tiles. 
+    
+    If simpleTileRecode is True, a simpler method will be used to 
+    recode segment IDs, using just a block offset to shift ID numbers.
+    If it is False, then a more complicated method is used which
+    recodes and merges segments which cross the boundary between tiles. 
+    
     """
     marginSize = int(overlapSize / 2)
 
