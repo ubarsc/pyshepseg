@@ -29,8 +29,11 @@ This module is still under development.
 from __future__ import print_function, division
 
 import os
+import time
+
 import numpy
 from osgeo import gdal
+import scipy.stats
 
 from . import shepseg
 
@@ -201,7 +204,7 @@ def getTilesForFile(infile, tileSize, overlapSize):
 def doTiledShepherdSegmentation(infile, outfile, tileSize, overlapSize=None,
         minSegmentSize=50, numClusters=60, bandNumbers=None, subsamplePcnt=None, 
         maxSpectralDiff='auto', imgNullVal=None, fixedKMeansInit=False,
-        fourConnected=True, verbose=False):
+        fourConnected=True, verbose=False, simpleTileRecode=False):
     """
     Run the Shepherd segmentation algorithm in a memory-efficient
     manner, suitable for large raster files. Runs the segmentation
@@ -213,6 +216,9 @@ def doTiledShepherdSegmentation(infile, outfile, tileSize, overlapSize=None,
     then used as seeds for all individual tiles. 
     
     """
+    if (overlapSize % 2) != 0:
+        raise PyShepSegTilingError("Overlap size must be an even number")
+
     kmeansObj, subSamplePcnt, imgNullVal = fitSpectralClustersWholeFile(infile, 
             numClusters, bandNumbers, subsamplePcnt, imgNullVal, fixedKMeansInit)
     
@@ -269,12 +275,13 @@ def doTiledShepherdSegmentation(infile, outfile, tileSize, overlapSize=None,
 
         del outDs
         
-    stitchTiles_simple(outfile, tileFilenames, tileInfo, overlapSize)
+    stitchTiles(outfile, tileFilenames, tileInfo, overlapSize,
+        simpleTileRecode)
     
-def stitchTiles_simple(outfile, tileFilenames, tileInfo, overlapSize):
+def stitchTiles(outfile, tileFilenames, tileInfo, overlapSize,
+        simpleTileRecode):
     """
     """
-
     marginSize = int(overlapSize / 2)
 
     inDs = gdal.Open(tileInfo.filename)
@@ -312,8 +319,8 @@ def stitchTiles_simple(outfile, tileFilenames, tileInfo, overlapSize):
         xout = xpos + marginSize
         yout = ypos + marginSize
 
-        rightName = 'right_{}_{}.npy'.format(col, row)
-        bottomName = 'bottom_{}_{}.npy'.format(col, row)
+        rightName = overlapFilename(col, row, RIGHT_OVERLAP)
+        bottomName = overlapFilename(col, row, BOTTOM_OVERLAP)
         
         if row == 0:
             top = 0
@@ -331,9 +338,14 @@ def stitchTiles_simple(outfile, tileFilenames, tileInfo, overlapSize):
             right = xsize
             rightName = None
         
-        nullmask = (tileData == shepseg.SEGNULLVAL)
-        tileData += maxSegId
-        tileData[nullmask] = shepseg.SEGNULLVAL
+        if simpleTileRecode:
+            nullmask = (tileData == shepseg.SEGNULLVAL)
+            tileData += maxSegId
+            tileData[nullmask] = shepseg.SEGNULLVAL
+        else:
+            t0 = time.time()
+            tileData = recodeTile(tileData, maxSegId, row, col, overlapSize)
+            print('recode {:.2f} seconds'.format(time.time()-t0))
         
         print('writing', col, row)
         tileDataTrimmed = tileData[top:bottom, left:right]
@@ -353,7 +365,20 @@ def stitchTiles_simple(outfile, tileFilenames, tileInfo, overlapSize):
     writeRandomColourTable(outBand, nRows)
 
 
-def recodeTile(tileData, maxSegId, tileRow, tileCol):
+RIGHT_OVERLAP = 'right'
+BOTTOM_OVERLAP = 'bottom'
+def overlapFilename(col, row, edge):
+    """
+    Return the filename used for the overlap array
+    """
+    return '{}_{}_{}.npy'.format(edge, col, row)
+
+
+# The two orientations of the overlap region
+HORIZONTAL = 0
+VERTICAL = 1
+
+def recodeTile(tileData, maxSegId, tileRow, tileCol, overlapSize):
     """
     Adjust the segment ID numbers in the current tile, 
     to make them globally unique across the whole mosaic.
@@ -373,7 +398,129 @@ def recodeTile(tileData, maxSegId, tileRow, tileCol):
     Return a copy of tileData, with new segment ID numbers. 
     
     """
+    # The A overlaps are from the current tile. The B overlaps 
+    # are the same regions from the adjacent tiles, and we load 
+    # them here from the saved .npy files. 
+    topOverlapA = tileData[:overlapSize, :]
+    leftOverlapA = tileData[:, :overlapSize]
     
+    recodeDict = {}    
+
+    # Read in the bottom and right regions of the adjacent tiles
+    if tileRow > 0:
+        topOverlapFilename = overlapFilename(tileCol, tileRow-1, BOTTOM_OVERLAP)
+        topOverlapB = numpy.load(topOverlapFilename)
+
+        recodeSharedSegments(tileData, topOverlapA, topOverlapB, 
+            HORIZONTAL, recodeDict)
+
+    if tileCol > 0:
+        leftOverlapFilename = overlapFilename(tileCol-1, tileRow, RIGHT_OVERLAP)
+        leftOverlapB = numpy.load(leftOverlapFilename)
+
+        recodeSharedSegments(tileData, leftOverlapA, leftOverlapB, 
+            VERTICAL, recodeDict)
+    
+    (newTileData, newMaxSegId) = relabelSegments(tileData, recodeDict, 
+        maxSegId)
+    
+    return newTileData
+
+
+def recodeSharedSegments(tileData, overlapA, overlapB, orientation,
+        recodeDict):
+    """
+    """
+    # The current segment IDs just from the overlap region.
+    segIdList = numpy.unique(overlapA)
+    # Ensure that we do not include the null segment ID
+    segIdList = segIdList[segIdList!=shepseg.SEGNULLVAL]
+    
+    segSize = shepseg.makeSegSize(overlapA)
+    segLoc = shepseg.makeSegmentLocations(overlapA, segSize)
+    
+    # Find the segments which cross the stitch line
+    segsOnStitch = []
+    for segid in segIdList:
+        if crossesMidline(overlapA, segLoc[segid], orientation):
+            segsOnStitch.append(segid)
+    
+    for segid in segsOnStitch:
+        # Get the pixel row and column numbers of every pixel
+        # in this segment. Note that because we are using
+        # the top and left overlap regions, the pixel row/col 
+        # numbers in the full tile are identical to those for 
+        # the corresponding pixels in the overlap region arrays
+        segNdx = segLoc[segid].getSegmentIndices()
+        
+        # Find the most common segment ID in the corresponding
+        # pixels from the B overlap array. In principle there 
+        # should only be one, but just in case. 
+        modeObj = scipy.stats.mode(overlapB[segNdx])
+        segIdFromB = modeObj.mode[0]
+        
+        # Now record this recoding relationship
+        recodeDict[segid] = segIdFromB
+
+
+def relabelSegments(tileData, recodeDict, maxSegId):
+    """
+    Recode the segment IDs in the given tileData array.
+    
+    For segment IDs which are keys in recodeDict, these
+    are replaced with the corresponding entry. For all other 
+    segment IDs, they are replaced with sequentially increasing
+    ID numbers, starting from one more than the previous
+    maximum segment ID (maxSegId). 
+    
+    A re-coded copy of tileData is createded, the original is 
+    unchanged. 
+    
+    Return value is a tuple
+        (newTileData, newMaxSegId)
+    
+    """
+    newTileData = numpy.full(tileData.shape, shepseg.SEGNULLVAL, 
+        dtype=tileData.dtype)
+    
+    segSize = shepseg.makeSegSize(tileData)
+    segLoc = shepseg.makeSegmentLocations(tileData, segSize)
+
+    newSegId = maxSegId
+    oldSegmentIDs = segLoc.keys()
+    
+    for segid in oldSegmentIDs:
+        pixNdx = segLoc[shepseg.SegIdType(segid)].getSegmentIndices()
+        if segid in recodeDict:
+            newTileData[pixNdx] = recodeDict[segid]
+        else:
+            newSegId += 1
+            newTileData[pixNdx] = newSegId
+    
+    return (newTileData, newSegId)
+
+
+def crossesMidline(overlap, segLoc, orientation):
+    """
+    Return True if the given segment crosses the midline of the
+    overlap array. Orientation of the midline is either
+        HORIZONTAL or VERTICAL
+        
+    segLoc is the segment location entry for the segment in question
+    
+    """
+    (nrows, ncols) = overlap.shape
+    if orientation == HORIZONTAL:
+        mid = int(nrows / 2)
+        n = 0
+    elif orientation == VERTICAL:
+        mid = int(ncols / 2)
+        n = 1
+
+    minN = segLoc.rowcols[:, n].min()
+    maxN = segLoc.rowcols[:, n].max()
+    
+    return ((minN <= mid) & (maxN > mid))
 
 
 def writeRandomColourTable(outBand, nRows):
