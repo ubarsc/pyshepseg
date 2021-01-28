@@ -208,6 +208,9 @@ def doTiledShepherdSegmentation(infile, outfile, tileSize, overlapSize=None,
     of the whole raster, to create consistent clusters. These are 
     then used as seeds for all individual tiles. 
     
+    The tileSize is the width/height of the tiles, given in pixels. 
+    ????? Need to clarify whether this includes the overlap ?????
+    
     """
     if (overlapSize % 2) != 0:
         raise PyShepSegTilingError("Overlap size must be an even number")
@@ -218,7 +221,7 @@ def doTiledShepherdSegmentation(infile, outfile, tileSize, overlapSize=None,
     inDs = gdal.Open(infile)
     
     if overlapSize is None:
-        overlapSize = minSegmentSize / 2
+        overlapSize = minSegmentSize * 2
         
     tileInfo = getTilesForFile(infile, tileSize, overlapSize)
     
