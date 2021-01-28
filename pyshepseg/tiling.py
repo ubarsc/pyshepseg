@@ -203,20 +203,16 @@ def doTiledShepherdSegmentation(infile, outfile, tileSize, overlapSize=None,
         maxSpectralDiff='auto', imgNullVal=None, fixedKMeansInit=False,
         fourConnected=True, verbose=False):
     """
-    Rough pseudocode sketch......
-    """
-    # km = fitSpectralClustersWholeFile() on whole infile
-    #
-    # Work out coords of tiles. There should be
-    # an overlap wide enough so that no segment can extend from 
-    # the middle to the edge of the overlap. (e.g. minSegmentSize/2)
-    #
-    # For each tile, do
-    #     shepseg.doShepherdSegmentation(tile, kmeansObj=km)
-    #
-    # Stitch together output tiles into single mosaic, 
-    # re-writing segment ID numbers to be unique. 
+    Run the Shepherd segmentation algorithm in a memory-efficient
+    manner, suitable for large raster files. Runs the segmentation
+    on separate tiles across the raster, then stitches these
+    together into a single output segment raster. 
     
+    The initial spectral clustering is performed on a sub-sample
+    of the whole raster, to create consistent clusters. These are 
+    then used as seeds for all individual tiles. 
+    
+    """
     kmeansObj, subSamplePcnt, imgNullVal = fitSpectralClustersWholeFile(infile, 
             numClusters, bandNumbers, subsamplePcnt, imgNullVal, fixedKMeansInit)
     
