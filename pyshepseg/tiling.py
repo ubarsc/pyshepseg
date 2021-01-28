@@ -347,8 +347,9 @@ def stitchTiles_simple(outfile, tileFilenames, tileInfo, overlapSize):
             numpy.save(rightName, tileData[:, -overlapSize:])
         if bottomName is not None:
             numpy.save(bottomName, tileData[-overlapSize:, :])    
-            
-        maxSegId += tileDataTrimmed.max()
+        
+        nonNull = (tileDataTrimmed != shepseg.SEGNULLVAL)
+        maxSegId = tileDataTrimmed[nonNull].max()
 
     print('write colour table', maxSegId, type(maxSegId))    
     nRows = maxSegId+1
