@@ -35,6 +35,7 @@ import tempfile
 
 import numpy
 from osgeo import gdal
+gdal.UseExceptions()
 import scipy.stats
 
 from . import shepseg
@@ -42,8 +43,8 @@ from . import shepseg
 TEMPFILES_DRIVER = 'KEA'
 TEMPFILES_EXT = 'kea'
 
-def fitSpectralClustersWholeFile(filename, numClusters=60, 
-        bandNumbers=None, subsamplePcnt=None, imgNullVal=None, 
+def fitSpectralClustersWholeFile(inDs, bandNumbers, numClusters=60, 
+        subsamplePcnt=None, imgNullVal=None, 
         fixedKMeansInit=False):
     """
     Given a raster filename, read a selected sample of pixels
@@ -75,32 +76,28 @@ def fitSpectralClustersWholeFile(filename, numClusters=60,
     is the null value used (perhaps from the file). 
     
     """
-    ds = gdal.Open(filename)
-    if bandNumbers is None:
-        bandNumbers = range(1, ds.RasterCount+1)
-    
     if subsamplePcnt is None:
         # We will try to sample roughly this many pixels
         dfltTotalPixels = 1000000
-        totalImagePixels = ds.RasterXSize * ds.RasterYSize
+        totalImagePixels = inDs.RasterXSize * inDs.RasterYSize
         subsampleProp = numpy.sqrt(dfltTotalPixels / totalImagePixels)
         subsamplePcnt = 100 * subsampleProp
     else:
         subsampleProp = subsamplePcnt / 100.0
     
     if imgNullVal is None:
-        nullValArr = numpy.array([ds.GetRasterBand(i).GetNoDataValue() 
+        nullValArr = numpy.array([inDs.GetRasterBand(i).GetNoDataValue() 
             for i in bandNumbers])
         if (nullValArr != nullValArr[0]).any():
             raise PyShepSegTilingError("Different null values in some bands")
         imgNullVal = nullValArr[0]
     
-    nRows_sub = int(round(ds.RasterYSize * subsampleProp))
-    nCols_sub = int(round(ds.RasterXSize * subsampleProp))
+    nRows_sub = int(round(inDs.RasterYSize * subsampleProp))
+    nCols_sub = int(round(inDs.RasterXSize * subsampleProp))
     
     bandList = []
     for bandNum in bandNumbers:
-        bandObj = ds.GetRasterBand(bandNum)
+        bandObj = inDs.GetRasterBand(bandNum)
         band = bandObj.ReadAsArray(buf_xsize=nCols_sub, buf_ysize=nRows_sub)
         bandList.append(band)
     img = numpy.array(bandList)
@@ -134,8 +131,7 @@ class TileInfo(object):
     Class that holds the pixel coordinates of the tiles within 
     an image. 
     """
-    def __init__(self, filename):
-        self.filename = filename
+    def __init__(self):
         self.tiles = {}
         self.ncols = None
         self.nrows = None
@@ -149,18 +145,16 @@ class TileInfo(object):
     def getTile(self, col, row):
         return self.tiles[(col, row)]
         
-def getTilesForFile(infile, tileSize, overlapSize):
+def getTilesForFile(ds, tileSize, overlapSize):
     """
     Return a TileInfo object for a given file and input
     parameters.
     """
-    ds = gdal.Open(infile)
-    
     # ensure int
     tileSize = int(tileSize)
     overlapSize = int(overlapSize)
     
-    tileInfo = TileInfo(infile)
+    tileInfo = TileInfo()
         
     yDone = False
     ypos = 0
@@ -221,18 +215,18 @@ def doTiledShepherdSegmentation(infile, outfile, tileSize=4096, overlapSize=200,
     if (overlapSize % 2) != 0:
         raise PyShepSegTilingError("Overlap size must be an even number")
 
-    kmeansObj, subSamplePcnt, imgNullVal = fitSpectralClustersWholeFile(infile, 
-            numClusters, bandNumbers, subsamplePcnt, imgNullVal, fixedKMeansInit)
+    inDs = gdal.Open(infile)
+
+    if bandNumbers is None:
+        bandNumbers = range(1, inDs.RasterCount+1)
+
+    kmeansObj, subSamplePcnt, imgNullVal = fitSpectralClustersWholeFile(inDs, 
+            bandNumbers, numClusters, subsamplePcnt, imgNullVal, fixedKMeansInit)
     
     # create a temp directory for use in splitting out tiles, overlaps etc
     tempDir = tempfile.mkdtemp()
     
-    inDs = gdal.Open(infile)
-    
-    tileInfo = getTilesForFile(infile, tileSize, overlapSize)
-    
-    if bandNumbers is None:
-        bandNumbers = range(1, inDs.RasterCount+1)
+    tileInfo = getTilesForFile(inDs, tileSize, overlapSize)
         
     transform = inDs.GetGeoTransform()
     tileFilenames = {}
@@ -283,13 +277,13 @@ def doTiledShepherdSegmentation(infile, outfile, tileSize=4096, overlapSize=200,
 
         del outDs
         
-    stitchTiles(outfile, tileFilenames, tileInfo, overlapSize,
+    stitchTiles(inDs, outfile, tileFilenames, tileInfo, overlapSize,
         tempDir, simpleTileRecode, outputDriver)
         
     shutil.rmtree(tempDir)
 
 
-def stitchTiles(outfile, tileFilenames, tileInfo, overlapSize,
+def stitchTiles(inDs, outfile, tileFilenames, tileInfo, overlapSize,
         tempDir, simpleTileRecode, outputDriver):
     """
     Recombine individual tiles into a single segment raster output 
@@ -309,8 +303,6 @@ def stitchTiles(outfile, tileFilenames, tileInfo, overlapSize,
     
     """
     marginSize = int(overlapSize / 2)
-
-    inDs = gdal.Open(tileInfo.filename)
 
     outDrvr = gdal.GetDriverByName(outputDriver)
     if outDrvr is None:
