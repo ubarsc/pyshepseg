@@ -30,6 +30,8 @@ from __future__ import print_function, division
 
 import os
 import time
+import shutil
+import tempfile
 
 import numpy
 from osgeo import gdal
@@ -194,7 +196,7 @@ def getTilesForFile(infile, tileSize, overlapSize):
     return tileInfo
     
 
-def doTiledShepherdSegmentation(infile, outfile, tileSize, overlapSize=None,
+def doTiledShepherdSegmentation(infile, outfile, tileSize=4096, overlapSize=200,
         minSegmentSize=50, numClusters=60, bandNumbers=None, subsamplePcnt=None, 
         maxSpectralDiff='auto', imgNullVal=None, fixedKMeansInit=False,
         fourConnected=True, verbose=False, simpleTileRecode=False):
@@ -208,8 +210,8 @@ def doTiledShepherdSegmentation(infile, outfile, tileSize, overlapSize=None,
     of the whole raster, to create consistent clusters. These are 
     then used as seeds for all individual tiles. 
     
-    The tileSize is the width/height of the tiles, given in pixels. 
-    ????? Need to clarify whether this includes the overlap ?????
+    The tileSize is the width/height of the tiles (not including overlap).
+    An overlap of overlapSize is included between tiles.
     
     """
     if (overlapSize % 2) != 0:
@@ -218,11 +220,11 @@ def doTiledShepherdSegmentation(infile, outfile, tileSize, overlapSize=None,
     kmeansObj, subSamplePcnt, imgNullVal = fitSpectralClustersWholeFile(infile, 
             numClusters, bandNumbers, subsamplePcnt, imgNullVal, fixedKMeansInit)
     
+    # create a temp directory for use in splitting out tiles, overlaps etc
+    tempDir = tempfile.mkdtemp()
+    
     inDs = gdal.Open(infile)
     
-    if overlapSize is None:
-        overlapSize = minSegmentSize * 2
-        
     tileInfo = getTilesForFile(infile, tileSize, overlapSize)
     
     if bandNumbers is None:
@@ -247,7 +249,7 @@ def doTiledShepherdSegmentation(infile, outfile, tileSize, overlapSize=None,
                     fourConnected=fourConnected, kmeansObj=kmeansObj, 
                     verbose=verbose)
         
-        filename = 'tile_{}_{}.kea'.format(col, row)
+        filename = os.path.join(tempDir, 'tile_{}_{}.kea'.format(col, row))
         tileFilenames[(col, row)] = filename
         outDrvr = gdal.GetDriverByName('KEA')
         
@@ -272,11 +274,13 @@ def doTiledShepherdSegmentation(infile, outfile, tileSize, overlapSize=None,
         del outDs
         
     stitchTiles(outfile, tileFilenames, tileInfo, overlapSize,
-        simpleTileRecode)
+        tempDir, simpleTileRecode)
+        
+    shutil.rmtree(tempDir)
 
 
 def stitchTiles(outfile, tileFilenames, tileInfo, overlapSize,
-        simpleTileRecode):
+        tempDir, simpleTileRecode):
     """
     Recombine individual tiles into a single segment raster output 
     file. Segment ID values are recoded to be unique across the whole
@@ -331,8 +335,8 @@ def stitchTiles(outfile, tileFilenames, tileInfo, overlapSize,
         xout = xpos + marginSize
         yout = ypos + marginSize
 
-        rightName = overlapFilename(col, row, RIGHT_OVERLAP)
-        bottomName = overlapFilename(col, row, BOTTOM_OVERLAP)
+        rightName = overlapFilename(col, row, RIGHT_OVERLAP, tempDir)
+        bottomName = overlapFilename(col, row, BOTTOM_OVERLAP, tempDir)
         
         if row == 0:
             top = 0
@@ -356,7 +360,8 @@ def stitchTiles(outfile, tileFilenames, tileInfo, overlapSize,
             tileData[nullmask] = shepseg.SEGNULLVAL
         else:
             t0 = time.time()
-            tileData = recodeTile(tileData, maxSegId, row, col, overlapSize)
+            tileData = recodeTile(tileData, maxSegId, row, col, 
+                            overlapSize, tempDir)
             print('recode {:.2f} seconds'.format(time.time()-t0))
         
         print('writing', col, row)
@@ -379,18 +384,19 @@ def stitchTiles(outfile, tileFilenames, tileInfo, overlapSize,
 
 RIGHT_OVERLAP = 'right'
 BOTTOM_OVERLAP = 'bottom'
-def overlapFilename(col, row, edge):
+def overlapFilename(col, row, edge, tempDir):
     """
     Return the filename used for the overlap array
     """
-    return '{}_{}_{}.npy'.format(edge, col, row)
+    fname = '{}_{}_{}.npy'.format(edge, col, row)
+    return os.path.join(tempDir, fname)
 
 
 # The two orientations of the overlap region
 HORIZONTAL = 0
 VERTICAL = 1
 
-def recodeTile(tileData, maxSegId, tileRow, tileCol, overlapSize):
+def recodeTile(tileData, maxSegId, tileRow, tileCol, overlapSize, tempDir):
     """
     Adjust the segment ID numbers in the current tile, 
     to make them globally unique across the whole mosaic.
@@ -420,14 +426,16 @@ def recodeTile(tileData, maxSegId, tileRow, tileCol, overlapSize):
 
     # Read in the bottom and right regions of the adjacent tiles
     if tileRow > 0:
-        topOverlapFilename = overlapFilename(tileCol, tileRow-1, BOTTOM_OVERLAP)
+        topOverlapFilename = overlapFilename(tileCol, tileRow-1, 
+                                BOTTOM_OVERLAP, tempDir)
         topOverlapB = numpy.load(topOverlapFilename)
 
         recodeSharedSegments(tileData, topOverlapA, topOverlapB, 
             HORIZONTAL, recodeDict)
 
     if tileCol > 0:
-        leftOverlapFilename = overlapFilename(tileCol-1, tileRow, RIGHT_OVERLAP)
+        leftOverlapFilename = overlapFilename(tileCol-1, tileRow, 
+                                RIGHT_OVERLAP, tempDir)
         leftOverlapB = numpy.load(leftOverlapFilename)
 
         recodeSharedSegments(tileData, leftOverlapA, leftOverlapB, 
