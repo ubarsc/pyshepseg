@@ -475,17 +475,17 @@ def stitchTiles(inDs, outfile, tileFilenames, tileInfo, overlapSize,
                             overlapSize, tempDir)
             print('recode {:.2f} seconds'.format(time.time()-t0))
             
-        if lastHistogram is not None:
-            # update lastHistogram with the new counts from the
-            # newly recoded tile
-            # (this shouldn't do anything if simpleTileRecode as the
-            # ranges won't overlap)
-            tileHist = TileHistogram(tileData, shepseg.SEGNULLVAL)
-            lastHistogram.updateWithHist(tileHist)
-
-            # write to file
-            print('writing histo for', col, row, lastHistogram.startFid)
-            writeHistoToFile(outBand, lastHistogram)
+#        if lastHistogram is not None:
+#            # update lastHistogram with the new counts from the
+#            # newly recoded tile
+#            # (this shouldn't do anything if simpleTileRecode as the
+#            # ranges won't overlap)
+#            tileHist = TileHistogram(tileData, shepseg.SEGNULLVAL)
+#            lastHistogram.updateWithHist(tileHist)
+#
+#            # write to file
+#            print('writing histo for', col, row, lastHistogram.startFid)
+#            writeHistoToFile(outBand, lastHistogram)
         
         print('writing', col, row)
         tileDataTrimmed = tileData[top:bottom, left:right]
@@ -499,16 +499,16 @@ def stitchTiles(inDs, outfile, tileFilenames, tileInfo, overlapSize,
         nonNull = (tileDataTrimmed != shepseg.SEGNULLVAL)
         maxSegId = tileDataTrimmed[nonNull].max()
 
-        lastHistogram = TileHistogram(tileDataTrimmed, shepseg.SEGNULLVAL)
-        print('created histo', lastHistogram.startFid, lastHistogram.endFid)
-
-    # histo for very last tile
-    if lastHistogram is not None:
-        print('last histogram', lastHistogram.startFid)
-        writeHistoToFile(outBand, lastHistogram)
+#        lastHistogram = TileHistogram(tileDataTrimmed, shepseg.SEGNULLVAL)
+#        print('created histo', lastHistogram.startFid, lastHistogram.endFid)
+#
+#    # histo for very last tile
+#    if lastHistogram is not None:
+#        print('last histogram', lastHistogram.startFid)
+#        writeHistoToFile(outBand, lastHistogram)
 
     # no longer needed?
-    # writeRandomColourTable(outBand, nRows)
+    writeRandomColourTable(outBand, maxSegId+1)
 
 
 RIGHT_OVERLAP = 'right'
@@ -672,25 +672,25 @@ def crossesMidline(overlap, segLoc, orientation):
     return ((minN <= mid) & (maxN > mid))
 
 
-#def writeRandomColourTable(outBand, nRows):
-#
-#    nRows = int(nRows)
-#    colNames = ["Blue", "Green", "Red"]
-#    colUsages = [gdal.GFU_Blue, gdal.GFU_Green, gdal.GFU_Red]
-#
-#    attrTbl = outBand.GetDefaultRAT()
-#    attrTbl.SetRowCount(nRows)
-#    
-#    for band in range(3):
-#        attrTbl.CreateColumn(colNames[band], gdal.GFT_Integer, colUsages[band])
-#        colNum = attrTbl.GetColumnCount() - 1
-#        colour = numpy.random.random_integers(0, 255, size=nRows)
-#        attrTbl.WriteArray(colour, colNum)
-#        
-#    alpha = numpy.full((nRows,), 255, dtype=numpy.uint8)
-#    alpha[shepseg.SEGNULLVAL] = 0
-#    attrTbl.CreateColumn('Alpha', gdal.GFT_Integer, gdal.GFU_Alpha)
-#    colNum = attrTbl.GetColumnCount() - 1
-#    attrTbl.WriteArray(alpha, colNum)
+def writeRandomColourTable(outBand, nRows):
+
+    nRows = int(nRows)
+    colNames = ["Blue", "Green", "Red"]
+    colUsages = [gdal.GFU_Blue, gdal.GFU_Green, gdal.GFU_Red]
+
+    attrTbl = outBand.GetDefaultRAT()
+    attrTbl.SetRowCount(nRows)
+    
+    for band in range(3):
+        attrTbl.CreateColumn(colNames[band], gdal.GFT_Integer, colUsages[band])
+        colNum = attrTbl.GetColumnCount() - 1
+        colour = numpy.random.random_integers(0, 255, size=nRows)
+        attrTbl.WriteArray(colour, colNum)
+        
+    alpha = numpy.full((nRows,), 255, dtype=numpy.uint8)
+    alpha[shepseg.SEGNULLVAL] = 0
+    attrTbl.CreateColumn('Alpha', gdal.GFT_Integer, gdal.GFU_Alpha)
+    colNum = attrTbl.GetColumnCount() - 1
+    attrTbl.WriteArray(alpha, colNum)
 
 class PyShepSegTilingError(Exception): pass
