@@ -39,6 +39,9 @@ import scipy.stats
 
 from . import shepseg
 
+TEMPFILES_DRIVER = 'KEA'
+TEMPFILES_EXT = 'kea'
+
 def fitSpectralClustersWholeFile(filename, numClusters=60, 
         bandNumbers=None, subsamplePcnt=None, imgNullVal=None, 
         fixedKMeansInit=False):
@@ -199,7 +202,8 @@ def getTilesForFile(infile, tileSize, overlapSize):
 def doTiledShepherdSegmentation(infile, outfile, tileSize=4096, overlapSize=200,
         minSegmentSize=50, numClusters=60, bandNumbers=None, subsamplePcnt=None, 
         maxSpectralDiff='auto', imgNullVal=None, fixedKMeansInit=False,
-        fourConnected=True, verbose=False, simpleTileRecode=False):
+        fourConnected=True, verbose=False, simpleTileRecode=False, 
+        outputDriver='KEA'):
     """
     Run the Shepherd segmentation algorithm in a memory-efficient
     manner, suitable for large raster files. Runs the segmentation
@@ -232,6 +236,12 @@ def doTiledShepherdSegmentation(infile, outfile, tileSize=4096, overlapSize=200,
         
     transform = inDs.GetGeoTransform()
     tileFilenames = {}
+
+    outDrvr = gdal.GetDriverByName(TEMPFILES_DRIVER)
+
+    if outDrvr is None:
+        msg = 'This GDAL does not support driver {}'.format(TEMPFILES_DRIVER)
+        raise SystemExit(msg)
     
     for col, row in tileInfo.tiles:
         xpos, ypos, xsize, ysize = tileInfo.getTile(col, row)
@@ -249,9 +259,9 @@ def doTiledShepherdSegmentation(infile, outfile, tileSize=4096, overlapSize=200,
                     fourConnected=fourConnected, kmeansObj=kmeansObj, 
                     verbose=verbose)
         
-        filename = os.path.join(tempDir, 'tile_{}_{}.kea'.format(col, row))
+        filename = 'tile_{}_{}.{}'.format(col, row, TEMPFILES_EXT)
+        filename = os.path.join(tempDir, filename)
         tileFilenames[(col, row)] = filename
-        outDrvr = gdal.GetDriverByName('KEA')
         
         if os.path.exists(filename):
             outDrvr.Delete(filename)
@@ -274,13 +284,13 @@ def doTiledShepherdSegmentation(infile, outfile, tileSize=4096, overlapSize=200,
         del outDs
         
     stitchTiles(outfile, tileFilenames, tileInfo, overlapSize,
-        tempDir, simpleTileRecode)
+        tempDir, simpleTileRecode, outputDriver)
         
     shutil.rmtree(tempDir)
 
 
 def stitchTiles(outfile, tileFilenames, tileInfo, overlapSize,
-        tempDir, simpleTileRecode):
+        tempDir, simpleTileRecode, outputDriver):
     """
     Recombine individual tiles into a single segment raster output 
     file. Segment ID values are recoded to be unique across the whole
@@ -302,7 +312,10 @@ def stitchTiles(outfile, tileFilenames, tileInfo, overlapSize,
 
     inDs = gdal.Open(tileInfo.filename)
 
-    outDrvr = gdal.GetDriverByName('KEA')
+    outDrvr = gdal.GetDriverByName(outputDriver)
+    if outDrvr is None:
+        msg = 'This GDAL does not support driver {}'.format(outputDriver)
+        raise SystemExit(msg)
 
     if os.path.exists(outfile):
         outDrvr.Delete(outfile)
