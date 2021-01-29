@@ -214,6 +214,9 @@ def doTiledShepherdSegmentation(infile, outfile, tileSize=4096, overlapSize=200,
     The tileSize is the width/height of the tiles (not including overlap).
     An overlap of overlapSize is included between tiles.
     
+    Return the maximum segment ID used (i.e. the number of segments,
+    not including the null segment). 
+    
     """
     if (overlapSize % 2) != 0:
         raise PyShepSegTilingError("Overlap size must be an even number")
@@ -281,10 +284,13 @@ def doTiledShepherdSegmentation(infile, outfile, tileSize=4096, overlapSize=200,
 
         del outDs
         
-    stitchTiles(inDs, outfile, tileFilenames, tileInfo, overlapSize,
+    maxSegId = stitchTiles(inDs, outfile, tileFilenames, tileInfo, overlapSize,
         tempDir, simpleTileRecode, outputDriver)
         
     shutil.rmtree(tempDir)
+    
+    return maxSegId
+
 
 spec = [('startFid', types.uint32), ('endFid', types.uint32), 
             ('hist', types.uint32[:])]
@@ -406,6 +412,8 @@ def stitchTiles(inDs, outfile, tileFilenames, tileInfo, overlapSize,
     If it is False, then a more complicated method is used which
     recodes and merges segments which cross the boundary between tiles. 
     
+    Return the maximum segment ID used. 
+    
     """
     marginSize = int(overlapSize / 2)
 
@@ -428,7 +436,7 @@ def stitchTiles(inDs, outfile, tileFilenames, tileInfo, overlapSize,
     
     colRows = sorted(tileInfo.tiles.keys())                
     maxSegId = 0
-    lastHistogram = None
+#    lastHistogram = None
     
     for col, row in colRows:
         
@@ -497,7 +505,8 @@ def stitchTiles(inDs, outfile, tileFilenames, tileInfo, overlapSize,
             numpy.save(bottomName, tileData[-overlapSize:, :])    
         
         nonNull = (tileDataTrimmed != shepseg.SEGNULLVAL)
-        maxSegId = tileDataTrimmed[nonNull].max()
+        tileMaxSegId = tileDataTrimmed[nonNull].max()
+        maxSegId = max(maxSegId, tileMaxSegId)
 
 #        lastHistogram = TileHistogram(tileDataTrimmed, shepseg.SEGNULLVAL)
 #        print('created histo', lastHistogram.startFid, lastHistogram.endFid)
@@ -509,6 +518,8 @@ def stitchTiles(inDs, outfile, tileFilenames, tileInfo, overlapSize,
 
     # no longer needed?
     writeRandomColourTable(outBand, maxSegId+1)
+    
+    return maxSegId
 
 
 RIGHT_OVERLAP = 'right'
