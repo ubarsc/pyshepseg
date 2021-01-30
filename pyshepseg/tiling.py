@@ -38,6 +38,7 @@ from osgeo import gdal
 gdal.UseExceptions()
 import scipy.stats
 
+from numba import njit
 from numba.experimental import jitclass
 from numba.core import types
 
@@ -218,6 +219,8 @@ def doTiledShepherdSegmentation(infile, outfile, tileSize=4096, overlapSize=200,
     not including the null segment). 
     
     """
+    if verbose:
+        print("Starting tiled segmentation")
     if (overlapSize % 2) != 0:
         raise PyShepSegTilingError("Overlap size must be an even number")
 
@@ -226,13 +229,20 @@ def doTiledShepherdSegmentation(infile, outfile, tileSize=4096, overlapSize=200,
     if bandNumbers is None:
         bandNumbers = range(1, inDs.RasterCount+1)
 
+    t0 = time.time()
     kmeansObj, subSamplePcnt, imgNullVal = fitSpectralClustersWholeFile(inDs, 
             bandNumbers, numClusters, subsamplePcnt, imgNullVal, fixedKMeansInit)
+    if verbose:
+        print("KMeans of whole raster {:.2f} seconds".format(time.time()-t0))
+        print("Subsample Percentage={:.4f}".format(subSamplePcnt))
     
     # create a temp directory for use in splitting out tiles, overlaps etc
     tempDir = tempfile.mkdtemp()
     
     tileInfo = getTilesForFile(inDs, tileSize, overlapSize)
+    if verbose:
+        print("Found {} tiles, with {} rows and {} cols".format(
+            tileInfo.getNumTiles(), tileInfo.nrows, tileInfo.ncols))
         
     transform = inDs.GetGeoTransform()
     tileFilenames = {}
@@ -243,7 +253,13 @@ def doTiledShepherdSegmentation(infile, outfile, tileSize=4096, overlapSize=200,
         msg = 'This GDAL does not support driver {}'.format(TEMPFILES_DRIVER)
         raise SystemExit(msg)
     
-    for col, row in tileInfo.tiles:
+    colRowList = sorted(tileInfo.tiles.keys(), key=lambda x:(x[1], x[0]))
+    tileNum = 1
+    for col, row in colRowList:
+        if verbose:
+            print("\nDoing tile {} of {}: row={}, col={}".format(
+                tileNum, len(colRowList), row, col))
+
         xpos, ypos, xsize, ysize = tileInfo.getTile(col, row)
         lyrDataList = []
         for bandNum in bandNumbers:
@@ -283,9 +299,10 @@ def doTiledShepherdSegmentation(infile, outfile, tileSize=4096, overlapSize=200,
         #writeRandomColourTable(b, segResult.segimg.max()+1)
 
         del outDs
+        tileNum += 1
         
     maxSegId = stitchTiles(inDs, outfile, tileFilenames, tileInfo, overlapSize,
-        tempDir, simpleTileRecode, outputDriver)
+        tempDir, simpleTileRecode, outputDriver, verbose)
         
     shutil.rmtree(tempDir)
     
@@ -395,7 +412,7 @@ def writeHistoToFile(outBand, tileHisto):
     
 
 def stitchTiles(inDs, outfile, tileFilenames, tileInfo, overlapSize,
-        tempDir, simpleTileRecode, outputDriver):
+        tempDir, simpleTileRecode, outputDriver, verbose):
     """
     Recombine individual tiles into a single segment raster output 
     file. Segment ID values are recoded to be unique across the whole
@@ -439,10 +456,11 @@ def stitchTiles(inDs, outfile, tileFilenames, tileInfo, overlapSize,
 #    lastHistogram = None
     
     for col, row in colRows:
-        
+        if verbose:
+            print("Stitching tile: row={}, col={}".format(row, col))
+
         filename = tileFilenames[(col, row)]
         ds = gdal.Open(filename)
-        print('reading', col, row)
         tileData = ds.ReadAsArray()
         xpos, ypos, xsize, ysize = tileInfo.getTile(col, row)
         
@@ -495,7 +513,6 @@ def stitchTiles(inDs, outfile, tileFilenames, tileInfo, overlapSize,
 #            print('writing histo for', col, row, lastHistogram.startFid)
 #            writeHistoToFile(outBand, lastHistogram)
         
-        print('writing', col, row)
         tileDataTrimmed = tileData[top:bottom, left:right]
         outBand.WriteArray(tileDataTrimmed, xout, yout)
 
@@ -504,8 +521,7 @@ def stitchTiles(inDs, outfile, tileFilenames, tileInfo, overlapSize,
         if bottomName is not None:
             numpy.save(bottomName, tileData[-overlapSize:, :])    
         
-        nonNull = (tileDataTrimmed != shepseg.SEGNULLVAL)
-        tileMaxSegId = tileDataTrimmed[nonNull].max()
+        tileMaxSegId = tileDataTrimmed.max()
         maxSegId = max(maxSegId, tileMaxSegId)
 
 #        lastHistogram = TileHistogram(tileDataTrimmed, shepseg.SEGNULLVAL)
@@ -703,5 +719,89 @@ def writeRandomColourTable(outBand, nRows):
     attrTbl.CreateColumn('Alpha', gdal.GFT_Integer, gdal.GFU_Alpha)
     colNum = attrTbl.GetColumnCount() - 1
     attrTbl.WriteArray(alpha, colNum)
+
+
+def calcHistogramTiled(segfile, maxSegId, writeToRat=True):
+    """
+    Calculate a histogram of the given segment image file. 
+    
+    Note that we need this function because GDAL's GetHistogram
+    function does not seem to work when attempting a histogram
+    with very large numbers of entries. We want an entry for
+    every segment, rather than an approximate count for a range of 
+    segment values, and the number of segments is very large. So,
+    we need to write our own routine. 
+    
+    It works in tiles across the image, so that it can process 
+    very large images in a memory-efficient way. For the same 
+    reason, it keeps the temporary histogram on disk while 
+    accumulating it. 
+    
+    For a raster which can easily fit into memory, a histogram
+    can be calculated directly using 
+        pyshepseg.shepseg.makeSegSize()
+    
+    Once completed, the histogram can be written to the image file's
+    raster attribute table, if writeToRat is True). It will also be
+    returned as a numpy array, indexed by segment ID. 
+
+    segfile can be either a filename string, or an open 
+    gdal.Dataset object. If writeToRat is True, then a Dataset
+    object should be opened for update. 
+    
+    """
+    # This is the histogram array, indexed by segment ID. 
+    # Currently just in memory, it could be quite large, 
+    # depending on how many segments there are.
+    hist = numpy.zeros((maxSegId+1), dtype=numpy.uint32)
+    
+    # Open the file
+    if isinstance(segfile, gdal.Dataset):
+        ds = segfile
+    else:
+        ds = gdal.Open(segfile, gdal.GA_Update)
+    segband = ds.GetRasterBand(1)
+    
+    tileSize = 1024
+    (nlines, npix) = (segband.YSize, segband.XSize)
+    numXtiles = int(numpy.ceil(npix / tileSize))
+    numYtiles = int(numpy.ceil(nlines / tileSize))
+
+    for tileRow in range(numYtiles):
+        for tileCol in range(numXtiles):
+            topLine = tileRow * tileSize
+            leftPix = tileCol * tileSize
+            xsize = min(tileSize, npix-leftPix)
+            ysize = min(tileSize, nlines-topLine)
+            
+            tileData = segband.ReadAsArray(leftPix, topLine, xsize, ysize)
+            updateCounts(tileData, hist)
+
+    # Set the histogram count for the null segment to zero
+    hist[shepseg.SEGNULLVAL] = 0    
+
+    if writeToRat:
+        attrTbl = segband.GetDefaultRAT()
+        numTableRows = maxSegId + 1
+        if attrTbl.GetRowCount() != numTableRows:
+            attrTbl.SetRowCount(numTableRows)
+        attrTbl.CreateColumn('Histogram', gdal.GFT_Integer, gdal.GFU_PixelCount)
+        colNum = attrTbl.GetColumnCount() - 1
+        attrTbl.WriteArray(hist, colNum)
+
+    return hist
+
+
+@njit
+def updateCounts(tileData, hist):
+    """
+    Fast function to increment counts for each segment ID
+    """
+    (nrows, ncols) = tileData.shape
+    for i in range(nrows):
+        for j in range(ncols):
+            segid = tileData[i, j]
+            hist[segid] += 1
+
 
 class PyShepSegTilingError(Exception): pass
