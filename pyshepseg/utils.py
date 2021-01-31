@@ -129,3 +129,25 @@ def addOverviews(ds):
             nOverviews = nOverviews + 1
             
     ds.BuildOverviews("NEAREST", DEFAULT_OVERVIEWLEVELS[:nOverviews])
+
+
+def writeRandomColourTable(outBand, nRows):
+
+    nRows = int(nRows)
+    colNames = ["Blue", "Green", "Red"]
+    colUsages = [gdal.GFU_Blue, gdal.GFU_Green, gdal.GFU_Red]
+
+    attrTbl = outBand.GetDefaultRAT()
+    attrTbl.SetRowCount(nRows)
+    
+    for band in range(3):
+        attrTbl.CreateColumn(colNames[band], gdal.GFT_Integer, colUsages[band])
+        colNum = attrTbl.GetColumnCount() - 1
+        colour = numpy.random.random_integers(0, 255, size=nRows)
+        attrTbl.WriteArray(colour, colNum)
+        
+    alpha = numpy.full((nRows,), 255, dtype=numpy.uint8)
+    alpha[shepseg.SEGNULLVAL] = 0
+    attrTbl.CreateColumn('Alpha', gdal.GFT_Integer, gdal.GFU_Alpha)
+    colNum = attrTbl.GetColumnCount() - 1
+    attrTbl.WriteArray(alpha, colNum)
