@@ -394,6 +394,12 @@ def clump(img, ignoreVal, fourConnected=True, clumpId=1):
     
     """
     
+    # Prevent really large clumps, as they create a 
+    # serious performance hit later. In initial testing without 
+    # this limit, final segmentation had >99.9% of segments 
+    # smaller than this, so this seems like a good size to stop. 
+    MAX_CLUMP_SIZE = 10000
+    
     ysize, xsize = img.shape
     output = numpy.zeros((ysize, xsize), dtype=SegIdType)
     search_list = numpy.empty((xsize * ysize, 2), dtype=numpy.uint32)
@@ -406,13 +412,14 @@ def clump(img, ignoreVal, fourConnected=True, clumpId=1):
             # check if we have visited this one before
             if img[y, x] != ignoreVal and output[y, x] == 0:
                 val = img[y, x]
+                clumpSize = 0
                 searchIdx = 0
                 search_list[searchIdx, 0] = y
                 search_list[searchIdx, 1] = x
                 searchIdx += 1
                 output[y, x] = clumpId  # marked as visited
                 
-                while searchIdx > 0:
+                while searchIdx > 0 and (clumpSize < MAX_CLUMP_SIZE):
                     # search the last one
                     searchIdx -= 1
                     sy = search_list[searchIdx, 0]
@@ -443,6 +450,7 @@ def clump(img, ignoreVal, fourConnected=True, clumpId=1):
                                     output[cy, cx] == 0 and 
                                     img[cy, cx] == val):
                                 output[cy, cx] = clumpId # mark as visited
+                                clumpSize += 1
                                 # add this one to the ones to search the neighbours
                                 search_list[searchIdx, 0] = cy
                                 search_list[searchIdx, 1] = cx
