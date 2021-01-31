@@ -39,8 +39,6 @@ gdal.UseExceptions()
 import scipy.stats
 
 from numba import njit
-from numba.experimental import jitclass
-from numba.core import types
 
 from . import shepseg
 
@@ -295,9 +293,6 @@ def doTiledShepherdSegmentation(infile, outfile, tileSize=4096, overlapSize=200,
         b.SetMetadataItem('LAYER_TYPE', 'thematic')
         b.SetNoDataValue(shepseg.SEGNULLVAL)
         
-        # only needed for debugging
-        #writeRandomColourTable(b, segResult.segimg.max()+1)
-
         del outDs
         tileNum += 1
         
@@ -395,7 +390,7 @@ def stitchTiles(inDs, outfile, tileFilenames, tileInfo, overlapSize,
         else:
             t0 = time.time()
             tileData = recodeTile(tileData, maxSegId, row, col, 
-                        overlapSize, tempDir, top, left)
+                        overlapSize, tempDir, top, bottom, left, right)
             print('recode {:.2f} seconds'.format(time.time()-t0))
             
         tileDataTrimmed = tileData[top:bottom, left:right]
@@ -409,9 +404,6 @@ def stitchTiles(inDs, outfile, tileFilenames, tileInfo, overlapSize,
         tileMaxSegId = tileDataTrimmed.max()
         maxSegId = max(maxSegId, tileMaxSegId)
 
-    # no longer needed?
-    writeRandomColourTable(outBand, maxSegId+1)
-    
     return maxSegId
 
 
@@ -430,7 +422,7 @@ HORIZONTAL = 0
 VERTICAL = 1
 
 def recodeTile(tileData, maxSegId, tileRow, tileCol, overlapSize, tempDir,
-        top, left):
+        top, bottom, left, right):
     """
     Adjust the segment ID numbers in the current tile, 
     to make them globally unique across the whole mosaic.
@@ -476,7 +468,7 @@ def recodeTile(tileData, maxSegId, tileRow, tileCol, overlapSize, tempDir,
             VERTICAL, recodeDict)
     
     (newTileData, newMaxSegId) = relabelSegments(tileData, recodeDict, 
-        maxSegId, top, left)
+        maxSegId, top, bottom, left, right)
     
     return newTileData
 
@@ -518,7 +510,7 @@ def recodeSharedSegments(tileData, overlapA, overlapB, orientation,
 
 
 def relabelSegments(tileData, recodeDict, maxSegId, 
-        top, left):
+        top, bottom, left, right):
     """
     Recode the segment IDs in the given tileData array.
     
