@@ -349,7 +349,7 @@ def stitchTiles(inDs, outfile, tileFilenames, tileInfo, overlapSize,
     outBand.SetMetadataItem('LAYER_TYPE', 'thematic')
     outBand.SetNoDataValue(shepseg.SEGNULLVAL)
     
-    colRows = sorted(tileInfo.tiles.keys())                
+    colRows = sorted(tileInfo.tiles.keys(), key=lambda x:(x[1], x[0]))
     maxSegId = 0
     
     for col, row in colRows:
@@ -395,7 +395,7 @@ def stitchTiles(inDs, outfile, tileFilenames, tileInfo, overlapSize,
         else:
             t0 = time.time()
             tileData = recodeTile(tileData, maxSegId, row, col, 
-                            overlapSize, tempDir)
+                        overlapSize, tempDir, top, left)
             print('recode {:.2f} seconds'.format(time.time()-t0))
             
         tileDataTrimmed = tileData[top:bottom, left:right]
@@ -429,7 +429,8 @@ def overlapFilename(col, row, edge, tempDir):
 HORIZONTAL = 0
 VERTICAL = 1
 
-def recodeTile(tileData, maxSegId, tileRow, tileCol, overlapSize, tempDir):
+def recodeTile(tileData, maxSegId, tileRow, tileCol, overlapSize, tempDir,
+        top, left):
     """
     Adjust the segment ID numbers in the current tile, 
     to make them globally unique across the whole mosaic.
@@ -475,7 +476,7 @@ def recodeTile(tileData, maxSegId, tileRow, tileCol, overlapSize, tempDir):
             VERTICAL, recodeDict)
     
     (newTileData, newMaxSegId) = relabelSegments(tileData, recodeDict, 
-        maxSegId)
+        maxSegId, top, left)
     
     return newTileData
 
@@ -516,7 +517,8 @@ def recodeSharedSegments(tileData, overlapA, overlapB, orientation,
         recodeDict[segid] = segIdFromB
 
 
-def relabelSegments(tileData, recodeDict, maxSegId):
+def relabelSegments(tileData, recodeDict, maxSegId, 
+        top, left):
     """
     Recode the segment IDs in the given tileData array.
     
@@ -526,7 +528,7 @@ def relabelSegments(tileData, recodeDict, maxSegId):
     ID numbers, starting from one more than the previous
     maximum segment ID (maxSegId). 
     
-    A re-coded copy of tileData is createded, the original is 
+    A re-coded copy of tileData is created, the original is 
     unchanged. 
     
     Return value is a tuple
@@ -547,8 +549,19 @@ def relabelSegments(tileData, recodeDict, maxSegId):
         if segid in recodeDict:
             newTileData[pixNdx] = recodeDict[segid]
         else:
-            newSegId += 1
-            newTileData[pixNdx] = newSegId
+            (segRows, segCols) = pixNdx
+            segLeft = segCols.min()
+            segTop = segRows.min()
+            # Avoid incrementing newSegId for segments which are
+            # handled in neighbouring tiles. For the left and top 
+            # margins, the segment must be entirely within the 
+            # trimmed tile, while for the right and bottom
+            # margins the segment must be at least partially
+            # within the trimmed tile. 
+            if ((segLeft >= left) and (segTop >= top) and
+                    (segLeft < right) and (segTop < bottom)):
+                newSegId += 1
+                newTileData[pixNdx] = newSegId
     
     return (newTileData, newSegId)
 
@@ -573,7 +586,7 @@ def crossesMidline(overlap, segLoc, orientation):
     minN = segLoc.rowcols[:, n].min()
     maxN = segLoc.rowcols[:, n].max()
     
-    return ((minN <= mid) & (maxN > mid))
+    return ((minN < mid) & (maxN >= mid))
 
 
 def writeRandomColourTable(outBand, nRows):
