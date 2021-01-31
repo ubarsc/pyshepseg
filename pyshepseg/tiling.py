@@ -83,6 +83,9 @@ def fitSpectralClustersWholeFile(inDs, bandNumbers, numClusters=60,
         dfltTotalPixels = 1000000
         totalImagePixels = inDs.RasterXSize * inDs.RasterYSize
         subsampleProp = numpy.sqrt(dfltTotalPixels / totalImagePixels)
+        # For a smaller image, this many pixels is probably overkill,
+        # so restrict to 5% of the image
+        subsampleProp = min(subsampleProp, 0.05)
         subsamplePcnt = 100 * subsampleProp
     else:
         subsampleProp = subsamplePcnt / 100.0
@@ -232,7 +235,7 @@ def doTiledShepherdSegmentation(infile, outfile, tileSize=4096, overlapSize=200,
             bandNumbers, numClusters, subsamplePcnt, imgNullVal, fixedKMeansInit)
     if verbose:
         print("KMeans of whole raster {:.2f} seconds".format(time.time()-t0))
-        print("Subsample Percentage={:.4f}".format(subSamplePcnt))
+        print("Subsample Percentage={:.2f}".format(subSamplePcnt))
     
     # create a temp directory for use in splitting out tiles, overlaps etc
     tempDir = tempfile.mkdtemp()
@@ -347,9 +350,13 @@ def stitchTiles(inDs, outfile, tileFilenames, tileInfo, overlapSize,
     colRows = sorted(tileInfo.tiles.keys(), key=lambda x:(x[1], x[0]))
     maxSegId = 0
     
+    if verbose:
+        print("Stitching tiles together")
+    reportedRow = -1
     for col, row in colRows:
-        if verbose:
-            print("Stitching tile: row={}, col={}".format(row, col))
+        if verbose and row != reportedRow:
+            print("Stitching tile row {}".format(row))
+        reportedRow = row
 
         filename = tileFilenames[(col, row)]
         ds = gdal.Open(filename)
@@ -391,7 +398,6 @@ def stitchTiles(inDs, outfile, tileFilenames, tileInfo, overlapSize,
             t0 = time.time()
             tileData = recodeTile(tileData, maxSegId, row, col, 
                         overlapSize, tempDir, top, bottom, left, right)
-            print('recode {:.2f} seconds'.format(time.time()-t0))
             
         tileDataTrimmed = tileData[top:bottom, left:right]
         outBand.WriteArray(tileDataTrimmed, xout, yout)
@@ -638,11 +644,11 @@ def calcHistogramTiled(segfile, maxSegId, writeToRat=True):
             updateCounts(tileData, hist)
 
     # Set the histogram count for the null segment to zero
-    hist[shepseg.SEGNULLVAL] = 0    
+    hist[shepseg.SEGNULLVAL] = 0
 
     if writeToRat:
         attrTbl = segband.GetDefaultRAT()
-        numTableRows = maxSegId + 1
+        numTableRows = int(maxSegId + 1)
         if attrTbl.GetRowCount() != numTableRows:
             attrTbl.SetRowCount(numTableRows)
         attrTbl.CreateColumn('Histogram', gdal.GFT_Integer, gdal.GFU_PixelCount)
