@@ -309,108 +309,6 @@ def doTiledShepherdSegmentation(infile, outfile, tileSize=4096, overlapSize=200,
     return maxSegId
 
 
-spec = [('startFid', types.uint32), ('endFid', types.uint32), 
-            ('hist', types.uint32[:])]
-@jitclass(spec)
-class TileHistogram(object):
-    """
-    Holds info for a histogram for a particular tile. 
-    Allows us to update with the result of the next tile recoding
-    before writing to file.
-    """
-    def __init__(self, tile, ignore):
-    
-        # find the range by looping and sipping ignore
-        # could just do this by masking, but since we are already
-        # in numba....
-        self.startFid = ignore
-        self.endFid = ignore
-        ysize, xsize = tile.shape
-        for y in range(ysize):
-            for x in range(xsize):
-                val = tile[y, x]
-                if val != ignore:
-                    if self.startFid == ignore or val < self.startFid:
-                        self.startFid = val
-                    if self.endFid == ignore or val > self.endFid:
-                        self.endFid = val
-    
-        length = self.endFid - self.startFid
-        self.hist = numpy.zeros((length,), dtype=numpy.uint32)
-    
-        # similar to makeSegSize but takes into account min value
-        # (because we are just doing a tile, not whole img)
-        for y in range(ysize):
-            for x in range(xsize):
-                val = tile[y, x]
-                if val != ignore:
-                    idx = val - self.startFid
-                    self.hist[idx] += 1
-        
-    def updateWithHist(self, newHist):
-        """
-        Merges another instance of TileHistogram
-        - this instance has the bin counts update where they 
-        overlap
-        """
-        # process overlap
-        for fid in range(newHist.startFid, self.endFid+1):
-            idx = fid - self.startFid
-            newidx = fid - newHist.startFid
-            self.hist[idx] += newHist.hist[newidx]
-            
-def writeHistoToFile(outBand, tileHisto):
-    """
-    Writes an instance of TileHistogram to the histogram
-    column of the given GDAL band.
-    
-    Currently, for debugging also writes out a random 
-    colour table.
-    """
-    nRows = int(tileHisto.endFid + 1)
-    attrTbl = outBand.GetDefaultRAT()
-    attrTbl.SetRowCount(nRows)
-    
-    # single length array for SEGNULLVAL when initialising
-    # columns
-    zeroData = numpy.zeros((1,), dtype=numpy.uint32)
-
-    histIdx = attrTbl.GetColOfUsage(gdal.GFU_PixelCount)
-    if histIdx == -1:
-        # should have already skipped the SEGNULLVAL
-        assert(tileHisto.startFid == shepseg.MINSEGID)
-        attrTbl.CreateColumn('Histogram', gdal.GFT_Integer, gdal.GFU_PixelCount)
-        histIdx = attrTbl.GetColOfUsage(gdal.GFU_PixelCount)
-        attrTbl.WriteArray(zeroData, histIdx)
-        
-    attrTbl.WriteArray(tileHisto.hist, histIdx, tileHisto.startFid)
-    
-    length = tileHisto.hist.shape[0]
-
-    colNames = ["Blue", "Green", "Red"]
-    colUsages = [gdal.GFU_Blue, gdal.GFU_Green, gdal.GFU_Red]
-    
-    for n in range(3):
-        colIdx = attrTbl.GetColOfUsage(colUsages[n])
-        if colIdx == -1:
-            attrTbl.CreateColumn(colNames[n], gdal.GFT_Integer, colUsages[n])
-            colIdx = attrTbl.GetColOfUsage(colUsages[n])
-            attrTbl.WriteArray(zeroData, colIdx)
-    
-        colour = numpy.random.random_integers(0, 255, size=length)
-        attrTbl.WriteArray(colour, colIdx, tileHisto.startFid)
-
-    
-    alpha = numpy.full((length,), 255, dtype=numpy.uint8)
-    alphaIdx = attrTbl.GetColOfUsage(gdal.GFU_Alpha)
-    if alphaIdx == -1:
-        attrTbl.CreateColumn('Alpha', gdal.GFT_Integer, gdal.GFU_Alpha)
-        alphaIdx = attrTbl.GetColOfUsage(gdal.GFU_Alpha)
-        attrTbl.WriteArray(zeroData, alphaIdx)
-
-    attrTbl.WriteArray(alpha, alphaIdx, tileHisto.startFid)
-    
-
 def stitchTiles(inDs, outfile, tileFilenames, tileInfo, overlapSize,
         tempDir, simpleTileRecode, outputDriver, verbose):
     """
@@ -453,7 +351,6 @@ def stitchTiles(inDs, outfile, tileFilenames, tileInfo, overlapSize,
     
     colRows = sorted(tileInfo.tiles.keys())                
     maxSegId = 0
-#    lastHistogram = None
     
     for col, row in colRows:
         if verbose:
@@ -501,18 +398,6 @@ def stitchTiles(inDs, outfile, tileFilenames, tileInfo, overlapSize,
                             overlapSize, tempDir)
             print('recode {:.2f} seconds'.format(time.time()-t0))
             
-#        if lastHistogram is not None:
-#            # update lastHistogram with the new counts from the
-#            # newly recoded tile
-#            # (this shouldn't do anything if simpleTileRecode as the
-#            # ranges won't overlap)
-#            tileHist = TileHistogram(tileData, shepseg.SEGNULLVAL)
-#            lastHistogram.updateWithHist(tileHist)
-#
-#            # write to file
-#            print('writing histo for', col, row, lastHistogram.startFid)
-#            writeHistoToFile(outBand, lastHistogram)
-        
         tileDataTrimmed = tileData[top:bottom, left:right]
         outBand.WriteArray(tileDataTrimmed, xout, yout)
 
@@ -523,14 +408,6 @@ def stitchTiles(inDs, outfile, tileFilenames, tileInfo, overlapSize,
         
         tileMaxSegId = tileDataTrimmed.max()
         maxSegId = max(maxSegId, tileMaxSegId)
-
-#        lastHistogram = TileHistogram(tileDataTrimmed, shepseg.SEGNULLVAL)
-#        print('created histo', lastHistogram.startFid, lastHistogram.endFid)
-#
-#    # histo for very last tile
-#    if lastHistogram is not None:
-#        print('last histogram', lastHistogram.startFid)
-#        writeHistoToFile(outBand, lastHistogram)
 
     # no longer needed?
     writeRandomColourTable(outBand, maxSegId+1)
