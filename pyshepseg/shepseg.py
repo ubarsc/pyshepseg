@@ -192,8 +192,8 @@ def doShepherdSegmentation(img, numClusters=60, clusterSubsamplePcnt=1,
     oldMaxSegId = maxSegId
     eliminateSinglePixels(img, seg, segSize, MINSEGID, maxSegId, fourConnected)
     maxSegId = seg.max()
+    numElimSinglepix = oldMaxSegId - maxSegId
     if verbose:
-        numElimSinglepix = oldMaxSegId - maxSegId
         print("Eliminated", numElimSinglepix, "single pixels, in", 
             round(time.time()-t0, 1), "seconds")
 
