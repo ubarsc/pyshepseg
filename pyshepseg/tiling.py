@@ -106,7 +106,7 @@ def fitSpectralClustersWholeFile(inDs, bandNumbers, numClusters=60,
     bandList = []
     for bandNum in bandNumbers:
         bandObj = inDs.GetRasterBand(bandNum)
-        band = bandObj.ReadAsArray(buf_xsize=nCols_sub, buf_ysize=nRows_sub)
+        band = readSubsampledImageBand(bandObj, subsampleProp)
         bandList.append(band)
     img = numpy.array(bandList)
     
@@ -115,6 +115,60 @@ def fitSpectralClustersWholeFile(inDs, bandNumbers, numClusters=60,
         fixedKMeansInit=fixedKMeansInit)
     
     return (kmeansObj, subsamplePcnt, imgNullVal)
+
+
+def readSubsampledImageBand(bandObj, subsampleProp):
+    """
+    Read in a sub-sampled copy of the whole of the given band. 
+    
+    bandObj is an open gdal.Band object. 
+    subsampleProp is the proportion by which to sub-sample 
+    (i.e. a value between zero and 1, applied to rows and
+    columns separately)
+    
+    Returns a numpy array of the image data, equivalent to 
+    gdal.Band.ReadAsArray(). 
+    
+    Note that one can, in principle, do this directly using GDAL. 
+    However, if overview layers are present in the file, it will use
+    these, and so is dependent on how these were created. Since 
+    these are often created just for display purposes, past experience
+    has shown that they are not always to be trusted as data, 
+    so we have chosen to always go directly to the full resolution 
+    image. 
+    
+    """
+    (nRowsFull, nColsFull) = (bandObj.YSize, bandObj.XSize)
+    
+    # A skip factor, applied to rows and column
+    skip = int(round(1./subsampleProp))
+    
+    tileSize = 1024
+    (nlines, npix) = (bandObj.YSize, bandObj.XSize)
+    numXtiles = int(numpy.ceil(npix / tileSize))
+    numYtiles = int(numpy.ceil(nlines / tileSize))
+
+    tileRowList = []
+
+    for tileRow in range(numYtiles):
+        ypos = tileRow * tileSize
+        ysize = min(tileSize, (nlines - ypos))
+        
+        tileColList = []
+        for tileCol in range(numXtiles):
+            xpos = tileCol * tileSize
+            xsize = min(tileSize, (npix - xpos))
+            
+            tile = bandObj.ReadAsArray(xpos, ypos, xsize, ysize)
+            
+            tileSub = tile[::skip, ::skip]
+            tileColList.append(tileSub)
+        
+        tileRow = numpy.concatenate(tileColList, axis=1)
+        tileRowList.append(tileRow)
+    
+    imgSub = numpy.concatenate(tileRowList, axis=0)
+    return imgSub
 
 
 def saveKMeansObj(kmeansObj, filename):
