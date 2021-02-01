@@ -47,6 +47,9 @@ from . import shepseg
 TEMPFILES_DRIVER = 'KEA'
 TEMPFILES_EXT = 'kea'
 
+DFLT_TILESIZE = 4096
+DFLT_OVERLAPSIZE = 200
+
 def fitSpectralClustersWholeFile(inDs, bandNumbers, numClusters=60, 
         subsamplePcnt=None, imgNullVal=None, 
         fixedKMeansInit=False):
@@ -197,11 +200,11 @@ def getTilesForFile(ds, tileSize, overlapSize):
     return tileInfo
     
 
-def doTiledShepherdSegmentation(infile, outfile, tileSize=4096, overlapSize=200,
-        minSegmentSize=50, numClusters=60, bandNumbers=None, subsamplePcnt=None, 
-        maxSpectralDiff='auto', imgNullVal=None, fixedKMeansInit=False,
-        fourConnected=True, verbose=False, simpleTileRecode=False, 
-        outputDriver='KEA'):
+def doTiledShepherdSegmentation(infile, outfile, tileSize=DFLT_TILESIZE, 
+        overlapSize=DFLT_OVERLAPSIZE, minSegmentSize=50, numClusters=60, 
+        bandNumbers=None, subsamplePcnt=None, maxSpectralDiff='auto', 
+        imgNullVal=None, fixedKMeansInit=False, fourConnected=True, 
+        verbose=False, simpleTileRecode=False, outputDriver='KEA'):
     """
     Run the Shepherd segmentation algorithm in a memory-efficient
     manner, suitable for large raster files. Runs the segmentation
