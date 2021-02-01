@@ -85,13 +85,14 @@ def fitSpectralClustersWholeFile(inDs, bandNumbers, numClusters=60,
         # We will try to sample roughly this many pixels
         dfltTotalPixels = 1000000
         totalImagePixels = inDs.RasterXSize * inDs.RasterYSize
+        # subsampleProp is the proportion of rows and columns sampled
         subsampleProp = numpy.sqrt(dfltTotalPixels / totalImagePixels)
-        # For a smaller image, this many pixels is probably overkill,
-        # so restrict to 5% of the image
-        subsampleProp = min(subsampleProp, 0.05)
-        subsamplePcnt = 100 * subsampleProp
+        # subsamplePcnt is the percentage of total pixels sampled
+        subsamplePcnt = 100 * subsampleProp**2
     else:
-        subsampleProp = subsamplePcnt / 100.0
+        # subsampleProp is the proportion of rows and columns sampled,
+        # hence we sqrt
+        subsampleProp = numpy.sqrt(subsamplePcnt / 100.0)
     
     if imgNullVal is None:
         nullValArr = numpy.array([inDs.GetRasterBand(i).GetNoDataValue() 
