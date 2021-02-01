@@ -39,8 +39,6 @@ gdal.UseExceptions()
 import scipy.stats
 
 from numba import njit
-from numba.experimental import jitclass
-from numba.core import types
 
 from . import shepseg
 
@@ -88,6 +86,9 @@ def fitSpectralClustersWholeFile(inDs, bandNumbers, numClusters=60,
         dfltTotalPixels = 1000000
         totalImagePixels = inDs.RasterXSize * inDs.RasterYSize
         subsampleProp = numpy.sqrt(dfltTotalPixels / totalImagePixels)
+        # For a smaller image, this many pixels is probably overkill,
+        # so restrict to 5% of the image
+        subsampleProp = min(subsampleProp, 0.05)
         subsamplePcnt = 100 * subsampleProp
     else:
         subsampleProp = subsamplePcnt / 100.0
@@ -237,7 +238,7 @@ def doTiledShepherdSegmentation(infile, outfile, tileSize=DFLT_TILESIZE,
             bandNumbers, numClusters, subsamplePcnt, imgNullVal, fixedKMeansInit)
     if verbose:
         print("KMeans of whole raster {:.2f} seconds".format(time.time()-t0))
-        print("Subsample Percentage={:.4f}".format(subSamplePcnt))
+        print("Subsample Percentage={:.2f}".format(subSamplePcnt))
     
     # create a temp directory for use in splitting out tiles, overlaps etc
     tempDir = tempfile.mkdtemp()
@@ -298,9 +299,6 @@ def doTiledShepherdSegmentation(infile, outfile, tileSize=DFLT_TILESIZE,
         b.SetMetadataItem('LAYER_TYPE', 'thematic')
         b.SetNoDataValue(shepseg.SEGNULLVAL)
         
-        # only needed for debugging
-        #writeRandomColourTable(b, segResult.segimg.max()+1)
-
         del outDs
         tileNum += 1
         
@@ -311,108 +309,6 @@ def doTiledShepherdSegmentation(infile, outfile, tileSize=DFLT_TILESIZE,
     
     return maxSegId
 
-
-spec = [('startFid', types.uint32), ('endFid', types.uint32), 
-            ('hist', types.uint32[:])]
-@jitclass(spec)
-class TileHistogram(object):
-    """
-    Holds info for a histogram for a particular tile. 
-    Allows us to update with the result of the next tile recoding
-    before writing to file.
-    """
-    def __init__(self, tile, ignore):
-    
-        # find the range by looping and sipping ignore
-        # could just do this by masking, but since we are already
-        # in numba....
-        self.startFid = ignore
-        self.endFid = ignore
-        ysize, xsize = tile.shape
-        for y in range(ysize):
-            for x in range(xsize):
-                val = tile[y, x]
-                if val != ignore:
-                    if self.startFid == ignore or val < self.startFid:
-                        self.startFid = val
-                    if self.endFid == ignore or val > self.endFid:
-                        self.endFid = val
-    
-        length = self.endFid - self.startFid
-        self.hist = numpy.zeros((length,), dtype=numpy.uint32)
-    
-        # similar to makeSegSize but takes into account min value
-        # (because we are just doing a tile, not whole img)
-        for y in range(ysize):
-            for x in range(xsize):
-                val = tile[y, x]
-                if val != ignore:
-                    idx = val - self.startFid
-                    self.hist[idx] += 1
-        
-    def updateWithHist(self, newHist):
-        """
-        Merges another instance of TileHistogram
-        - this instance has the bin counts update where they 
-        overlap
-        """
-        # process overlap
-        for fid in range(newHist.startFid, self.endFid+1):
-            idx = fid - self.startFid
-            newidx = fid - newHist.startFid
-            self.hist[idx] += newHist.hist[newidx]
-            
-def writeHistoToFile(outBand, tileHisto):
-    """
-    Writes an instance of TileHistogram to the histogram
-    column of the given GDAL band.
-    
-    Currently, for debugging also writes out a random 
-    colour table.
-    """
-    nRows = int(tileHisto.endFid + 1)
-    attrTbl = outBand.GetDefaultRAT()
-    attrTbl.SetRowCount(nRows)
-    
-    # single length array for SEGNULLVAL when initialising
-    # columns
-    zeroData = numpy.zeros((1,), dtype=numpy.uint32)
-
-    histIdx = attrTbl.GetColOfUsage(gdal.GFU_PixelCount)
-    if histIdx == -1:
-        # should have already skipped the SEGNULLVAL
-        assert(tileHisto.startFid == shepseg.MINSEGID)
-        attrTbl.CreateColumn('Histogram', gdal.GFT_Integer, gdal.GFU_PixelCount)
-        histIdx = attrTbl.GetColOfUsage(gdal.GFU_PixelCount)
-        attrTbl.WriteArray(zeroData, histIdx)
-        
-    attrTbl.WriteArray(tileHisto.hist, histIdx, tileHisto.startFid)
-    
-    length = tileHisto.hist.shape[0]
-
-    colNames = ["Blue", "Green", "Red"]
-    colUsages = [gdal.GFU_Blue, gdal.GFU_Green, gdal.GFU_Red]
-    
-    for n in range(3):
-        colIdx = attrTbl.GetColOfUsage(colUsages[n])
-        if colIdx == -1:
-            attrTbl.CreateColumn(colNames[n], gdal.GFT_Integer, colUsages[n])
-            colIdx = attrTbl.GetColOfUsage(colUsages[n])
-            attrTbl.WriteArray(zeroData, colIdx)
-    
-        colour = numpy.random.random_integers(0, 255, size=length)
-        attrTbl.WriteArray(colour, colIdx, tileHisto.startFid)
-
-    
-    alpha = numpy.full((length,), 255, dtype=numpy.uint8)
-    alphaIdx = attrTbl.GetColOfUsage(gdal.GFU_Alpha)
-    if alphaIdx == -1:
-        attrTbl.CreateColumn('Alpha', gdal.GFT_Integer, gdal.GFU_Alpha)
-        alphaIdx = attrTbl.GetColOfUsage(gdal.GFU_Alpha)
-        attrTbl.WriteArray(zeroData, alphaIdx)
-
-    attrTbl.WriteArray(alpha, alphaIdx, tileHisto.startFid)
-    
 
 def stitchTiles(inDs, outfile, tileFilenames, tileInfo, overlapSize,
         tempDir, simpleTileRecode, outputDriver, verbose):
@@ -454,13 +350,16 @@ def stitchTiles(inDs, outfile, tileFilenames, tileInfo, overlapSize,
     outBand.SetMetadataItem('LAYER_TYPE', 'thematic')
     outBand.SetNoDataValue(shepseg.SEGNULLVAL)
     
-    colRows = sorted(tileInfo.tiles.keys())                
+    colRows = sorted(tileInfo.tiles.keys(), key=lambda x:(x[1], x[0]))
     maxSegId = 0
-#    lastHistogram = None
     
+    if verbose:
+        print("Stitching tiles together")
+    reportedRow = -1
     for col, row in colRows:
-        if verbose:
-            print("Stitching tile: row={}, col={}".format(row, col))
+        if verbose and row != reportedRow:
+            print("Stitching tile row {}".format(row))
+        reportedRow = row
 
         filename = tileFilenames[(col, row)]
         ds = gdal.Open(filename)
@@ -501,21 +400,8 @@ def stitchTiles(inDs, outfile, tileFilenames, tileInfo, overlapSize,
         else:
             t0 = time.time()
             tileData = recodeTile(tileData, maxSegId, row, col, 
-                            overlapSize, tempDir)
-            print('recode {:.2f} seconds'.format(time.time()-t0))
+                        overlapSize, tempDir, top, bottom, left, right)
             
-#        if lastHistogram is not None:
-#            # update lastHistogram with the new counts from the
-#            # newly recoded tile
-#            # (this shouldn't do anything if simpleTileRecode as the
-#            # ranges won't overlap)
-#            tileHist = TileHistogram(tileData, shepseg.SEGNULLVAL)
-#            lastHistogram.updateWithHist(tileHist)
-#
-#            # write to file
-#            print('writing histo for', col, row, lastHistogram.startFid)
-#            writeHistoToFile(outBand, lastHistogram)
-        
         tileDataTrimmed = tileData[top:bottom, left:right]
         outBand.WriteArray(tileDataTrimmed, xout, yout)
 
@@ -527,17 +413,6 @@ def stitchTiles(inDs, outfile, tileFilenames, tileInfo, overlapSize,
         tileMaxSegId = tileDataTrimmed.max()
         maxSegId = max(maxSegId, tileMaxSegId)
 
-#        lastHistogram = TileHistogram(tileDataTrimmed, shepseg.SEGNULLVAL)
-#        print('created histo', lastHistogram.startFid, lastHistogram.endFid)
-#
-#    # histo for very last tile
-#    if lastHistogram is not None:
-#        print('last histogram', lastHistogram.startFid)
-#        writeHistoToFile(outBand, lastHistogram)
-
-    # no longer needed?
-    writeRandomColourTable(outBand, maxSegId+1)
-    
     return maxSegId
 
 
@@ -555,7 +430,8 @@ def overlapFilename(col, row, edge, tempDir):
 HORIZONTAL = 0
 VERTICAL = 1
 
-def recodeTile(tileData, maxSegId, tileRow, tileCol, overlapSize, tempDir):
+def recodeTile(tileData, maxSegId, tileRow, tileCol, overlapSize, tempDir,
+        top, bottom, left, right):
     """
     Adjust the segment ID numbers in the current tile, 
     to make them globally unique across the whole mosaic.
@@ -601,7 +477,7 @@ def recodeTile(tileData, maxSegId, tileRow, tileCol, overlapSize, tempDir):
             VERTICAL, recodeDict)
     
     (newTileData, newMaxSegId) = relabelSegments(tileData, recodeDict, 
-        maxSegId)
+        maxSegId, top, bottom, left, right)
     
     return newTileData
 
@@ -642,7 +518,8 @@ def recodeSharedSegments(tileData, overlapA, overlapB, orientation,
         recodeDict[segid] = segIdFromB
 
 
-def relabelSegments(tileData, recodeDict, maxSegId):
+def relabelSegments(tileData, recodeDict, maxSegId, 
+        top, bottom, left, right):
     """
     Recode the segment IDs in the given tileData array.
     
@@ -652,7 +529,7 @@ def relabelSegments(tileData, recodeDict, maxSegId):
     ID numbers, starting from one more than the previous
     maximum segment ID (maxSegId). 
     
-    A re-coded copy of tileData is createded, the original is 
+    A re-coded copy of tileData is created, the original is 
     unchanged. 
     
     Return value is a tuple
@@ -673,8 +550,19 @@ def relabelSegments(tileData, recodeDict, maxSegId):
         if segid in recodeDict:
             newTileData[pixNdx] = recodeDict[segid]
         else:
-            newSegId += 1
-            newTileData[pixNdx] = newSegId
+            (segRows, segCols) = pixNdx
+            segLeft = segCols.min()
+            segTop = segRows.min()
+            # Avoid incrementing newSegId for segments which are
+            # handled in neighbouring tiles. For the left and top 
+            # margins, the segment must be entirely within the 
+            # trimmed tile, while for the right and bottom
+            # margins the segment must be at least partially
+            # within the trimmed tile. 
+            if ((segLeft >= left) and (segTop >= top) and
+                    (segLeft < right) and (segTop < bottom)):
+                newSegId += 1
+                newTileData[pixNdx] = newSegId
     
     return (newTileData, newSegId)
 
@@ -699,29 +587,7 @@ def crossesMidline(overlap, segLoc, orientation):
     minN = segLoc.rowcols[:, n].min()
     maxN = segLoc.rowcols[:, n].max()
     
-    return ((minN <= mid) & (maxN > mid))
-
-
-def writeRandomColourTable(outBand, nRows):
-
-    nRows = int(nRows)
-    colNames = ["Blue", "Green", "Red"]
-    colUsages = [gdal.GFU_Blue, gdal.GFU_Green, gdal.GFU_Red]
-
-    attrTbl = outBand.GetDefaultRAT()
-    attrTbl.SetRowCount(nRows)
-    
-    for band in range(3):
-        attrTbl.CreateColumn(colNames[band], gdal.GFT_Integer, colUsages[band])
-        colNum = attrTbl.GetColumnCount() - 1
-        colour = numpy.random.random_integers(0, 255, size=nRows)
-        attrTbl.WriteArray(colour, colNum)
-        
-    alpha = numpy.full((nRows,), 255, dtype=numpy.uint8)
-    alpha[shepseg.SEGNULLVAL] = 0
-    attrTbl.CreateColumn('Alpha', gdal.GFT_Integer, gdal.GFU_Alpha)
-    colNum = attrTbl.GetColumnCount() - 1
-    attrTbl.WriteArray(alpha, colNum)
+    return ((minN < mid) & (maxN >= mid))
 
 
 def calcHistogramTiled(segfile, maxSegId, writeToRat=True):
@@ -781,11 +647,11 @@ def calcHistogramTiled(segfile, maxSegId, writeToRat=True):
             updateCounts(tileData, hist)
 
     # Set the histogram count for the null segment to zero
-    hist[shepseg.SEGNULLVAL] = 0    
+    hist[shepseg.SEGNULLVAL] = 0
 
     if writeToRat:
         attrTbl = segband.GetDefaultRAT()
-        numTableRows = maxSegId + 1
+        numTableRows = int(maxSegId + 1)
         if attrTbl.GetRowCount() != numTableRows:
             attrTbl.SetRowCount(numTableRows)
         attrTbl.CreateColumn('Histogram', gdal.GFT_Integer, gdal.GFU_PixelCount)
