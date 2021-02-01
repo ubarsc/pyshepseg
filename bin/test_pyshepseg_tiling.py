@@ -34,9 +34,9 @@ from __future__ import print_function, division
 import os
 import sys
 import json
+import time
 import argparse
 
-import numpy
 from osgeo import gdal
 
 from pyshepseg import tiling
@@ -130,7 +130,7 @@ def getCmdargs():
 def main():
     cmdargs = getCmdargs()
     
-    tiling.doTiledShepherdSegmentation(cmdargs.infile, cmdargs.outfile, 
+    maxSegId = tiling.doTiledShepherdSegmentation(cmdargs.infile, cmdargs.outfile, 
             tileSize=cmdargs.tilesize, overlapSize=cmdargs.overlapsize, 
             minSegmentSize=cmdargs.minsegmentsize, numClusters=cmdargs.nclusters,
             bandNumbers=cmdargs.bands, subsamplePcnt=cmdargs.clustersubsamplepercent,
@@ -138,7 +138,21 @@ def main():
             fixedKMeansInit=cmdargs.fixedkmeansinit, 
             fourConnected=not cmdargs.eightway, verbose=cmdargs.verbose,
             simpleTileRecode=cmdargs.simplerecode, outputDriver=cmdargs.format)
+
+    # Do histogram, stats and colour table on final output file. 
+    outDs = gdal.Open(cmdargs.outfile, gdal.GA_Update)
+
+    t0 = time.time()
+    hist = tiling.calcHistogramTiled(outDs, maxSegId, writeToRat=True)
+    if cmdargs.verbose:
+        print('Done histogram: {:.2f} seconds'.format(time.time()-t0))
+
+    band = outDs.GetRasterBand(1)
+
+    utils.estimateStatsFromHisto(band, hist)
+    utils.writeRandomColourTable(band, maxSegId+1)
     
+    del outDs    
 
 def writeClusterCentresToMetadata(bandObj, km):
     """
