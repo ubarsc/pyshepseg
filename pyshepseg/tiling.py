@@ -275,10 +275,11 @@ def doTiledShepherdSegmentation(infile, outfile, tileSize=DFLT_TILESIZE,
     of the whole raster, to create consistent clusters. These are 
     then used as seeds for all individual tiles. 
     
-    The tileSize is the minimum width/height of the tiles (not including overlap).
+    The tileSize is the minimum width/height of the tiles (in pixels).
+    These tiles are overlapped by overlapSize (also in pixels), both 
+    horizontally and vertically.
     Tiles on the right and bottom edges of the input image may end up 
-    slightly larger than this to ensure there are no small tiles.
-    An overlap of overlapSize is included between tiles.
+    slightly larger than tileSize to ensure there are no small tiles.
     
     Return the maximum segment ID used (i.e. the number of segments,
     not including the null segment). 
