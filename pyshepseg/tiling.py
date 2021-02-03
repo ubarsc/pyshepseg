@@ -229,7 +229,9 @@ def getTilesForFile(ds, tileSize, overlapSize):
         xpos = 0
         xtile = 0
         ysize = tileSize
-        if (ypos + ysize) > ds.RasterYSize:
+        # ensure that we can fit another whole tile before the edge
+        # - grow this tile if needed so we don't end up with slivers
+        if (ypos + ysize*2) > ds.RasterYSize:
             ysize = ds.RasterYSize - ypos
             yDone = True
             if ysize == 0:
@@ -237,7 +239,9 @@ def getTilesForFile(ds, tileSize, overlapSize):
     
         while not xDone:
             xsize = tileSize
-            if (xpos + xsize) > ds.RasterXSize:
+            # ensure that we can fit another whole tile before the edge
+            # - grow this tile if needed so we don't end up with slivers
+            if (xpos + xsize*2) > ds.RasterXSize:
                 xsize = ds.RasterXSize - xpos
                 xDone = True
                 if xsize == 0:
@@ -271,7 +275,9 @@ def doTiledShepherdSegmentation(infile, outfile, tileSize=DFLT_TILESIZE,
     of the whole raster, to create consistent clusters. These are 
     then used as seeds for all individual tiles. 
     
-    The tileSize is the width/height of the tiles (not including overlap).
+    The tileSize is the minimum width/height of the tiles (not including overlap).
+    Tiles on the right and bottom edges of the input image may end up 
+    slightly larger than this to ensure there are no small tiles.
     An overlap of overlapSize is included between tiles.
     
     Return the maximum segment ID used (i.e. the number of segments,
