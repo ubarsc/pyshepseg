@@ -121,7 +121,7 @@ class SegmentationResult(object):
 def doShepherdSegmentation(img, numClusters=60, clusterSubsamplePcnt=1,
         minSegmentSize=50, maxSpectralDiff='auto', imgNullVal=None,
         fourConnected=True, verbose=False, fixedKMeansInit=False,
-        kmeansObj=None):
+        kmeansObj=None, spectDistPcntile=50):
     """
     Perform Shepherd segmentation in memory, on the given 
     multi-band img array.
@@ -131,8 +131,18 @@ def doShepherdSegmentation(img, numClusters=60, clusterSubsamplePcnt=1,
     numClusters and clusterSubsamplePcnt are passed
     through to fitSpectralClusters(). 
     
-    minSegmentSize and maxSpectralDiff are passed through
-    to eliminateSmallSegments(). 
+    minSegmentSize is the minimum segment size (in pixels) which 
+    will be left after eliminating small segments (except for
+    segments which cannot be eliminated).
+    
+    maxSpectralDiff sets a limit on how different segments can be 
+    and still be merged. It is given in the units of the spectral 
+    space of img. If maxSpectralDiff is 'auto',
+    a default value will be calculated from the spectral 
+    distances between cluster centres, as a percentile of
+    the distribution of these (spectDistPcntile). The value of
+    spectDistPcntile should be lowered when segementing an image 
+    with a larger range of spectral distances. 
     
     Default values are mostly as suggested by Shepherd et al. 
     
@@ -197,7 +207,7 @@ def doShepherdSegmentation(img, numClusters=60, clusterSubsamplePcnt=1,
         print("Eliminated", numElimSinglepix, "single pixels, in", 
             round(time.time()-t0, 1), "seconds")
 
-    maxSpectralDiff = autoMaxSpectralDiff(km, maxSpectralDiff)
+    maxSpectralDiff = autoMaxSpectralDiff(km, maxSpectralDiff, spectDistPcntile)
 
     t0 = time.time()
     numElimSmall = eliminateSmallSegments(seg, img, maxSegId, minSegmentSize, maxSpectralDiff,
@@ -346,7 +356,7 @@ def diagonalClusterCentres(xSample, numClusters):
     return centres
 
 
-def autoMaxSpectralDiff(km, maxSpectralDiff):
+def autoMaxSpectralDiff(km, maxSpectralDiff, distPcntile):
     """
     Work out what to use as the maxSpectralDiff.
 
@@ -372,7 +382,7 @@ def autoMaxSpectralDiff(km, maxSpectralDiff):
             k += 1
 
     if maxSpectralDiff == 'auto':
-        maxSpectralDiff = numpy.median(clusterDist)
+        maxSpectralDiff = numpy.percentile(clusterDist, distPcntile)
     elif maxSpectralDiff is None:
         maxSpectralDiff = 10 * clusterDist.max()
 

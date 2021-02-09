@@ -264,7 +264,8 @@ def doTiledShepherdSegmentation(infile, outfile, tileSize=DFLT_TILESIZE,
         overlapSize=DFLT_OVERLAPSIZE, minSegmentSize=50, numClusters=60, 
         bandNumbers=None, subsamplePcnt=None, maxSpectralDiff='auto', 
         imgNullVal=None, fixedKMeansInit=False, fourConnected=True, 
-        verbose=False, simpleTileRecode=False, outputDriver='KEA'):
+        verbose=False, simpleTileRecode=False, outputDriver='KEA',
+        spectDistPcntile=50):
     """
     Run the Shepherd segmentation algorithm in a memory-efficient
     manner, suitable for large raster files. Runs the segmentation
@@ -272,14 +273,19 @@ def doTiledShepherdSegmentation(infile, outfile, tileSize=DFLT_TILESIZE,
     together into a single output segment raster. 
     
     The initial spectral clustering is performed on a sub-sample
-    of the whole raster, to create consistent clusters. These are 
-    then used as seeds for all individual tiles. 
+    of the whole raster (using fitSpectralClustersWholeFile), 
+    to create consistent clusters. These are then used as seeds 
+    for all individual tiles. 
     
     The tileSize is the minimum width/height of the tiles (in pixels).
     These tiles are overlapped by overlapSize (also in pixels), both 
     horizontally and vertically.
     Tiles on the right and bottom edges of the input image may end up 
     slightly larger than tileSize to ensure there are no small tiles.
+    
+    Most of the arguments are passed through to 
+    shepseg.doShepherdSegmentation, and are described in the docstring 
+    for that function. 
     
     Return the maximum segment ID used (i.e. the number of segments,
     not including the null segment). 
@@ -339,7 +345,7 @@ def doTiledShepherdSegmentation(infile, outfile, tileSize=DFLT_TILESIZE,
                     minSegmentSize=minSegmentSize,
                     maxSpectralDiff=maxSpectralDiff, imgNullVal=imgNullVal, 
                     fourConnected=fourConnected, kmeansObj=kmeansObj, 
-                    verbose=verbose)
+                    verbose=verbose, spectDistPcntile=spectDistPcntile)
         
         filename = 'tile_{}_{}.{}'.format(col, row, TEMPFILES_EXT)
         filename = os.path.join(tempDir, filename)
