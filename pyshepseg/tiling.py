@@ -48,6 +48,28 @@ TEMPFILES_EXT = 'kea'
 DFLT_TILESIZE = 4096
 DFLT_OVERLAPSIZE = 200
 
+
+class TiledSegmentationResult(object):
+    """
+    Result of tiled segmentation
+    
+    Attributes:
+      maxSegId: Largest segment ID used in final segment image
+      numTileRows: Number of rows of tiles used
+      numTileCols: Number of columns of tiles used
+      subSamplePcnt: Percentage of image subsampled for clustering
+      maxSpectralDiff: The value used to limit segment merging (in all tiles)
+      kmeans: The sklearn KMeans object, after fitting
+      
+    """
+    maxSegId = None
+    numTileRows = None
+    numTileCols = None
+    subSamplePcnt = None
+    maxSpectralDiff = None
+    kmeans = None
+
+
 def fitSpectralClustersWholeFile(inDs, bandNumbers, numClusters=60, 
         subsamplePcnt=None, imgNullVal=None, 
         fixedKMeansInit=False):
@@ -374,8 +396,16 @@ def doTiledShepherdSegmentation(infile, outfile, tileSize=DFLT_TILESIZE,
         tempDir, simpleTileRecode, outputDriver, verbose)
         
     shutil.rmtree(tempDir)
+
+    tiledSegResult = TiledSegmentationResult()
+    tiledSegResult.maxSegId = maxSegId
+    tiledSegResult.numTileRows = tileInfo.nrows
+    tiledSegResult.numTileCols = tileInfo.ncols
+    tiledSegResult.subSamplePcnt = subSamplePcnt
+    tiledSegResult.maxSpectralDiff = segResult.maxSpectralDiff
+    tiledSegResult.kmeans = kmeansObj
     
-    return maxSegId
+    return tiledSegResult
 
 
 def stitchTiles(inDs, outfile, tileFilenames, tileInfo, overlapSize,
