@@ -123,9 +123,6 @@ def fitSpectralClustersWholeFile(inDs, bandNumbers, numClusters=60,
             raise PyShepSegTilingError("Different null values in some bands")
         imgNullVal = nullValArr[0]
     
-    nRows_sub = int(round(inDs.RasterYSize * subsampleProp))
-    nCols_sub = int(round(inDs.RasterXSize * subsampleProp))
-    
     bandList = []
     for bandNum in bandNumbers:
         bandObj = inDs.GetRasterBand(bandNum)
@@ -161,8 +158,6 @@ def readSubsampledImageBand(bandObj, subsampleProp):
     image. 
     
     """
-    (nRowsFull, nColsFull) = (bandObj.YSize, bandObj.XSize)
-    
     # A skip factor, applied to rows and column
     skip = int(round(1./subsampleProp))
     
@@ -496,7 +491,6 @@ def stitchTiles(inDs, outfile, tileFilenames, tileInfo, overlapSize,
             tileData += maxSegId
             tileData[nullmask] = shepseg.SEGNULLVAL
         else:
-            t0 = time.time()
             tileData = recodeTile(tileData, maxSegId, row, col, 
                         overlapSize, tempDir, top, bottom, left, right)
             
