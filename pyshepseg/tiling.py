@@ -304,8 +304,7 @@ def doTiledShepherdSegmentation(infile, outfile, tileSize=DFLT_TILESIZE,
     shepseg.doShepherdSegmentation, and are described in the docstring 
     for that function. 
     
-    Return the maximum segment ID used (i.e. the number of segments,
-    not including the null segment). 
+    Return an instance of TiledSegmentationResult class. 
     
     """
     if verbose:
