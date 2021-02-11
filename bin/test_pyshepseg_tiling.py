@@ -130,7 +130,7 @@ def getCmdargs():
 def main():
     cmdargs = getCmdargs()
     
-    maxSegId = tiling.doTiledShepherdSegmentation(cmdargs.infile, cmdargs.outfile, 
+    tiledSegResult = tiling.doTiledShepherdSegmentation(cmdargs.infile, cmdargs.outfile, 
             tileSize=cmdargs.tilesize, overlapSize=cmdargs.overlapsize, 
             minSegmentSize=cmdargs.minsegmentsize, numClusters=cmdargs.nclusters,
             bandNumbers=cmdargs.bands, subsamplePcnt=cmdargs.clustersubsamplepercent,
@@ -143,14 +143,14 @@ def main():
     outDs = gdal.Open(cmdargs.outfile, gdal.GA_Update)
 
     t0 = time.time()
-    hist = tiling.calcHistogramTiled(outDs, maxSegId, writeToRat=True)
+    hist = tiling.calcHistogramTiled(outDs, tiledSegResult.maxSegId, writeToRat=True)
     if cmdargs.verbose:
         print('Done histogram: {:.2f} seconds'.format(time.time()-t0))
 
     band = outDs.GetRasterBand(1)
 
     utils.estimateStatsFromHisto(band, hist)
-    utils.writeRandomColourTable(band, maxSegId+1)
+    utils.writeRandomColourTable(band, tiledSegResult.maxSegId+1)
     
     del outDs    
 
