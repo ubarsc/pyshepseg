@@ -35,7 +35,6 @@ import tempfile
 
 import numpy
 from osgeo import gdal
-gdal.UseExceptions()
 import scipy.stats
 
 from numba import njit
