@@ -610,7 +610,7 @@ def recodeSharedSegments(tileData, overlapA, overlapB, orientation,
     Work out a mapping which recodes segment ID numbers from
     the tile in tileData. Segments to be recoded are those which 
     are in the overlap with an earlier tile, and which cross the 
-    midline of the overlap, which is where the stichline between 
+    midline of the overlap, which is where the stitchline between 
     the tiles will fall. 
     
     Updates recodeDict, which is a dictionary keyed on the 
