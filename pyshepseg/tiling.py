@@ -1,7 +1,32 @@
 """
 Routines in support of tiled segmentation of very large rasters. 
 
-This module is still under development. 
+Main entry routine is doTiledShepherdSegmentation(). See that
+function for further details. 
+
+The broad idea is that the Shepherd segmentation algorithm, as
+implemented in the shepseg module, runs entirely in memory. 
+For larger raster files, it is more efficient to divide the raster 
+into tiles, segment each tile individually, and stitch the
+results together to create a segmentation of the whole raster. 
+
+The main caveats arise from the fact that the initial clustering
+is performed on a uniform subsample of the whole image, in 
+order to give consistent segment boundaries at tile intersections. 
+This means that for a larger raster, with a greater range of 
+spectra, one may wish to increase the number of clusters in order 
+to allow sufficient initial segments to characterize the variation. 
+
+Related to this, one may also consider reducing the percentile
+used for automatic estimation of maxSpectralDiff (see 
+shepseg.doShepherdSegmentation() and shepseg.autoMaxSpectralDiff() 
+for further details). 
+
+Because of these caveats, one should be very cautious about 
+segmenting something like a continental-scale image. There is a 
+lot of spectral variation across an area like a whole continent, 
+and it may be unwise to use all the same parameters for the
+whole area. 
 
 """
 # Copyright 2021 Neil Flood and Sam Gillingham. All rights reserved.
@@ -291,13 +316,18 @@ def doTiledShepherdSegmentation(infile, outfile, tileSize=DFLT_TILESIZE,
     The initial spectral clustering is performed on a sub-sample
     of the whole raster (using fitSpectralClustersWholeFile), 
     to create consistent clusters. These are then used as seeds 
-    for all individual tiles. 
+    for all individual tiles. Note that subsamplePcnt is used at 
+    this stage, over the whole raster, and is not passed through to 
+    shepseg.doShepherdSegmentation() for any further sub-sampling. 
     
     The tileSize is the minimum width/height of the tiles (in pixels).
     These tiles are overlapped by overlapSize (also in pixels), both 
     horizontally and vertically.
     Tiles on the right and bottom edges of the input image may end up 
     slightly larger than tileSize to ensure there are no small tiles.
+
+    outputDriver is a string of the name of the GDAL driver to use
+    for the output file. 
     
     Most of the arguments are passed through to 
     shepseg.doShepherdSegmentation, and are described in the docstring 
@@ -413,6 +443,8 @@ def stitchTiles(inDs, outfile, tileFilenames, tileInfo, overlapSize,
     keyed by a tuple of (col, row) defining which tile it is. 
     tileInfo is the object returned by getTilesForFile. 
     overlapSize is the number of pixels in the overlap between tiles. 
+    outputDriver is a string of the name of the GDAL driver to use
+    for the output file. 
     
     If simpleTileRecode is True, a simpler method will be used to 
     recode segment IDs, using just a block offset to shift ID numbers.
@@ -575,6 +607,32 @@ def recodeTile(tileData, maxSegId, tileRow, tileCol, overlapSize, tempDir,
 def recodeSharedSegments(tileData, overlapA, overlapB, orientation,
         recodeDict):
     """
+    Work out a mapping which recodes segment ID numbers from
+    the tile in tileData. Segments to be recoded are those which 
+    are in the overlap with an earlier tile, and which cross the 
+    midline of the overlap, which is where the stichline between 
+    the tiles will fall. 
+    
+    Updates recodeDict, which is a dictionary keyed on the 
+    existing segment ID numbers, where the value of each entry 
+    is the segment ID number from the earlier tile, to be used 
+    to recode the segment in the current tile. 
+    
+    overlapA and overlapB are numpy arrays of the overlap region
+    in question, giving the segment ID numbers is the two tiles. 
+    The values in overlapA are from the earlier tile, and those in 
+    overlapB are from the current tile. 
+    
+    It is critically important that the overlapping region is either
+    at the top or the left of the current tile, as this means that 
+    the row and column numbers of pixels in the overlap arrays 
+    match the same pixels in the full tile. This cannot be used
+    for overlaps on the right or bottom of the current tile. 
+    
+    The orientation parameter defines whether we are dealing with 
+    overlap at the top (orientation == HORIZONTAL) or the left
+    (orientation == VERTICAL). 
+    
     """
     # The current segment IDs just from the overlap region.
     segIdList = numpy.unique(overlapA)
