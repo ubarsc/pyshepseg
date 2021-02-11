@@ -74,7 +74,7 @@ Their main purpose is as test scripts during development, but they also serve
 as examples of how to write scripts which use the package. In addition, 
 they can also be used directly for simple segmentation tasks. 
 
-The `test_pyshepseg.py` script is a wrapper around the basic usage. The
-`test_pyshepseg_tiling.py` script is a warpper around the tiled segmentation
-for large rasters. 
+The `test_pyshepseg.py` script is a wrapper around the basic in-memory usage. 
+The `test_pyshepseg_tiling.py` script is a wrapper around the tiled 
+segmentation for large rasters. 
 
