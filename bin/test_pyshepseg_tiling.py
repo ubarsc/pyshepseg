@@ -152,13 +152,14 @@ def main():
     # unfortunately to estimate the stats from the histogram 
     # we need the whole thing (well at least I don't *think* this
     # is possible to work it out from values accumulated from the chunks)
+    # TODO: check this
     attrTbl = band.GetDefaultRAT()
     histIdx = attrTbl.GetColOfUsage(gdal.GFU_PixelCount)
     hist = attrTbl.ReadAsArray(histIdx)
 
     utils.estimateStatsFromHisto(band, hist)
     
-    # Ideally, we'd be able to avoid this whole-of-RAT step by building
+    # TODO: Ideally, we'd be able to avoid this whole-of-RAT step by building
     # the colour table as part of calcHistogramTiled().
     utils.writeRandomColourTable(band, tiledSegResult.maxSegId+1)
     
