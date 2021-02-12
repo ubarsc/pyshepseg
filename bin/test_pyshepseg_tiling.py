@@ -143,13 +143,23 @@ def main():
     outDs = gdal.Open(cmdargs.outfile, gdal.GA_Update)
 
     t0 = time.time()
-    hist = tiling.calcHistogramTiled(outDs, tiledSegResult.maxSegId, writeToRat=True)
+    tiling.calcHistogramTiled(outDs, tiledSegResult.maxSegId, writeToRat=True)
     if cmdargs.verbose:
         print('Done histogram: {:.2f} seconds'.format(time.time()-t0))
 
     band = outDs.GetRasterBand(1)
 
+    # unfortunately to estimate the stats from the histogram 
+    # we need the whole thing (well at least I don't *think* this
+    # is possible to work it out from values accumulated from the chunks)
+    attrTbl = band.GetDefaultRAT()
+    histIdx = attrTbl.GetColOfUsage(gdal.GFU_PixelCount)
+    hist = attrTbl.ReadAsArray(histIdx)
+
     utils.estimateStatsFromHisto(band, hist)
+    
+    # Ideally, we'd be able to avoid this whole-of-RAT step by building
+    # the colour table as part of calcHistogramTiled().
     utils.writeRandomColourTable(band, tiledSegResult.maxSegId+1)
     
     del outDs    

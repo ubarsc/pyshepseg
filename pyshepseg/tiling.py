@@ -71,7 +71,7 @@ TEMPFILES_EXT = 'kea'
 
 DFLT_TILESIZE = 4096
 DFLT_OVERLAPSIZE = 200
-
+DFLT_CHUNKSIZE = 10000
 
 class TiledSegmentationResult(object):
     """
@@ -738,7 +738,8 @@ def crossesMidline(overlap, segLoc, orientation):
     return ((minN < mid) & (maxN >= mid))
 
 
-def calcHistogramTiled(segfile, maxSegId, writeToRat=True):
+def calcHistogramTiled(segfile, maxSegId, writeToRat=True, 
+            chunkSize=DFLT_CHUNKSIZE, ratBuilderFn=None):
     """
     Calculate a histogram of the given segment image file. 
     
@@ -749,29 +750,27 @@ def calcHistogramTiled(segfile, maxSegId, writeToRat=True):
     segment values, and the number of segments is very large. So,
     we need to write our own routine. 
     
-    It works in tiles across the image, so that it can process 
-    very large images in a memory-efficient way. For the same 
-    reason, it keeps the temporary histogram on disk while 
-    accumulating it. 
+    It works in tiles across the image multiple times for each
+    'chunk' (range of segment ids), so that it can process 
+    very large images in a memory-efficient way. 
     
-    For a raster which can easily fit into memory, a histogram
-    can be calculated directly using 
-        pyshepseg.shepseg.makeSegSize()
-    
-    Once completed, the histogram can be written to the image file's
-    raster attribute table, if writeToRat is True). It will also be
-    returned as a numpy array, indexed by segment ID. 
+    For each chunk, the histogram can be written to the image file's
+    raster attribute table, if writeToRat is True). 
 
     segfile can be either a filename string, or an open 
     gdal.Dataset object. If writeToRat is True, then a Dataset
     object should be opened for update. 
     
-    """
-    # This is the histogram array, indexed by segment ID. 
-    # Currently just in memory, it could be quite large, 
-    # depending on how many segments there are.
-    hist = numpy.zeros((maxSegId+1), dtype=numpy.uint32)
+    chunkSize controls the range of values (segment ids) in the file
+    that are processed in each pass. The smaller this value the
+    less memory is used, but it will require more passes over
+    the input image and so will be slower. 
     
+    If ratBuilderFn is given it will be called with the output
+    of makeSegmentLocationsChunk for the current chunk and the output
+    is written to the RAT.
+    
+    """
     # Open the file
     if isinstance(segfile, gdal.Dataset):
         ds = segfile
@@ -779,6 +778,51 @@ def calcHistogramTiled(segfile, maxSegId, writeToRat=True):
         ds = gdal.Open(segfile, gdal.GA_Update)
     segband = ds.GetRasterBand(1)
     
+    chunkMinVal = 0
+    chunkMaxVal = chunkSize
+
+    attrTbl = segband.GetDefaultRAT()
+
+    while chunkMinVal < maxSegId:
+        if chunkMaxVal > maxSegId:
+            chunkMaxVal = maxSegId + 1
+    
+        print('chunk', chunkMinVal, chunkMaxVal)
+        hist = calcHistogramTiledChunk(segband, attrTbl, chunkMinVal, 
+                        chunkMaxVal, ratBuilderFn)
+
+        # TODO: should this be moved into calcHistogramTiledChunk
+        # so all the RAT writing is in one place?
+        if writeToRat:
+            numTableRows = int(chunkMaxVal)
+            if attrTbl.GetRowCount() != numTableRows:
+                attrTbl.SetRowCount(numTableRows)
+            colNum = attrTbl.GetColOfUsage(gdal.GFU_PixelCount)
+            if colNum == -1:
+                attrTbl.CreateColumn('Histogram', gdal.GFT_Integer, gdal.GFU_PixelCount)
+                colNum = attrTbl.GetColumnCount() - 1
+                
+            attrTbl.WriteArray(hist, colNum, chunkMinVal)
+            
+        chunkMinVal += chunkSize
+        chunkMaxVal += chunkSize
+
+def calcHistogramTiledChunk(segband, attrTbl, chunkMinVal, chunkMaxVal, 
+            ratBuilderFn=None):
+    """
+    Does a 'chunk' of the histogram processing between chunkMinVal and
+    chunkMaxVal values in the input file. Returns the histogram for
+    this chunk.
+    
+    If ratBuilderFn is given it will be called with the output
+    of makeSegmentLocationsChunk for the current chunk and the output
+    is written to the RAT.
+    
+    """
+
+    chunkSize = chunkMaxVal - chunkMinVal
+    hist = numpy.zeros((chunkSize,), dtype=numpy.uint32)
+
     tileSize = 1024
     (nlines, npix) = (segband.YSize, segband.XSize)
     numXtiles = int(numpy.ceil(npix / tileSize))
@@ -790,35 +834,95 @@ def calcHistogramTiled(segfile, maxSegId, writeToRat=True):
             leftPix = tileCol * tileSize
             xsize = min(tileSize, npix-leftPix)
             ysize = min(tileSize, nlines-topLine)
-            
+
             tileData = segband.ReadAsArray(leftPix, topLine, xsize, ysize)
-            updateCounts(tileData, hist)
+            updateCounts(tileData, hist, chunkMinVal, chunkMaxVal)
+            
+            if ratBuilderFn is not None:
+                # TODO: this is really rough and untested!!
+                segSize = makeSegSizeChunk(tileData, chunkMinVal, chunkMaxVal)
+                segLocations = makeSegmentLocationsChunk(tileData, segSize, 
+                                        chunkMinVal, chunkMaxVal)
+                                        
+                # TODO: work out what this returns, needs name, type (although
+                # this could be derived from the data) and usage.
+                # Is it and object? A tuple etc?
+                result = ratBuilderFn(segLocations)
+                for colInfo in result:
+                    # do we have this one yet?
+                    colIdx = -1
+                    for col in range(attrTbl.GetColumnCount()):
+                        if attrTbl.GetNameOfCol(col) == colInfo.name:
+                            colIdx = col
+                            break
+                            
+                    if colIdx == -1:
+                        # no, create it
+                        attrTbl.CreateColumn(colInfo.name, colInfo.type, colInfo.usage)
+                        colIdx = attrTbl.GetColumnCount() - 1
+                        
+                    attrTbl.WriteArray(colInfo.data, colIdx, chunkMinVal)
 
     # Set the histogram count for the null segment to zero
-    hist[shepseg.SEGNULLVAL] = 0
-
-    if writeToRat:
-        attrTbl = segband.GetDefaultRAT()
-        numTableRows = int(maxSegId + 1)
-        if attrTbl.GetRowCount() != numTableRows:
-            attrTbl.SetRowCount(numTableRows)
-        attrTbl.CreateColumn('Histogram', gdal.GFT_Integer, gdal.GFU_PixelCount)
-        colNum = attrTbl.GetColumnCount() - 1
-        attrTbl.WriteArray(hist, colNum)
-
+    # only on first chink
+    if chunkMinVal == 0:
+        hist[shepseg.SEGNULLVAL] = 0
+        
     return hist
 
-
 @njit
-def updateCounts(tileData, hist):
+def updateCounts(tileData, hist, minVal, maxVal):
     """
     Fast function to increment counts for each segment ID
+    for input value betweeen minVal and maxVal
     """
     (nrows, ncols) = tileData.shape
     for i in range(nrows):
         for j in range(ncols):
             segid = tileData[i, j]
-            hist[segid] += 1
+            if segid >= minVal and segid < maxVal:
+                hist[segid - minVal] += 1
+
+@njit
+def makeSegSizeChunk(seg, minVal, maxVal):
+    """
+    Return an array of segment sizes, from the given seg image
+    between the given values. The returned array is indexed by 
+    segment ID. Each element is the number of pixels in that segment. 
+    """
+    chunkSize = maxVal - minVal
+    segSize = numpy.zeros(chunkSize, dtype=numpy.uint32)
+    (nRows, nCols) = seg.shape
+    for i in range(nRows):
+        for j in range(nCols):
+            segid = seg[i, j]
+            if segid >= minVal and segid < maxVal:
+                segSize[segid - minVal] += 1
+
+    return segSize
+
+@njit
+def makeSegmentLocationsChunk(seg, segSize, minVal, maxVal):
+    """
+    Create a data structure to hold the locations of all pixels
+    in segments between the given values.
+    """
+    d = Dict.empty(key_type=types.uint32, value_type=shepseg.RowColArray_Type)
+    chunkSize = maxVal - minVal
+    for segid in range(chunkSize):
+        numPix = segSize[segid]
+        obj = shepseg.RowColArray(numPix)
+        d[SegIdType(segid)] = obj
+
+    (nRows, nCols) = seg.shape
+    for row in numpy.arange(nRows, dtype=numpy.uint32):
+        for col in numpy.arange(nCols, dtype=numpy.uint32):
+            segid = seg[row, col]
+            if (segid >= minVal and segid < maxVal and 
+                        (minVal != 0 or segid != shepseg.SEGNULLVAL)):
+                d[segid - minVal].append(row, col)
+
+    return d
 
 
 class PyShepSegTilingError(Exception): pass
