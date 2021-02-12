@@ -847,6 +847,9 @@ def calcHistogramTiledChunk(segband, attrTbl, chunkMinVal, chunkMaxVal,
                 # TODO: work out what this returns, needs name, type (although
                 # this could be derived from the data) and usage.
                 # Is it and object? A tuple etc?
+                # TODO: the user function will likely want to have access to the 
+                # input image also. Should we provide the corresponding data for
+                # that image to it also?
                 result = ratBuilderFn(segLocations)
                 for colInfo in result:
                     # do we have this one yet?
