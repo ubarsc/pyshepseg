@@ -71,6 +71,7 @@ TEMPFILES_EXT = 'kea'
 
 DFLT_TILESIZE = 4096
 DFLT_OVERLAPSIZE = 200
+# TODO: this should be a much bigger number (1million?)
 DFLT_CHUNKSIZE = 10000
 
 class TiledSegmentationResult(object):
@@ -918,8 +919,8 @@ def makeSegmentLocationsChunk(seg, segSize, minVal, maxVal):
         d[SegIdType(segid)] = obj
 
     (nRows, nCols) = seg.shape
-    for row in numpy.arange(nRows, dtype=numpy.uint32):
-        for col in numpy.arange(nCols, dtype=numpy.uint32):
+    for row in range(nRows):
+        for col in range(nCols):
             segid = seg[row, col]
             if (segid >= minVal and segid < maxVal and 
                         (minVal != 0 or segid != shepseg.SEGNULLVAL)):
