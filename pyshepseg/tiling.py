@@ -63,6 +63,9 @@ from osgeo import gdal
 import scipy.stats
 
 from numba import njit
+from numba.core import types
+from numba.typed import Dict, List
+from numba.experimental import jitclass
 
 from . import shepseg
 
@@ -736,6 +739,171 @@ def crossesMidline(overlap, segLoc, orientation):
     maxN = segLoc.rowcols[:, n].max()
     
     return ((minN < mid) & (maxN >= mid))
+    
+def calcPerSegmentStatsTiled(imgfile, imgband, segfile, maxSegId, 
+            chunkSize=DFLT_CHUNKSIZE):
+    
+    # Open the segment file
+    if isinstance(segfile, gdal.Dataset):
+        segds = segfile
+    else:
+        segds = gdal.Open(segfile, gdal.GA_Update)
+    segband = segds.GetRasterBand(1)
+    
+    # open the data file
+    if isinstance(imgfile, gdal.Dataset):
+        imgds = segfile
+    else:
+        imgds = gdal.Open(imgfile, gdal.GA_Update)
+    imgband = imgds.GetRasterBand(imgband)
+    
+    chunkMinVal = 0
+    chunkMaxVal = chunkSize
+
+    attrTbl = segband.GetDefaultRAT()
+
+    while chunkMinVal < maxSegId:
+        if chunkMaxVal > maxSegId:
+            chunkMaxVal = maxSegId + 1
+
+        calcStatsForChunk(segband, imgband, chunkMinVal, chunkMaxVal, attrTbl)
+
+        chunkMinVal += chunkSize
+        chunkMaxVal += chunkSize
+ 
+GDAL_TYPE_TO_NUMBA_TYPE = {}
+
+@njit
+def createChunkList(count, keyType):
+
+    chunkList = List()
+    for n in range(count):
+        d = Dict.empty(key_type=keyType, 
+                    value_type=types.uint32)
+        chunk.append(d)
+
+    return chunkList
+    
+@njit
+def accumulatePerSegmentStats(tileSegments, tileImageData, chunkList, chunkMinVal, chunkMaxVal):
+
+    ysize, xsize = tileSegments.shape
+    
+    for y in range(ysize):
+        for x in range(xsize):
+            segId = tileSegments[y, x]
+            if segid >= chunkMinVal and segid < chunkMaxVal:
+                imgVal = tileImageData[y, x]
+
+                d = chunkList[segId - chunkMinVal]
+                if imgVal not in d:
+                    d[imgVal] = 0
+
+                d[imgVal] += 1
+
+@njit
+def getSortedKeysAndValuesForDict(d):
+    
+    size = len(d)
+    # TODO: get key and value types
+    keysArray = numpy.empty(size, dtype=numpy.uint32)
+    valuesArray = numpy.empty(size, dtype=numpy.uint32)
+    
+    dictKeys = d.keys()
+    c = 0
+    for key in dictKeys:
+        keysArray[c] = key
+        valuesArray[c] = d[key]
+        c + = 1
+    
+    index = numpy.argsort(keysArray)
+    keysSorted = keysArray[index]
+    valuesSorted = valuesArray[index]
+    
+    return keysSorted, valuesSorted
+    
+# TODO: types
+@jitclass
+class SegmentStats(object):
+    def __init__(self, d):
+    
+        self.keys, self.counts = getSortedKeysAndValuesForDict(d)
+        self.minVal = keys[0]
+        self.maxVal = keys[-1]
+    
+        self.meanVal = (keys * counts).sum() / nVals
+
+        self.stdDevVal = (counts * numpy.power(keys - meanVal, 2)).sum() / nVals
+        self.stdDevVal = numpy.sqrt(stdDevVal)
+
+        self.modeVal = keys[numpy.argmax(counts)]
+        # estimate the median - bin with the middle number
+        
+        self.median = self.getPercentile(50)
+        
+    def getPercentile(self, percentile)
+        self.middlenum = self.counts.sum() * (percentile / 100)
+        # TODO: make more numba....
+        gtmiddle = self.counts.cumsum() >= middlenum
+        self.medianVal = gtmiddle.nonzero()[0][0]
+        
+        
+@jitclass
+class ChunkStats(object):
+    def __init__(self):
+        pass
+
+@njit
+def estimateStatsFromHisto(chunkList):
+    
+    # TODO: output data structure
+    
+    for d in chunkList:
+    
+        keys, counts = getSortedKeysAndValuesForDict(d)
+        nVals = counts.sum()
+
+        minVal = keys[0]
+        maxVal = keys[-1]
+    
+        meanVal = (keys * counts).sum() / nVals
+
+        stdDevVal = (counts * numpy.power(keys - meanVal, 2)).sum() / nVals
+        stdDevVal = numpy.sqrt(stdDevVal)
+
+        modeVal = keys[numpy.argmax(counts)]
+        # estimate the median - bin with the middle number
+        middlenum = counts.sum() / 2
+        # TODO: make more numba....
+        gtmiddle = hist.cumsum() >= middlenum
+        medianVal = gtmiddle.nonzero()[0][0]
+
+        
+def calcStatsForChunk(segband, imgband, chunkMinVal, chunkMaxVal, attrTbl):
+
+    tileSize = 1024
+    (nlines, npix) = (segband.YSize, segband.XSize)
+    numXtiles = int(numpy.ceil(npix / tileSize))
+    numYtiles = int(numpy.ceil(nlines / tileSize))
+    
+    numbaType = GDAL_TYPE_TO_NUMBA_TYPE[imgband]
+    
+    count = chunkMaxVal - chunkMinVal
+    chunkList = createChunkList(count, numbaType)
+
+    for tileRow in range(numYtiles):
+        for tileCol in range(numXtiles):
+            topLine = tileRow * tileSize
+            leftPix = tileCol * tileSize
+            xsize = min(tileSize, npix-leftPix)
+            ysize = min(tileSize, nlines-topLine)
+            
+            tileSegments = segband.ReadAsArray(leftPix, topLine, xsize, ysize)
+            tileImageData = imgband.ReadAsArray(leftPix, topLine, xsize, ysize)
+            
+            accumulatePerSegmentStats(tileSegments, tileImageData, chunkList, chunkMinVal)
+            
+    return chunkList
 
 
 def calcHistogramTiled(segfile, maxSegId, writeToRat=True):
