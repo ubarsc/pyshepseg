@@ -773,7 +773,13 @@ def calcPerSegmentStatsTiled(imgfile, imgband, segfile, maxSegId,
         chunkMinVal += chunkSize
         chunkMaxVal += chunkSize
  
-GDAL_TYPE_TO_NUMBA_TYPE = {}
+GDAL_TYPE_TO_NUMBA_TYPE = {
+    gdal.GDT_Byte: numpy.uint8,
+    gdal.GDT_Int16: numpy.in16,
+    gdal.GDT_UInt16: numpy.uint16,
+    gdal.GDT_Int32: numpy.int32,
+    gdal.GDT_Uint32: numpy.uint32
+}
 
 @njit
 def createChunkList(count, keyType):
