@@ -75,6 +75,8 @@ TEMPFILES_EXT = 'kea'
 DFLT_TILESIZE = 4096
 DFLT_OVERLAPSIZE = 200
 
+DFLT_CHUNKSIZE = 1000000
+
 
 class TiledSegmentationResult(object):
     """
@@ -780,7 +782,7 @@ def createChunkList(count, keyType):
     for n in range(count):
         d = Dict.empty(key_type=keyType, 
                     value_type=types.uint32)
-        chunk.append(d)
+        chunkList.append(d)
 
     return chunkList
     
@@ -792,7 +794,7 @@ def accumulatePerSegmentStats(tileSegments, tileImageData, chunkList, chunkMinVa
     for y in range(ysize):
         for x in range(xsize):
             segId = tileSegments[y, x]
-            if segid >= chunkMinVal and segid < chunkMaxVal:
+            if segId >= chunkMinVal and segId < chunkMaxVal:
                 imgVal = tileImageData[y, x]
 
                 d = chunkList[segId - chunkMinVal]
@@ -814,7 +816,7 @@ def getSortedKeysAndValuesForDict(d):
     for key in dictKeys:
         keysArray[c] = key
         valuesArray[c] = d[key]
-        c + = 1
+        c += 1
     
     index = numpy.argsort(keysArray)
     keysSorted = keysArray[index]
@@ -825,58 +827,53 @@ def getSortedKeysAndValuesForDict(d):
 # TODO: types
 @jitclass
 class SegmentStats(object):
-    def __init__(self, d):
-    
-        self.keys, self.counts = getSortedKeysAndValuesForDict(d)
-        self.minVal = keys[0]
-        self.maxVal = keys[-1]
-    
-        self.meanVal = (keys * counts).sum() / nVals
+    "Manage statistics for a single segment"
+    def __init__(self, segmentHistDict):
+        """
+        Construct with generic statistics, given a typed 
+        dictionary of the histogram counts of all values
+        in the segment
+        """
+        self.pixVals, self.counts = getSortedKeysAndValuesForDict(segmentHistDict)
+        # Total number of pixels in segment
+        self.pixCount = self.counts.sum()
 
-        self.stdDevVal = (counts * numpy.power(keys - meanVal, 2)).sum() / nVals
-        self.stdDevVal = numpy.sqrt(stdDevVal)
+        # Min and max pixel values
+        self.minVal = self.pixVals[0]
+        self.maxVal = self.pixVals[-1]
 
-        self.modeVal = keys[numpy.argmax(counts)]
-        # estimate the median - bin with the middle number
+        # Mean value
+        self.meanVal = (self.pixVals * self.counts).sum() / self.pixCount
+
+        # Standard deviation
+        variance = (self.counts * (self.pixVals - self.meanVal)**2).sum() / self.pixCount
+        self.stdDevVal = numpy.sqrt(variance)
+
+        # Mode
+        self.modeVal = self.pixVals[numpy.argmax(self.counts)]
         
+        # Median
         self.median = self.getPercentile(50)
         
-    def getPercentile(self, percentile)
-        self.middlenum = self.counts.sum() * (percentile / 100)
-        # TODO: make more numba....
-        gtmiddle = self.counts.cumsum() >= middlenum
-        self.medianVal = gtmiddle.nonzero()[0][0]
+    def getPercentile(self, percentile):
+        """
+        Return the pixel value for the given percentile, 
+        e.g. getPercentile(50) would return the median value of 
+        the segment
+        """
+        countAtPcntile = self.pixCount * (percentile / 100)
+        cumCount = 0
+        i = 0
+        while cumCount < countAtPcntile:
+            cumCount += self.counts[i]
+            i += 1
+        self.pcntileVal = self.pixVals[i-1]
         
         
 @jitclass
 class ChunkStats(object):
     def __init__(self):
         pass
-
-@njit
-def estimateStatsFromHisto(chunkList):
-    
-    # TODO: output data structure
-    
-    for d in chunkList:
-    
-        keys, counts = getSortedKeysAndValuesForDict(d)
-        nVals = counts.sum()
-
-        minVal = keys[0]
-        maxVal = keys[-1]
-    
-        meanVal = (keys * counts).sum() / nVals
-
-        stdDevVal = (counts * numpy.power(keys - meanVal, 2)).sum() / nVals
-        stdDevVal = numpy.sqrt(stdDevVal)
-
-        modeVal = keys[numpy.argmax(counts)]
-        # estimate the median - bin with the middle number
-        middlenum = counts.sum() / 2
-        # TODO: make more numba....
-        gtmiddle = hist.cumsum() >= middlenum
-        medianVal = gtmiddle.nonzero()[0][0]
 
         
 def calcStatsForChunk(segband, imgband, chunkMinVal, chunkMaxVal, attrTbl):
