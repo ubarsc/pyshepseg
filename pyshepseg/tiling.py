@@ -761,11 +761,12 @@ def calcPerSegmentStatsTiled(imgfile, imgband, segfile, maxSegId,
     
     # Note that we skip the null segment ID, no stats are created for that. 
     chunkMinVal = shepseg.MINSEGID
+    # This is one more than the largest seg id in the chunk
     chunkMaxVal = chunkSize
 
     attrTbl = segband.GetDefaultRAT()
 
-    while chunkMinVal < maxSegId:
+    while chunkMinVal =< maxSegId:
         if chunkMaxVal > maxSegId:
             chunkMaxVal = maxSegId + 1
 
