@@ -75,6 +75,8 @@ TEMPFILES_EXT = 'kea'
 DFLT_TILESIZE = 4096
 DFLT_OVERLAPSIZE = 200
 
+DFLT_CHUNKSIZE = 1000000
+
 
 class TiledSegmentationResult(object):
     """
@@ -739,10 +741,45 @@ def crossesMidline(overlap, segLoc, orientation):
     maxN = segLoc.rowcols[:, n].max()
     
     return ((minN < mid) & (maxN >= mid))
+
+
+def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile, maxSegId, 
+            statsSelection, chunkSize=DFLT_CHUNKSIZE):
+    """
+    Calculate selected per-segment statistics for the given band 
+    of the imgfile, against the given segment raster file. 
+    Calculated statistics are written to the imgfile raster 
+    attribute table (RAT), so this file format must support RATs. 
     
-def calcPerSegmentStatsTiled(imgfile, imgband, segfile, maxSegId, 
-            chunkSize=DFLT_CHUNKSIZE):
+    Calculations are carried out in a memory-efficient way, allowing 
+    very large rasters to be processed. Raster data is handled in 
+    small tiles, attribute table is handled in fixed-size chunks. 
     
+    The statsSelection parameter is a list of tuples, one for each
+    statistics to be included. Each tuple is either 2 or 3 elements,
+        (columnName, statName) or (columnName, statName, parameter)
+    The 3-element form is used for any statistic which requires
+    a parameter, which currently is only the percentile. 
+    
+    The columnName is a string, used to name the column in the 
+    output RAT. 
+    The statName is a string used to identify which statistic 
+    is to be calculated. Available options are:
+        'min', 'max', 'mean', 'stddev', 'mode', 'percentile'.
+    The 'percentile' statistic requires the 3-element form, with 
+    the 3rd element being the percentile to be calculated. 
+    
+    For example
+        [('Band1_Mean', 'mean'),
+         ('Band1_stdDev', 'stddev'),
+         ('Band1_LQ', 'percentile', 25),
+         ('Band1_UQ', 'percentile', 75)
+        ]
+    would create 4 columns, for the per-segment mean and 
+    standard deviation of the given band, and the lower and upper 
+    quartiles, with corresponding column names. 
+
+    """
     # Open the segment file
     if isinstance(segfile, gdal.Dataset):
         segds = segfile
@@ -752,26 +789,37 @@ def calcPerSegmentStatsTiled(imgfile, imgband, segfile, maxSegId,
     
     # open the data file
     if isinstance(imgfile, gdal.Dataset):
-        imgds = segfile
+        imgds = imgfile
     else:
         imgds = gdal.Open(imgfile, gdal.GA_Update)
-    imgband = imgds.GetRasterBand(imgband)
+    imgband = imgds.GetRasterBand(imgbandnum)
     
-    chunkMinVal = 0
-    chunkMaxVal = chunkSize
+    # Note that we skip the null segment ID, no stats are created for that. 
+    chunkMinVal = shepseg.MINSEGID
 
     attrTbl = segband.GetDefaultRAT()
 
-    while chunkMinVal < maxSegId:
+    while chunkMinVal =< maxSegId:
+        # This is one more than the largest seg id in the chunk
+        chunkMaxVal = chunkMinVal + chunkSize
         if chunkMaxVal > maxSegId:
             chunkMaxVal = maxSegId + 1
 
-        calcStatsForChunk(segband, imgband, chunkMinVal, chunkMaxVal, attrTbl)
+        # Create per-segment histograms for current chunk
+        chunkList = calcCountsForChunk(segband, imgband, 
+                chunkMinVal, chunkMaxVal, attrTbl)
+        # Calculate selected stats, and write to attribute table. 
+        calcStatsForChunk(chunkList, statsSelection, attrTbl)
 
         chunkMinVal += chunkSize
-        chunkMaxVal += chunkSize
  
-GDAL_TYPE_TO_NUMBA_TYPE = {}
+GDAL_TYPE_TO_NUMBA_TYPE = {
+    gdal.GDT_Byte: numpy.uint8,
+    gdal.GDT_Int16: numpy.in16,
+    gdal.GDT_UInt16: numpy.uint16,
+    gdal.GDT_Int32: numpy.int32,
+    gdal.GDT_Uint32: numpy.uint32
+}
 
 @njit
 def createChunkList(count, keyType):
@@ -780,19 +828,19 @@ def createChunkList(count, keyType):
     for n in range(count):
         d = Dict.empty(key_type=keyType, 
                     value_type=types.uint32)
-        chunk.append(d)
+        chunkList.append(d)
 
     return chunkList
     
 @njit
-def accumulatePerSegmentStats(tileSegments, tileImageData, chunkList, chunkMinVal, chunkMaxVal):
+def accumulatePerSegmentCounts(tileSegments, tileImageData, chunkList, chunkMinVal, chunkMaxVal):
 
     ysize, xsize = tileSegments.shape
     
     for y in range(ysize):
         for x in range(xsize):
             segId = tileSegments[y, x]
-            if segid >= chunkMinVal and segid < chunkMaxVal:
+            if segId >= chunkMinVal and segId < chunkMaxVal:
                 imgVal = tileImageData[y, x]
 
                 d = chunkList[segId - chunkMinVal]
@@ -814,7 +862,7 @@ def getSortedKeysAndValuesForDict(d):
     for key in dictKeys:
         keysArray[c] = key
         valuesArray[c] = d[key]
-        c + = 1
+        c += 1
     
     index = numpy.argsort(keysArray)
     keysSorted = keysArray[index]
@@ -825,27 +873,47 @@ def getSortedKeysAndValuesForDict(d):
 # TODO: types
 @jitclass
 class SegmentStats(object):
-    def __init__(self, d):
-    
-        self.keys, self.counts = getSortedKeysAndValuesForDict(d)
-        self.minVal = keys[0]
-        self.maxVal = keys[-1]
-    
-        self.meanVal = (keys * counts).sum() / nVals
+    "Manage statistics for a single segment"
+    def __init__(self, segmentHistDict):
+        """
+        Construct with generic statistics, given a typed 
+        dictionary of the histogram counts of all values
+        in the segment
+        """
+        self.pixVals, self.counts = getSortedKeysAndValuesForDict(segmentHistDict)
+        # Total number of pixels in segment
+        self.pixCount = self.counts.sum()
 
-        self.stdDevVal = (counts * numpy.power(keys - meanVal, 2)).sum() / nVals
-        self.stdDevVal = numpy.sqrt(stdDevVal)
+        # Min and max pixel values
+        self.minVal = self.pixVals[0]
+        self.maxVal = self.pixVals[-1]
 
-        self.modeVal = keys[numpy.argmax(counts)]
-        # estimate the median - bin with the middle number
+        # Mean value
+        self.meanVal = (self.pixVals * self.counts).sum() / self.pixCount
+
+        # Standard deviation
+        variance = (self.counts * (self.pixVals - self.meanVal)**2).sum() / self.pixCount
+        self.stdDevVal = numpy.sqrt(variance)
+
+        # Mode
+        self.modeVal = self.pixVals[numpy.argmax(self.counts)]
         
+        # Median
         self.median = self.getPercentile(50)
         
-    def getPercentile(self, percentile)
-        self.middlenum = self.counts.sum() * (percentile / 100)
-        # TODO: make more numba....
-        gtmiddle = self.counts.cumsum() >= middlenum
-        self.medianVal = gtmiddle.nonzero()[0][0]
+    def getPercentile(self, percentile):
+        """
+        Return the pixel value for the given percentile, 
+        e.g. getPercentile(50) would return the median value of 
+        the segment
+        """
+        countAtPcntile = self.pixCount * (percentile / 100)
+        cumCount = 0
+        i = 0
+        while cumCount < countAtPcntile:
+            cumCount += self.counts[i]
+            i += 1
+        self.pcntileVal = self.pixVals[i-1]
         
         
 @jitclass
@@ -853,33 +921,8 @@ class ChunkStats(object):
     def __init__(self):
         pass
 
-@njit
-def estimateStatsFromHisto(chunkList):
-    
-    # TODO: output data structure
-    
-    for d in chunkList:
-    
-        keys, counts = getSortedKeysAndValuesForDict(d)
-        nVals = counts.sum()
-
-        minVal = keys[0]
-        maxVal = keys[-1]
-    
-        meanVal = (keys * counts).sum() / nVals
-
-        stdDevVal = (counts * numpy.power(keys - meanVal, 2)).sum() / nVals
-        stdDevVal = numpy.sqrt(stdDevVal)
-
-        modeVal = keys[numpy.argmax(counts)]
-        # estimate the median - bin with the middle number
-        middlenum = counts.sum() / 2
-        # TODO: make more numba....
-        gtmiddle = hist.cumsum() >= middlenum
-        medianVal = gtmiddle.nonzero()[0][0]
-
         
-def calcStatsForChunk(segband, imgband, chunkMinVal, chunkMaxVal, attrTbl):
+def calcCountsForChunk(segband, imgband, chunkMinVal, chunkMaxVal, attrTbl):
 
     tileSize = 1024
     (nlines, npix) = (segband.YSize, segband.XSize)
@@ -901,7 +944,7 @@ def calcStatsForChunk(segband, imgband, chunkMinVal, chunkMaxVal, attrTbl):
             tileSegments = segband.ReadAsArray(leftPix, topLine, xsize, ysize)
             tileImageData = imgband.ReadAsArray(leftPix, topLine, xsize, ysize)
             
-            accumulatePerSegmentStats(tileSegments, tileImageData, chunkList, chunkMinVal)
+            accumulatePerSegmentCounts(tileSegments, tileImageData, chunkList, chunkMinVal)
             
     return chunkList
 
@@ -918,9 +961,7 @@ def calcHistogramTiled(segfile, maxSegId, writeToRat=True):
     we need to write our own routine. 
     
     It works in tiles across the image, so that it can process 
-    very large images in a memory-efficient way. For the same 
-    reason, it keeps the temporary histogram on disk while 
-    accumulating it. 
+    very large images in a memory-efficient way. 
     
     For a raster which can easily fit into memory, a histogram
     can be calculated directly using 
