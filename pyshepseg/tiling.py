@@ -759,7 +759,8 @@ def calcPerSegmentStatsTiled(imgfile, imgband, segfile, maxSegId,
         imgds = gdal.Open(imgfile, gdal.GA_Update)
     imgband = imgds.GetRasterBand(imgband)
     
-    chunkMinVal = 0
+    # Note that we skip the null segment ID, no stats are created for that. 
+    chunkMinVal = shepseg.MINSEGID
     chunkMaxVal = chunkSize
 
     attrTbl = segband.GetDefaultRAT()
