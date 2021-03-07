@@ -690,8 +690,8 @@ def makeSegmentLocations(seg, segSize):
         d[SegIdType(segid)] = obj
 
     (nRows, nCols) = seg.shape
-    for row in numpy.arange(nRows, dtype=numpy.uint32):
-        for col in numpy.arange(nCols, dtype=numpy.uint32):
+    for row in range(nRows):
+        for col in range(nCols):
             segid = seg[row, col]
             if segid != SEGNULLVAL:
                 d[segid].append(row, col)
