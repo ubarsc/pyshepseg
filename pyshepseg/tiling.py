@@ -799,17 +799,17 @@ def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile, maxSegId,
 
     attrTbl = segband.GetDefaultRAT()
 
-    while chunkMinVal =< maxSegId:
+    while chunkMinVal <= maxSegId:
         # This is one more than the largest seg id in the chunk
         chunkMaxVal = chunkMinVal + chunkSize
         if chunkMaxVal > maxSegId:
             chunkMaxVal = maxSegId + 1
 
         # Create per-segment histograms for current chunk
-        chunkList = calcCountsForChunk(segband, imgband, 
+        chunkCounts = calcCountsForChunk(segband, imgband, 
                 chunkMinVal, chunkMaxVal, attrTbl)
         # Calculate selected stats, and write to attribute table. 
-        calcStatsForChunk(chunkList, statsSelection, attrTbl)
+        calcStatsForChunk(chunkCounts, statsSelection, attrTbl)
 
         chunkMinVal += chunkSize
  
@@ -822,18 +822,25 @@ GDAL_TYPE_TO_NUMBA_TYPE = {
 }
 
 @njit
-def createChunkList(count, keyType):
-
-    chunkList = List()
-    for n in range(count):
+def initializeChunkCounts(numSegments, keyType):
+    """
+    Create initial per-segment histogram counts for a given
+    number of segments (i.e. a single chunk)
+    
+    Returns a numba typed List of numba typed Dict elements. The
+    dictionaries are keyed on keyType, and are initially empty. 
+    """
+    chunkCounts = List()
+    for n in range(numSegments):
         d = Dict.empty(key_type=keyType, 
                     value_type=types.uint32)
-        chunkList.append(d)
+        chunkCounts.append(d)
 
-    return chunkList
+    return chunkCounts
+
     
 @njit
-def accumulatePerSegmentCounts(tileSegments, tileImageData, chunkList, chunkMinVal, chunkMaxVal):
+def accumulatePerSegmentCounts(tileSegments, tileImageData, chunkCounts, chunkMinVal, chunkMaxVal):
 
     ysize, xsize = tileSegments.shape
     
@@ -843,7 +850,7 @@ def accumulatePerSegmentCounts(tileSegments, tileImageData, chunkList, chunkMinV
             if segId >= chunkMinVal and segId < chunkMaxVal:
                 imgVal = tileImageData[y, x]
 
-                d = chunkList[segId - chunkMinVal]
+                d = chunkCounts[segId - chunkMinVal]
                 if imgVal not in d:
                     d[imgVal] = 0
 
@@ -918,6 +925,7 @@ class SegmentStats(object):
         
 @jitclass
 class ChunkStats(object):
+    "Manage stats for a list of segments"
     def __init__(self):
         pass
 
@@ -931,8 +939,8 @@ def calcCountsForChunk(segband, imgband, chunkMinVal, chunkMaxVal, attrTbl):
     
     numbaType = GDAL_TYPE_TO_NUMBA_TYPE[imgband]
     
-    count = chunkMaxVal - chunkMinVal
-    chunkList = createChunkList(count, numbaType)
+    numSegments = chunkMaxVal - chunkMinVal
+    chunkCounts = initializeChunkCounts(numSegments, numbaType)
 
     for tileRow in range(numYtiles):
         for tileCol in range(numXtiles):
@@ -944,9 +952,9 @@ def calcCountsForChunk(segband, imgband, chunkMinVal, chunkMaxVal, attrTbl):
             tileSegments = segband.ReadAsArray(leftPix, topLine, xsize, ysize)
             tileImageData = imgband.ReadAsArray(leftPix, topLine, xsize, ysize)
             
-            accumulatePerSegmentCounts(tileSegments, tileImageData, chunkList, chunkMinVal)
+            accumulatePerSegmentCounts(tileSegments, tileImageData, chunkCounts, chunkMinVal)
             
-    return chunkList
+    return chunkCounts
 
 
 def calcHistogramTiled(segfile, maxSegId, writeToRat=True):
