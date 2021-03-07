@@ -796,12 +796,12 @@ def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile, maxSegId,
     
     # Note that we skip the null segment ID, no stats are created for that. 
     chunkMinVal = shepseg.MINSEGID
-    # This is one more than the largest seg id in the chunk
-    chunkMaxVal = chunkSize
 
     attrTbl = segband.GetDefaultRAT()
 
     while chunkMinVal =< maxSegId:
+        # This is one more than the largest seg id in the chunk
+        chunkMaxVal = chunkMinVal + chunkSize
         if chunkMaxVal > maxSegId:
             chunkMaxVal = maxSegId + 1
 
@@ -812,7 +812,6 @@ def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile, maxSegId,
         calcStatsForChunk(chunkList, statsSelection, attrTbl)
 
         chunkMinVal += chunkSize
-        chunkMaxVal += chunkSize
  
 GDAL_TYPE_TO_NUMBA_TYPE = {
     gdal.GDT_Byte: numpy.uint8,
