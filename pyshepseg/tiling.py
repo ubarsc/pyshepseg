@@ -962,9 +962,7 @@ def calcHistogramTiled(segfile, maxSegId, writeToRat=True):
     we need to write our own routine. 
     
     It works in tiles across the image, so that it can process 
-    very large images in a memory-efficient way. For the same 
-    reason, it keeps the temporary histogram on disk while 
-    accumulating it. 
+    very large images in a memory-efficient way. 
     
     For a raster which can easily fit into memory, a histogram
     can be calculated directly using 
