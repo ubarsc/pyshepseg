@@ -741,10 +741,45 @@ def crossesMidline(overlap, segLoc, orientation):
     maxN = segLoc.rowcols[:, n].max()
     
     return ((minN < mid) & (maxN >= mid))
-    
+
+
 def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile, maxSegId, 
-            chunkSize=DFLT_CHUNKSIZE):
+            statsSelection, chunkSize=DFLT_CHUNKSIZE):
+    """
+    Calculate selected per-segment statistics for the given band 
+    of the imgfile, against the given segment raster file. 
+    Calculated statistics are written to the imgfile raster 
+    attribute table (RAT), so this file format must support RATs. 
     
+    Calculations are carried out in a memory-efficient way, allowing 
+    very large rasters to be processed. Raster data is handled in 
+    small tiles, attribute table is handled in fixed-size chunks. 
+    
+    The statsSelection parameter is a list of tuples, one for each
+    statistics to be included. Each tuple is either 2 or 3 elements,
+        (columnName, statName) or (columnName, statName, parameter)
+    The 3-element form is used for any statistic which requires
+    a parameter, which currently is only the percentile. 
+    
+    The columnName is a string, used to name the column in the 
+    output RAT. 
+    The statName is a string used to identify which statistic 
+    is to be calculated. Available options are:
+        'min', 'max', 'mean', 'stddev', 'mode', 'percentile'.
+    The 'percentile' statistic requires the 3-element form, with 
+    the 3rd element being the percentile to be calculated. 
+    
+    For example
+        [('Band1_Mean', 'mean'),
+         ('Band1_stdDev', 'stddev'),
+         ('Band1_LQ', 'percentile', 25),
+         ('Band1_UQ', 'percentile', 75)
+        ]
+    would create 4 columns, for the per-segment mean and 
+    standard deviation of the given band, and the lower and upper 
+    quartiles, with corresponding column names. 
+
+    """
     # Open the segment file
     if isinstance(segfile, gdal.Dataset):
         segds = segfile
@@ -754,7 +789,7 @@ def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile, maxSegId,
     
     # open the data file
     if isinstance(imgfile, gdal.Dataset):
-        imgds = segfile
+        imgds = imgfile
     else:
         imgds = gdal.Open(imgfile, gdal.GA_Update)
     imgband = imgds.GetRasterBand(imgbandnum)
@@ -774,7 +809,7 @@ def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile, maxSegId,
         chunkList = calcCountsForChunk(segband, imgband, 
                 chunkMinVal, chunkMaxVal, attrTbl)
         # Calculate selected stats, and write to attribute table. 
-        calcStatsForChunk(chunkList, attrTbl)
+        calcStatsForChunk(chunkList, statsSelection, attrTbl)
 
         chunkMinVal += chunkSize
         chunkMaxVal += chunkSize
