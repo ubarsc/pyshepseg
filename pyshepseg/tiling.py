@@ -742,7 +742,7 @@ def crossesMidline(overlap, segLoc, orientation):
     
     return ((minN < mid) & (maxN >= mid))
     
-def calcPerSegmentStatsTiled(imgfile, imgband, segfile, maxSegId, 
+def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile, maxSegId, 
             chunkSize=DFLT_CHUNKSIZE):
     
     # Open the segment file
@@ -757,7 +757,7 @@ def calcPerSegmentStatsTiled(imgfile, imgband, segfile, maxSegId,
         imgds = segfile
     else:
         imgds = gdal.Open(imgfile, gdal.GA_Update)
-    imgband = imgds.GetRasterBand(imgband)
+    imgband = imgds.GetRasterBand(imgbandnum)
     
     # Note that we skip the null segment ID, no stats are created for that. 
     chunkMinVal = shepseg.MINSEGID
@@ -770,7 +770,11 @@ def calcPerSegmentStatsTiled(imgfile, imgband, segfile, maxSegId,
         if chunkMaxVal > maxSegId:
             chunkMaxVal = maxSegId + 1
 
-        calcStatsForChunk(segband, imgband, chunkMinVal, chunkMaxVal, attrTbl)
+        # Create per-segment histograms for current chunk
+        chunkList = calcCountsForChunk(segband, imgband, 
+                chunkMinVal, chunkMaxVal, attrTbl)
+        # Calculate selected stats, and write to attribute table. 
+        calcStatsForChunk(chunkList, attrTbl)
 
         chunkMinVal += chunkSize
         chunkMaxVal += chunkSize
@@ -795,7 +799,7 @@ def createChunkList(count, keyType):
     return chunkList
     
 @njit
-def accumulatePerSegmentStats(tileSegments, tileImageData, chunkList, chunkMinVal, chunkMaxVal):
+def accumulatePerSegmentCounts(tileSegments, tileImageData, chunkList, chunkMinVal, chunkMaxVal):
 
     ysize, xsize = tileSegments.shape
     
@@ -884,7 +888,7 @@ class ChunkStats(object):
         pass
 
         
-def calcStatsForChunk(segband, imgband, chunkMinVal, chunkMaxVal, attrTbl):
+def calcCountsForChunk(segband, imgband, chunkMinVal, chunkMaxVal, attrTbl):
 
     tileSize = 1024
     (nlines, npix) = (segband.YSize, segband.XSize)
@@ -906,7 +910,7 @@ def calcStatsForChunk(segband, imgband, chunkMinVal, chunkMaxVal, attrTbl):
             tileSegments = segband.ReadAsArray(leftPix, topLine, xsize, ysize)
             tileImageData = imgband.ReadAsArray(leftPix, topLine, xsize, ysize)
             
-            accumulatePerSegmentStats(tileSegments, tileImageData, chunkList, chunkMinVal)
+            accumulatePerSegmentCounts(tileSegments, tileImageData, chunkList, chunkMinVal)
             
     return chunkList
 
