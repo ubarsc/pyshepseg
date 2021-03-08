@@ -861,7 +861,7 @@ GDAL_TYPE_TO_NUMBA_TYPE = {
     gdal.GDT_Int16: types.int16,
     gdal.GDT_UInt16: types.uint16,
     gdal.GDT_Int32: types.int32,
-    gdal.GDT_Uint32: types.uint32
+    gdal.GDT_UInt32: types.uint32
 }
 
 @njit
@@ -926,12 +926,12 @@ def getSortedKeysAndValuesForDict(d):
 segStatsSpec = [('pixVals', types.uint32[:]), 
                 ('counts', types.uint32[:]),
                 ('pixCount', types.uint32),
-                ('min', numpy.uint32),
-                ('max', numpy.uint32),
-                ('mean', numpy.float32),
-                ('stddev', numpy.float32),
-                ('median', numpy.uint32),
-                ('mode', numpy.uint32)
+                ('min', types.uint32),
+                ('max', types.uint32),
+                ('mean', types.float32),
+                ('stddev', types.float32),
+                ('median', types.uint32),
+                ('mode', types.uint32)
                ]
 @jitclass(segStatsSpec)
 class SegmentStats(object):
