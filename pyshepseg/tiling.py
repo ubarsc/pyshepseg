@@ -53,6 +53,7 @@ whole area.
 # Just in case anyone is trying to use this with Python-2
 from __future__ import print_function, division
 
+import sys
 import os
 import time
 import shutil
@@ -798,6 +799,13 @@ def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile, maxSegId,
     chunkMinVal = shepseg.MINSEGID
 
     attrTbl = segband.GetDefaultRAT()
+    # Create columns, as required
+    for selection in statsSelection:
+        (colName, statName) = selection[:2]
+        colType = gdal.GFT_Integer
+        if statName in ('mean', 'stddev'):
+            colType = gdal.GFT_Real
+        attrTbl.CreateColumn(colName, colType, gdal.GFU_Generic)
 
     while chunkMinVal <= maxSegId:
         # This is one more than the largest seg id in the chunk
@@ -809,9 +817,44 @@ def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile, maxSegId,
         chunkCounts = calcCountsForChunk(segband, imgband, 
                 chunkMinVal, chunkMaxVal, attrTbl)
         # Calculate selected stats, and write to attribute table. 
-        calcStatsForChunk(chunkCounts, statsSelection, attrTbl)
+        calcStatsForChunk(chunkCounts, statsSelection, attrTbl, chunkMinVal)
 
         chunkMinVal += chunkSize
+
+
+def calcStatsForChunk(chunkCounts, statsSelection, attrTbl, chunkMinVal):
+    """
+    Calculate all requested stats for the whole chunk, given
+    the list of per-segment histograms for the chunk. Write
+    all stats to nominated columns in attribute table. 
+    """
+    # First check that the given stat names are all legal
+    legalStatNames = set(['min', 'max', 'mean', 'stddev', 'mode', 'median', 'percentile'])
+    allOK = True
+    for selection in statsSelection:
+        statName = selection[1]
+        if statName not in legalStatNames:
+            allOK = False
+            print("Unknown statistic '{}' requested".format(statName), file=sys.stderr)
+    if not allOK:
+        raise PyShepSegTilingError()
+
+    chunkStats = ChunkStats(chunkCounts)
+
+    # Dictionary to look up column numbers by name
+    colNumDict = {attrTbl.GetNameOfCol(i):i 
+        for i in range(attrTbl.GetColumnCount())}
+    
+    for selection in statsSelection:
+        (colName, statName) = selection[:2]
+        param = None
+        if len(selection) == 3:
+            param = selection[2]
+
+        statArray = chunkStats.getStat(statName, param)
+
+        attrTbl.WriteArray(statArray, colNumDict[colName], start=chunkMinVal)
+        
  
 GDAL_TYPE_TO_NUMBA_TYPE = {
     gdal.GDT_Byte: numpy.uint8,
@@ -877,8 +920,20 @@ def getSortedKeysAndValuesForDict(d):
     
     return keysSorted, valuesSorted
     
-# TODO: types
-@jitclass
+# Warning - currently using uint32 or float32 for all of the types
+# which should really be dependent on the imagery datatype. 
+# Not sure whether it is possible to do better. 
+segStatsSpec = [('pixVals', types.uint32[:]), 
+                ('counts', types.uint32[:]),
+                ('pixCount', types.uint32),
+                ('min', numpy.uint32),
+                ('max', numpy.uint32),
+                ('mean', numpy.float32),
+                ('stddev', numpy.float32),
+                ('median', numpy.uint32),
+                ('mode', numpy.uint32)
+               ]
+@jitclass(segStatsSpec)
 class SegmentStats(object):
     "Manage statistics for a single segment"
     def __init__(self, segmentHistDict):
@@ -892,18 +947,18 @@ class SegmentStats(object):
         self.pixCount = self.counts.sum()
 
         # Min and max pixel values
-        self.minVal = self.pixVals[0]
-        self.maxVal = self.pixVals[-1]
+        self.min = self.pixVals[0]
+        self.max = self.pixVals[-1]
 
         # Mean value
-        self.meanVal = (self.pixVals * self.counts).sum() / self.pixCount
+        self.mean = (self.pixVals * self.counts).sum() / self.pixCount
 
         # Standard deviation
         variance = (self.counts * (self.pixVals - self.meanVal)**2).sum() / self.pixCount
-        self.stdDevVal = numpy.sqrt(variance)
+        self.stddev = numpy.sqrt(variance)
 
         # Mode
-        self.modeVal = self.pixVals[numpy.argmax(self.counts)]
+        self.mode = self.pixVals[numpy.argmax(self.counts)]
         
         # Median
         self.median = self.getPercentile(50)
@@ -920,14 +975,45 @@ class SegmentStats(object):
         while cumCount < countAtPcntile:
             cumCount += self.counts[i]
             i += 1
-        self.pcntileVal = self.pixVals[i-1]
-        
-        
+        pcntileVal = self.pixVals[i-1]
+        return pcntileVal
+
+
 @jitclass
 class ChunkStats(object):
     "Manage stats for a list of segments"
-    def __init__(self):
-        pass
+    def __init__(self, chunkCounts):
+        """
+        Create from chunkCounts, which is a List of histogram
+        dictionaries (one per segment in the chunk). 
+        """
+        self.allStats = List()
+        for segmentHistDict in chunkCounts:
+            segStats = SegmentStats(segmentHistDict)
+            self.allStats.append(segStats)
+    
+    def getStat(self, statName, param):
+        """
+        Get the requested statistic for all segments in the chunk. 
+        Return a numpy array of shape (numSegments,). 
+        
+        It is assumed that we have already checked the statName,
+        no further check is performed here. 
+        """
+        numSegments = len(self.allStats)
+        outType = numpy.uint32
+        if statName in ('mean', 'stddev'):
+            outType = numpy.float32
+        outArray = numpy.empty(numSegments, dtype=outType)
+        
+        isPercentile = (statName == 'percentile')
+        for i in range(numSegments):
+            if isPercentile:
+                val = self.allStats[i].getPercentile(param)
+            else:
+                val = self.allStats[i].__getattribute__(statName)
+            outArray[i] = val
+        return outArray
 
         
 def calcCountsForChunk(segband, imgband, chunkMinVal, chunkMaxVal, attrTbl):
