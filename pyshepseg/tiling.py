@@ -947,7 +947,8 @@ def initializeChunkCounts(numSegments, keyType):
 
     
 @njit
-def accumulatePerSegmentCounts(tileSegments, tileImageData, chunkCounts, chunkMinVal, chunkMaxVal):
+def accumulatePerSegmentCounts(tileSegments, tileImageData, chunkCounts, 
+        chunkMinVal, chunkMaxVal):
 
     ysize, xsize = tileSegments.shape
     
@@ -1050,7 +1051,7 @@ def calcCountsForChunk(segband, imgband, chunkMinVal, chunkMaxVal, attrTbl):
     numXtiles = int(numpy.ceil(npix / tileSize))
     numYtiles = int(numpy.ceil(nlines / tileSize))
     
-    numbaType = GDAL_TYPE_TO_NUMBA_TYPE[imgband]
+    numbaType = GDAL_TYPE_TO_NUMBA_TYPE[imgband.DataType]
     
     numSegments = chunkMaxVal - chunkMinVal
     chunkCounts = initializeChunkCounts(numSegments, numbaType)
@@ -1065,7 +1066,8 @@ def calcCountsForChunk(segband, imgband, chunkMinVal, chunkMaxVal, attrTbl):
             tileSegments = segband.ReadAsArray(leftPix, topLine, xsize, ysize)
             tileImageData = imgband.ReadAsArray(leftPix, topLine, xsize, ysize)
             
-            accumulatePerSegmentCounts(tileSegments, tileImageData, chunkCounts, chunkMinVal)
+            accumulatePerSegmentCounts(tileSegments, tileImageData, 
+                chunkCounts, chunkMinVal, chunkMaxVal)
             
     return chunkCounts
 
