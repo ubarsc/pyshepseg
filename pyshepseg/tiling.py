@@ -766,7 +766,7 @@ def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile, maxSegId,
     output RAT. 
     The statName is a string used to identify which statistic 
     is to be calculated. Available options are:
-        'min', 'max', 'mean', 'stddev', 'mode', 'percentile'.
+        'min', 'max', 'mean', 'stddev', 'median', 'mode', 'percentile'.
     The 'percentile' statistic requires the 3-element form, with 
     the 3rd element being the percentile to be calculated. 
     
@@ -896,8 +896,6 @@ def getStatisticForChunk(chunkStatsList, statID, param, outType):
     Get the requested statistic for all segments in the chunk. 
     Return a numpy array of shape (numSegments,). 
 
-    It is assumed that we have already checked the statName,
-    no further check is performed here. 
     """
     numSegments = len(chunkStatsList)
     outArray = numpy.empty(numSegments, dtype=outType)
