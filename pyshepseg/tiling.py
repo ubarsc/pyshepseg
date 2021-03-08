@@ -974,6 +974,9 @@ def getSortedKeysAndValuesForDict(d):
     
     size = len(d)
     # TODO: get key and value types
+    # TODO: d._dict_type.key_type gets the numba type object, but unsure
+    # TODO: how to convert this to a numpy type. Could use the string value,
+    # TODO: but this is in a tight njit loop. 
     keysArray = numpy.empty(size, dtype=numpy.uint32)
     valuesArray = numpy.empty(size, dtype=numpy.uint32)
     
