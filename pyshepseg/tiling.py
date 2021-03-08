@@ -749,7 +749,7 @@ def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile, maxSegId,
     """
     Calculate selected per-segment statistics for the given band 
     of the imgfile, against the given segment raster file. 
-    Calculated statistics are written to the imgfile raster 
+    Calculated statistics are written to the segfile raster 
     attribute table (RAT), so this file format must support RATs. 
     
     Calculations are carried out in a memory-efficient way, allowing 
