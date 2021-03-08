@@ -800,12 +800,17 @@ def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile, maxSegId,
 
     attrTbl = segband.GetDefaultRAT()
     # Create columns, as required
+    existingColNames = [attrTbl.GetNameOfCol(i) 
+        for i in range(attrTbl.GetColumnCount())]
     for selection in statsSelection:
         (colName, statName) = selection[:2]
-        colType = gdal.GFT_Integer
-        if statName in ('mean', 'stddev'):
-            colType = gdal.GFT_Real
-        attrTbl.CreateColumn(colName, colType, gdal.GFU_Generic)
+        if colName not in existingColNames:
+            colType = gdal.GFT_Integer
+            if statName in ('mean', 'stddev'):
+                colType = gdal.GFT_Real
+            attrTbl.CreateColumn(colName, colType, gdal.GFU_Generic)
+        else:
+            print('Column {} already exists'.format(colName))
 
     while chunkMinVal <= maxSegId:
         # This is one more than the largest seg id in the chunk
@@ -960,9 +965,9 @@ def accumulatePerSegmentCounts(tileSegments, tileImageData, chunkCounts,
 
                 d = chunkCounts[segId - chunkMinVal]
                 if imgVal not in d:
-                    d[imgVal] = 0
+                    d[imgVal] = types.uint8(0)
 
-                d[imgVal] += 1
+                d[imgVal] += types.uint8(1)
 
 @njit
 def getSortedKeysAndValuesForDict(d):
