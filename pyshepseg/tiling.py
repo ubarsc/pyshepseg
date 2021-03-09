@@ -820,7 +820,7 @@ def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile, maxSegId,
 
         # Create per-segment histograms for current chunk
         chunkCounts = calcCountsForChunk(segband, imgband, 
-                chunkMinVal, chunkMaxVal, attrTbl)
+                chunkMinVal, chunkMaxVal)
         # Calculate selected stats, and write to attribute table. 
         calcStatsForChunk(chunkCounts, statsSelection, attrTbl, chunkMinVal)
 
@@ -954,7 +954,26 @@ def initializeChunkCounts(numSegments, keyType):
 @njit
 def accumulatePerSegmentCounts(tileSegments, tileImageData, chunkCounts, 
         chunkMinVal, chunkMaxVal):
+    """
+    Accumulate counts of individual pixel values, broken down
+    by segment ID.
 
+    The chunkCounts parameter is a list of dictionaries, representing
+    the current chunk of the attribute table (i.e. a range of
+    segment IDs).
+
+    Each element is a dictionary for that segment ID. Each entry in the
+    dictionary is keyed by a pixel value, as found in the associated
+    imagery. The value for that entry is the number of times that
+    pixel value occurs in the segment in question.
+
+    The tileSegments and tileImageData are tiles of the two rasters
+    tileSegments gives the segment ID for each pixel, and
+    tileImageData gives the image values for the same pixels.
+
+    The dictionaries in chunkCounts are updated in place with the
+    counts from the current tile.
+    """
     ysize, xsize = tileSegments.shape
     
     for y in range(ysize):
@@ -971,7 +990,13 @@ def accumulatePerSegmentCounts(tileSegments, tileImageData, chunkCounts,
 
 @njit
 def getSortedKeysAndValuesForDict(d):
-    
+    """
+    The given dictionary is keyed by pixel values from the imagery,
+    and the values are counts of occurences of the corresponding pixel
+    value. This function returns a pair of numpy arrays (as a tuple),
+    one for the list of pixel values, and one for the corresponding
+    counts. The arrays are sorted in increasing order of pixel value.
+    """
     size = len(d)
     # TODO: get key and value types
     # TODO: d._dict_type.key_type gets the numba type object, but unsure
@@ -1051,9 +1076,21 @@ class SegmentStats(object):
         pcntileVal = self.pixVals[i-1]
         return pcntileVal
 
-        
-def calcCountsForChunk(segband, imgband, chunkMinVal, chunkMaxVal, attrTbl):
 
+def calcCountsForChunk(segband, imgband, chunkMinVal, chunkMaxVal):
+    """
+    Process all tiles of the given images, for the current range
+    of segment ID values (i.e. the current chunk of the RAT).
+
+    segband and imgband are open gdal.Band objects, for the
+    segment image and the data image respectively.
+
+    chunkMinVal and chunkMaxVal give the range of segment IDs to
+    consider in this chunk.
+
+    Returns a list of dictionaries giving per-segment
+    histogram counts for all segments in the chunk.
+    """
     tileSize = 1024
     (nlines, npix) = (segband.YSize, segband.XSize)
     numXtiles = int(numpy.ceil(npix / tileSize))
