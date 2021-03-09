@@ -984,9 +984,9 @@ def accumulatePerSegmentCounts(tileSegments, tileImageData, chunkCounts,
 
                 d = chunkCounts[segId - chunkMinVal]
                 if imgVal not in d:
-                    d[imgVal] = types.uint8(0)
+                    d[imgVal] = types.uint32(0)
 
-                d[imgVal] += types.uint8(1)
+                d[imgVal] = types.uint32(d[imgVal] + 1)
 
 @njit
 def getSortedKeysAndValuesForDict(d):
