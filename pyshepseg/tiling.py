@@ -823,6 +823,9 @@ def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile, maxSegId,
                 chunkMinVal, chunkMaxVal)
         # Calculate selected stats, and write to attribute table. 
         calcStatsForChunk(chunkCounts, statsSelection, attrTbl, chunkMinVal)
+        
+        # Release chunkCounts before creating next one, saves a bit of mem
+        del chunkCounts
 
         chunkMinVal += chunkSize
 
