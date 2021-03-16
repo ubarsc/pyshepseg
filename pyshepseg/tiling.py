@@ -743,7 +743,7 @@ def crossesMidline(overlap, segLoc, orientation):
     return ((minN < mid) & (maxN >= mid))
 
 
-def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile, maxSegId, 
+def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile, 
             statsSelection):
     """
     Calculate selected per-segment statistics for the given band 
