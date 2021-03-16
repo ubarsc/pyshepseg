@@ -781,6 +781,338 @@ def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile, maxSegId,
     quartiles, with corresponding column names. 
 
     """
+    segds = segfile
+    if not isinstance(segds, gdal.Dataset):
+        segds = gdal.Open(segfile, gdal.GA_Update)
+    segband = segds.GetRasterBand(1)
+
+    imgds = imgfile
+    if not isinstance(imgds, gdal.Dataset):
+        imgds = gdal.Open(imgfile, gdal.GA_Update)
+    imgband = imgds.GetRasterBand(imgbandnum)
+    
+    attrTbl = segband.GetDefaultRAT()
+    existingColNames = [attrTbl.GetNameOfCol(i) 
+        for i in range(attrTbl.GetColumnCount())]
+        
+    histColNdx = checkHistColumn(existingColNames)
+    segSize = attrTbl.ReadAsArray(histColNdx).astype(numpy.uint32)
+    
+    # Create columns, as required
+    colIndexList = createStatColumns(statsSelection, attrTbl, existingColNames)
+    (statsSelection_fast, numIntCols, numFloatCols) = (
+        makeFastStatsSelection(colIndexList, statsSelection))
+
+    # Loop over all tiles in image
+    tileSize = 1024
+    (nlines, npix) = (segband.YSize, segband.XSize)
+    numXtiles = int(numpy.ceil(npix / tileSize))
+    numYtiles = int(numpy.ceil(nlines / tileSize))
+    
+    segDict = createSegDict()
+    pagedRat = createPagedRat()
+    
+    for tileRow in range(numYtiles):
+        for tileCol in range(numXtiles):
+            topLine = tileRow * tileSize
+            leftPix = tileCol * tileSize
+            xsize = min(tileSize, npix-leftPix)
+            ysize = min(tileSize, nlines-topLine)
+            
+            tileSegments = segband.ReadAsArray(leftPix, topLine, xsize, ysize)
+            tileImageData = imgband.ReadAsArray(leftPix, topLine, xsize, ysize)
+            
+            accumulateSegDict(segDict, tileSegments, tileImageData)
+            calcStatsForCompletedSegs(segDict, pagedRat, statsSelection_fast, 
+                segSize, numIntCols, numFloatCols)
+            
+            writeCompletePages(pagedRat, attrTbl, statsSelection_fast)
+
+
+@njit
+def accumulateSegDict(segDict, tileSegments, tileImageData):
+    """
+    Accumulate per-segment histogram counts for all 
+    pixels in the given tile. Updates segDict entries in-place. 
+    """
+    ysize, xsize = tileSegments.shape
+    
+    for y in range(ysize):
+        for x in range(xsize):
+            segId = tileSegments[y, x]
+            if segId != shepseg.SEGNULLVAL:
+                if segId not in segDict:
+                    segDict[segId] = Dict.empty(key_type=types.uint32, 
+                        value_type=types.uint32)
+                
+                imgVal = tileImageData[y, x]
+
+                d = segDict[segId]
+                if imgVal not in d:
+                    d[imgVal] = types.uint32(0)
+
+                d[imgVal] = types.uint32(d[imgVal] + 1)
+
+
+@njit
+def checkSegComplete(segDict, segSize, segId):
+    """
+    Return True if the given segment has a complete entry
+    in the segDict, meaning that the pixel count is equal to
+    the segment size
+    """
+    d = segDict[types.uint32(segId)]
+    count = 0
+    for pixVal in d:
+        count += d[pixVal]
+    return (count == segSize[segId])
+
+
+@njit
+def calcStatsForCompletedSegs(segDict, pagedRat, statsSelection_fast, segSize,
+        numIntCols, numFloatCols):
+    """
+    Calculate statistics for all complete segments in the segDict.
+    Update the pagedRat with the resulting entries. Completed segments
+    are then removed from segDict. 
+    """
+    numStats = len(statsSelection_fast)
+    maxSegId = len(segSize) - 1
+    segDictKeys = numpy.empty(len(segDict), dtype=numpy.uint32)
+    i = 0
+    for segId in segDict:
+        segDictKeys[i] = segId
+        i += 1
+    for segId in segDictKeys:
+        segComplete = checkSegComplete(segDict, segSize, segId)
+        if segComplete:
+            segStats = SegmentStats(segDict[segId])
+            ratPageId = getRatPageId(segId)
+            if ratPageId not in pagedRat:
+                numSegThisPage = min(RAT_PAGE_SIZE, (maxSegId - ratPageId + 1))
+                pagedRat[ratPageId] = RatPage(numIntCols, numFloatCols, 
+                    ratPageId, numSegThisPage, statsSelection_fast)
+            ratPage = pagedRat[ratPageId]
+            for i in range(numStats):
+                statId = statsSelection_fast[i, STATSEL_STATID]
+                param = statsSelection_fast[i, STATSEL_PARAM]
+                val = segStats.getStat(statId, param)
+                
+                colType = statsSelection_fast[i, STATSEL_COLTYPE]
+                colArrayNdx = statsSelection_fast[i, STATSEL_COLARRAYINDEX]
+                ratPage.setRatVal(segId, colType, colArrayNdx, val)
+
+            ratPage.setSegmentComplete(segId)
+            
+            # Stats now done for this segment, so remove its histogram
+            segDict.pop(types.uint32(segId))
+
+
+def createSegDict():
+    """
+    Create the Dict of Dicts for handling per-segment histograms
+    """
+    histDict = Dict.empty(key_type=types.uint32, value_type=types.uint32)
+    segDict = Dict.empty(key_type=types.uint32, value_type=histDict._dict_type)
+    return segDict
+
+
+def createPagedRat():
+    """
+    Create the dictionary for the paged RAT. Each element is a
+    """
+    pagedRat = Dict.empty(key_type=types.uint32, 
+        value_type=RatPage.class_type.instance_type)
+    return pagedRat
+
+
+@njit
+def getRatPageId(segId):
+    """
+    For the given segment ID, return the page ID. This is the segment
+    ID of the first segment in the page. 
+    """
+    pageId = (segId // RAT_PAGE_SIZE) * RAT_PAGE_SIZE
+    return pageId
+
+    
+def checkHistColumn(existingColNames):
+    """
+    Check for the Histogram column in the attribute table. Return
+    its column number, and raise an exception if it is not present
+    """
+    histColNdx = -1
+    for i in range(len(existingColNames)):
+        if existingColNames[i] == 'Histogram':
+            histColNdx = i
+    if histColNdx < 0:
+        msg = "Histogram column must exist before calculating per-segment stats"
+        raise PyShepSegTilingError(msg)
+    return histColNdx
+
+
+def createStatColumns(statsSelection, attrTbl, existingColNames):
+    """
+    Create requested statistic columns on the segmentation image RAT.
+    Statistic columns are of type gdal.GFT_Real for mean and stddev, 
+    and gdal.GFT_Integer for all other statistics. 
+    
+    Return the column indexes for all requested columns, in the same
+    order. 
+    """
+    colIndexList = []
+    for selection in statsSelection:
+        (colName, statName) = selection[:2]
+        if colName not in existingColNames:
+            colType = gdal.GFT_Integer
+            if statName in ('mean', 'stddev'):
+                colType = gdal.GFT_Real
+            attrTbl.CreateColumn(colName, colType, gdal.GFU_Generic)
+            colNdx = attrTbl.GetColumnCount() - 1
+        else:
+            print('Column {} already exists'.format(colName))
+            colNdx = existingColNames.index(colName)
+        colIndexList.append(colNdx)
+    return colIndexList
+
+
+def writeCompletePages(pagedRat, attrTbl, statsSelection_fast):
+    """
+    Check for completed pages, and write them to the attribute table.
+    Remove them from the pagedRat after writing. 
+    """
+    numStat = len(statsSelection_fast)
+    
+    pagedRatKeys = numpy.empty(len(pagedRat), dtype=numpy.uint32)
+    i = 0
+    for pageId in pagedRat:
+        pagedRatKeys[i] = pageId
+        i += 1
+
+    for pageId in pagedRatKeys:
+        ratPage = pagedRat[pageId]
+        if ratPage.pageComplete():
+            startSegId = ratPage.startSegId
+            for i in range(numStat):
+                statSel = statsSelection_fast[i]
+                colNumber = int(statSel[STATSEL_GLOBALCOLINDEX])
+                colType = statSel[STATSEL_COLTYPE]
+                colArrayNdx = statSel[STATSEL_COLARRAYINDEX]
+                if colType == STAT_DTYPE_INT:
+                    colArr = ratPage.intcols[colArrayNdx]
+                elif colType == STAT_DTYPE_FLOAT:
+                    colArr = ratPage.floatcols[colArrayNdx]
+
+                attrTbl.WriteArray(colArr, colNumber, start=startSegId)
+            
+            # Remove page after writing. 
+            pagedRat.pop(pageId)
+
+
+RAT_PAGE_SIZE = 100000
+ratPageSpec = [
+    ('startSegId', types.uint32),
+    ('intcols', types.int32[:,:]),
+    ('floatcols', types.float32[:,:]),
+    ('complete', types.boolean[:])
+]
+
+@jitclass(ratPageSpec)
+class RatPage(object):
+    """
+    Hold a single page of the paged RAT
+    """
+    def __init__(self, numIntCols, numFloatCols, startSegId, numSeg,
+            statSelection):
+        """
+        Allocate arrays for int and float columns. Int columns are
+        stored as signed int32, floats are float32. 
+        
+        startSegId is the segment ID number of the lowest segment in this page.
+        numSeg is the number of segments within this page, normally the
+        page size, but the last page will be smaller. 
+        
+        statSelection is the result of makeFastStatSelection(). 
+        
+        """
+        self.startSegId = startSegId
+        self.intcols = numpy.empty((numIntCols, numSeg), dtype=numpy.int32)
+        self.floatcols = numpy.empty((numFloatCols, numSeg), dtype=numpy.float32)
+        self.complete = numpy.zeros(numSeg, dtype=types.boolean)
+        # The null segment is always complete
+        self.complete[0] = True
+        self.intcols[:, 0] = 0
+        self.floatcols[:, 0] = 0
+    
+    def getIndexInPage(self, segId):
+        """
+        Return the index for the given segment, within the current
+        page. 
+        """
+        return segId - self.startSegId
+
+    def setRatVal(self, segId, colType, colArrayNdx, val):
+        """
+        Set the RAT entry for the given stat selection, for the given segment,
+        to be the given value. 
+        """
+        ndxInPage = self.getIndexInPage(segId)
+        if colType == STAT_DTYPE_INT:
+            self.intcols[colArrayNdx, ndxInPage] = val
+        elif colType == STAT_DTYPE_FLOAT:
+            self.floatcols[colArrayNdx, ndxInPage] = val
+    
+    def setSegmentComplete(self, segId):
+        """
+        Flag that the given segment has had all stats calculated. 
+        """
+        ndxInPage = self.getIndexInPage(segId)
+        self.complete[ndxInPage] = True
+    
+    def pageComplete(self):
+        """
+        Return True if the current page has been completed
+        """
+        return self.complete.all()
+    
+
+def calcPerSegmentStatsTiled_multipass(imgfile, imgbandnum, segfile, maxSegId, 
+            statsSelection, chunkSize=DFLT_CHUNKSIZE):
+    """
+    Calculate selected per-segment statistics for the given band 
+    of the imgfile, against the given segment raster file. 
+    Calculated statistics are written to the segfile raster 
+    attribute table (RAT), so this file format must support RATs. 
+    
+    Calculations are carried out in a memory-efficient way, allowing 
+    very large rasters to be processed. Raster data is handled in 
+    small tiles, attribute table is handled in fixed-size chunks. 
+    
+    The statsSelection parameter is a list of tuples, one for each
+    statistics to be included. Each tuple is either 2 or 3 elements,
+        (columnName, statName) or (columnName, statName, parameter)
+    The 3-element form is used for any statistic which requires
+    a parameter, which currently is only the percentile. 
+    
+    The columnName is a string, used to name the column in the 
+    output RAT. 
+    The statName is a string used to identify which statistic 
+    is to be calculated. Available options are:
+        'min', 'max', 'mean', 'stddev', 'median', 'mode', 'percentile'.
+    The 'percentile' statistic requires the 3-element form, with 
+    the 3rd element being the percentile to be calculated. 
+    
+    For example
+        [('Band1_Mean', 'mean'),
+         ('Band1_stdDev', 'stddev'),
+         ('Band1_LQ', 'percentile', 25),
+         ('Band1_UQ', 'percentile', 75)
+        ]
+    would create 4 columns, for the per-segment mean and 
+    standard deviation of the given band, and the lower and upper 
+    quartiles, with corresponding column names. 
+
+    """
     # Open the segment file
     if isinstance(segfile, gdal.Dataset):
         segds = segfile
@@ -847,6 +1179,72 @@ statIDdict = {
     'percentile':STATID_PERCENTILE
 }
 NOPARAM = -1
+
+# TODO
+# Need to create the following, from the statsSelection. All are ordered
+# in the same way. 
+#   globalColNdx    Number used for actually writing to RAT
+#   statId          Integer for which statistic it is (i.e. mean, stddev, etc)
+#   colType         Used to select between int and float column arrays
+#   colArrayNdx     Which column of the array for the given type
+
+# Array indexes for the fast stat selection array
+STATSEL_GLOBALCOLINDEX = 0
+STATSEL_STATID = 1
+STATSEL_COLTYPE = 2
+STATSEL_COLARRAYINDEX = 3
+STATSEL_PARAM = 4
+STAT_DTYPE_INT = 0
+STAT_DTYPE_FLOAT = 1
+
+def makeFastStatsSelection(colIndexList, statsSelection):
+    """
+    Make a fast version of the statsSelection data structure, combined
+    with the global column index numbers.
+    
+    Return a tuple of 
+        (statsSelection_fast, numIntCols, numFloatCols)
+    The statsSelection_fast is a single array, of shape (numStats, 5). 
+    The first index corresponds to the sequence in statsSelection. 
+    The second index corresponds to the STATSEL_* values. 
+    
+    Everything is encoded as an integer value in a single numpy array, 
+    suitable for fast access within numba njit-ed functions. 
+    
+    This is all a bit ugly and un-pythonic. Not sure if there is
+    a better way. 
+    
+    """
+    numStats = len(colIndexList)
+    statsSelection_fast = numpy.empty((numStats, 5), dtype=numpy.uint32)
+    
+    intCount = 0
+    floatCount = 0
+    for i in range(numStats):
+        statsSelection_fast[i, STATSEL_GLOBALCOLINDEX] = colIndexList[i]
+        
+        statName = statsSelection[i][1]
+        statId = statIDdict[statName]
+        statsSelection_fast[i, STATSEL_STATID] = statId
+        
+        statType = STAT_DTYPE_INT
+        if statName in ('mean', 'stddev'):
+            statType = STAT_DTYPE_FLOAT
+        statsSelection_fast[i, STATSEL_COLTYPE] = statType
+        
+        if statType == STAT_DTYPE_INT:
+            statsSelection_fast[i, STATSEL_COLARRAYINDEX] = intCount
+            intCount += 1
+        elif statType == STAT_DTYPE_FLOAT:
+            statsSelection_fast[i, STATSEL_COLARRAYINDEX] = floatCount
+            floatCount += 1
+
+        statsSelection_fast[i, STATSEL_PARAM] = NOPARAM
+        if statName == 'percentile':
+            statsSelection_fast[i, STATSEL_PARAM] = statsSelection[i][2]
+    
+    return (statsSelection_fast, intCount, floatCount)
+
 
 def calcStatsForChunk(chunkCounts, statsSelection, attrTbl, chunkMinVal):
     """
@@ -1078,6 +1476,26 @@ class SegmentStats(object):
             i += 1
         pcntileVal = self.pixVals[i-1]
         return pcntileVal
+    
+    def getStat(self, statID, param):
+        """
+        Return the requested statistic
+        """
+        if statID == STATID_MIN:
+            val = self.min
+        elif statID == STATID_MAX:
+            val = self.max
+        elif statID == STATID_MEAN:
+            val = self.mean
+        elif statID == STATID_STDDEV:
+            val = self.stddev
+        elif statID == STATID_MEDIAN:
+            val = self.median
+        elif statID == STATID_MODE:
+            val = self.mode
+        elif statID == STATID_PERCENTILE:
+            val = self.getPercentile(param)
+        return val
 
 
 def calcCountsForChunk(segband, imgband, chunkMinVal, chunkMaxVal):
