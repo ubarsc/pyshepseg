@@ -53,7 +53,6 @@ whole area.
 # Just in case anyone is trying to use this with Python-2
 from __future__ import print_function, division
 
-import sys
 import os
 import time
 import shutil
@@ -65,7 +64,7 @@ import scipy.stats
 
 from numba import njit
 from numba.core import types
-from numba.typed import Dict, List
+from numba.typed import Dict
 from numba.experimental import jitclass
 
 from . import shepseg
@@ -745,7 +744,7 @@ def crossesMidline(overlap, segLoc, orientation):
 
 
 def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile, maxSegId, 
-            statsSelection, chunkSize=DFLT_CHUNKSIZE):
+            statsSelection):
     """
     Calculate selected per-segment statistics for the given band 
     of the imgfile, against the given segment raster file. 
