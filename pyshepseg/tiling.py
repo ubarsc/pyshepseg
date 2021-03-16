@@ -847,10 +847,11 @@ def accumulateSegDict(segDict, tileSegments, tileImageData):
                 imgVal = tileImageData[y, x]
 
                 d = segDict[segId]
-                if imgVal not in d:
-                    d[imgVal] = types.uint32(0)
+                imgVal_typed = types.uint32(imgVal)
+                if imgVal_typed not in d:
+                    d[imgVal_typed] = types.uint32(0)
 
-                d[imgVal] = types.uint32(d[imgVal] + 1)
+                d[imgVal_typed] = types.uint32(d[imgVal_typed] + 1)
 
 
 @njit
@@ -932,7 +933,7 @@ def getRatPageId(segId):
     ID of the first segment in the page. 
     """
     pageId = (segId // RAT_PAGE_SIZE) * RAT_PAGE_SIZE
-    return pageId
+    return types.uint32(pageId)
 
     
 def checkHistColumn(existingColNames):
