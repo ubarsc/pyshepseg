@@ -828,6 +828,13 @@ def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile,
             writeCompletePages(pagedRat, attrTbl, statsSelection_fast)
 
 
+# This type is used for all numba jit-ed data which is supposed to 
+# match the data type of the imagery pixels. Int64 should be enough
+# to hold any integer type, signed or unsigned, up to uint32. 
+numbaTypeForImageType = types.int64
+# This is the numba equivalent type of shepseg.SegIdType
+segIdNumbaType = types.uint32
+
 @njit
 def accumulateSegDict(segDict, tileSegments, tileImageData):
     """
@@ -841,13 +848,13 @@ def accumulateSegDict(segDict, tileSegments, tileImageData):
             segId = tileSegments[y, x]
             if segId != shepseg.SEGNULLVAL:
                 if segId not in segDict:
-                    segDict[segId] = Dict.empty(key_type=types.uint32, 
+                    segDict[segId] = Dict.empty(key_type=numbaTypeForImageType, 
                         value_type=types.uint32)
                 
                 imgVal = tileImageData[y, x]
 
                 d = segDict[segId]
-                imgVal_typed = types.uint32(imgVal)
+                imgVal_typed = numbaTypeForImageType(imgVal)
                 if imgVal_typed not in d:
                     d[imgVal_typed] = types.uint32(0)
 
@@ -861,7 +868,7 @@ def checkSegComplete(segDict, segSize, segId):
     in the segDict, meaning that the pixel count is equal to
     the segment size
     """
-    d = segDict[types.uint32(segId)]
+    d = segDict[segIdNumbaType(segId)]
     count = 0
     for pixVal in d:
         count += d[pixVal]
@@ -878,7 +885,7 @@ def calcStatsForCompletedSegs(segDict, pagedRat, statsSelection_fast, segSize,
     """
     numStats = len(statsSelection_fast)
     maxSegId = len(segSize) - 1
-    segDictKeys = numpy.empty(len(segDict), dtype=numpy.uint32)
+    segDictKeys = numpy.empty(len(segDict), dtype=segIdNumbaType)
     i = 0
     for segId in segDict:
         segDictKeys[i] = segId
@@ -905,15 +912,15 @@ def calcStatsForCompletedSegs(segDict, pagedRat, statsSelection_fast, segSize,
             ratPage.setSegmentComplete(segId)
             
             # Stats now done for this segment, so remove its histogram
-            segDict.pop(types.uint32(segId))
+            segDict.pop(segIdNumbaType(segId))
 
 
 def createSegDict():
     """
     Create the Dict of Dicts for handling per-segment histograms
     """
-    histDict = Dict.empty(key_type=types.uint32, value_type=types.uint32)
-    segDict = Dict.empty(key_type=types.uint32, value_type=histDict._dict_type)
+    histDict = Dict.empty(key_type=numbaTypeForImageType, value_type=types.uint32)
+    segDict = Dict.empty(key_type=segIdNumbaType, value_type=histDict._dict_type)
     return segDict
 
 
@@ -921,7 +928,7 @@ def createPagedRat():
     """
     Create the dictionary for the paged RAT. Each element is a
     """
-    pagedRat = Dict.empty(key_type=types.uint32, 
+    pagedRat = Dict.empty(key_type=segIdNumbaType, 
         value_type=RatPage.class_type.instance_type)
     return pagedRat
 
@@ -933,7 +940,7 @@ def getRatPageId(segId):
     ID of the first segment in the page. 
     """
     pageId = (segId // RAT_PAGE_SIZE) * RAT_PAGE_SIZE
-    return types.uint32(pageId)
+    return segIdNumbaType(pageId)
 
     
 def checkHistColumn(existingColNames):
@@ -983,7 +990,7 @@ def writeCompletePages(pagedRat, attrTbl, statsSelection_fast):
     """
     numStat = len(statsSelection_fast)
     
-    pagedRatKeys = numpy.empty(len(pagedRat), dtype=numpy.uint32)
+    pagedRatKeys = numpy.empty(len(pagedRat), dtype=shepseg.SegIdType)
     i = 0
     for pageId in pagedRat:
         pagedRatKeys[i] = pageId
@@ -1011,8 +1018,8 @@ def writeCompletePages(pagedRat, attrTbl, statsSelection_fast):
 
 RAT_PAGE_SIZE = 100000
 ratPageSpec = [
-    ('startSegId', types.uint32),
-    ('intcols', types.int32[:,:]),
+    ('startSegId', segIdNumbaType),
+    ('intcols', numbaTypeForImageType[:,:]),
     ('floatcols', types.float32[:,:]),
     ('complete', types.boolean[:])
 ]
@@ -1036,7 +1043,7 @@ class RatPage(object):
         
         """
         self.startSegId = startSegId
-        self.intcols = numpy.empty((numIntCols, numSeg), dtype=numpy.int32)
+        self.intcols = numpy.empty((numIntCols, numSeg), dtype=numbaTypeForImageType)
         self.floatcols = numpy.empty((numFloatCols, numSeg), dtype=numpy.float32)
         self.complete = numpy.zeros(numSeg, dtype=types.boolean)
         # The null segment is always complete
@@ -1163,11 +1170,7 @@ def getSortedKeysAndValuesForDict(d):
     counts. The arrays are sorted in increasing order of pixel value.
     """
     size = len(d)
-    # TODO: get key and value types
-    # TODO: d._dict_type.key_type gets the numba type object, but unsure
-    # TODO: how to convert this to a numpy type. Could use the string value,
-    # TODO: but this is in a tight njit loop. 
-    keysArray = numpy.empty(size, dtype=numpy.uint32)
+    keysArray = numpy.empty(size, dtype=numbaTypeForImageType)
     valuesArray = numpy.empty(size, dtype=numpy.uint32)
     
     dictKeys = d.keys()
@@ -1186,15 +1189,15 @@ def getSortedKeysAndValuesForDict(d):
 # Warning - currently using uint32 or float32 for all of the types
 # which should really be dependent on the imagery datatype. 
 # Not sure whether it is possible to do better. 
-segStatsSpec = [('pixVals', types.uint32[:]), 
+segStatsSpec = [('pixVals', numbaTypeForImageType[:]), 
                 ('counts', types.uint32[:]),
                 ('pixCount', types.uint32),
-                ('min', types.uint32),
-                ('max', types.uint32),
+                ('min', numbaTypeForImageType),
+                ('max', numbaTypeForImageType),
                 ('mean', types.float32),
                 ('stddev', types.float32),
-                ('median', types.uint32),
-                ('mode', types.uint32)
+                ('median', numbaTypeForImageType),
+                ('mode', numbaTypeForImageType)
                ]
 @jitclass(segStatsSpec)
 class SegmentStats(object):
