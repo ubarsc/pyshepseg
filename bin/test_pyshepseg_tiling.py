@@ -31,9 +31,7 @@ manner for their application.
 
 from __future__ import print_function, division
 
-import os
 import sys
-import json
 import time
 import argparse
 
