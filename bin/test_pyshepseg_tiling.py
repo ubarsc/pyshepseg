@@ -56,46 +56,64 @@ def getCmdargs():
     p = argparse.ArgumentParser()
     p.add_argument("-i", "--infile", help="Input Raster file")
     p.add_argument("-o", "--outfile")
-    p.add_argument("-t", "--tilesize", default=tiling.DFLT_TILESIZE,
-        help="Size (in pixels) of tiles to chop input image into for processing."+
-                " (default=%(default)s)", type=int)
-    p.add_argument("-l", "--overlapsize", default=tiling.DFLT_OVERLAPSIZE,
-        help="Size (in pixels) of the overlap between tiles."+
-                " (default=%(default)s)", type=int)
-    p.add_argument("-n", "--nclusters", default=60, type=int,
-        help="Number of clusters (default=%(default)s)")
-    p.add_argument("--subsamplepcnt", type=int, default=1,
-        help="Percentage to subsample for fitting (default=%(default)s)")
-    p.add_argument("--eightway", default=False, action="store_true",
-        help="Use 8-way instead of 4-way")
-    p.add_argument("-f", "--format", default=DFLT_OUTPUT_DRIVER, 
-        choices=[DFLT_OUTPUT_DRIVER, "HFA"],
-        help="Name of output GDAL format that supports RATs (default=%(default)s)")
-    p.add_argument("-m", "--maxspectraldiff", default=DFLT_MAX_SPECTRAL_DIFF,
-        help=("Maximum Spectral Difference to use when merging " +
-                "segments Either 'auto', 'none' or a value to use " +
-                "(default=%(default)s)"))
-    p.add_argument("-s", "--minsegmentsize", default=100, type=int,
-        help="Minimum segment size in pixels (default=%(default)s)")
-    p.add_argument("-c", "--clustersubsamplepercent", default=None, type=float,
-        help="Percent of data to subsample for clustering. If not given, "+
-            "1 million pixels are used.")
-    p.add_argument("-b", "--bands", default="3,4,5", 
-        help="Comma seperated list of bands to use. 1-based. (default=%(default)s)")
+    p.add_argument("--verbose", default=False, action="store_true",
+        help="Turn on verbose output.")
     p.add_argument("--nullvalue", default=None, type=int,
         help="Null value for input image. If not given, the value set in the "+
             "image is used.")
-    p.add_argument("--fixedkmeansinit", default=False, action="store_true",
+    p.add_argument("-f", "--format", default=DFLT_OUTPUT_DRIVER, 
+        choices=[DFLT_OUTPUT_DRIVER, "HFA"],
+        help="Name of output GDAL format that supports RATs (default=%(default)s)")
+
+    segGroup = p.add_argument_group("Segmentation Parameters")
+    tileGroup = p.add_argument_group("Tiling Parameters")
+    statsGroup = p.add_argument_group("Per-segment Statistics")
+
+    segGroup.add_argument("-n", "--nclusters", default=60, type=int,
+        help="Number of clusters (default=%(default)s)")
+    segGroup.add_argument("--eightway", default=False, action="store_true",
+        help="Use 8-way instead of 4-way")
+    segGroup.add_argument("-m", "--maxspectraldiff", default=DFLT_MAX_SPECTRAL_DIFF,
+        help=("Maximum Spectral Difference to use when merging " +
+                "segments Either 'auto', 'none' or a value to use " +
+                "(default=%(default)s)"))
+    segGroup.add_argument("-s", "--minsegmentsize", default=100, type=int,
+        help="Minimum segment size in pixels (default=%(default)s)")
+    segGroup.add_argument("-b", "--bands", default="3,4,5", 
+        help="Comma-separated list of bands to use. 1-based. (default=%(default)s)")
+    segGroup.add_argument("--fixedkmeansinit", default=False, action="store_true",
         help=("Used a fixed algorithm to select guesses at cluster centres. "+
             "Default will allow the KMeans routine to select these with a "+
             "random element, which can make the final results slightly "+
             "non-determinstic. Use this if you want a completely "+
             "deterministic, reproducable result"))
-    p.add_argument("--verbose", default=False, action="store_true",
-        help="Turn on verbose output.")
-    p.add_argument("--simplerecode", default=False, action="store_true",
-        help="Use a simple recode method rather than merge segments on the overlap")
-        
+
+    tileGroup.add_argument("-t", "--tilesize", default=tiling.DFLT_TILESIZE,
+        help="Size (in pixels) of tiles to chop input image into for processing."+
+                " (default=%(default)s)", type=int)
+    tileGroup.add_argument("-l", "--overlapsize", default=tiling.DFLT_OVERLAPSIZE,
+        help="Size (in pixels) of the overlap between tiles."+
+                " (default=%(default)s)", type=int)
+    tileGroup.add_argument("-c", "--clustersubsamplepercent", default=None, type=float,
+        help=("Percent of data to subsample for clustering (i.e. across all "+
+            "tiles). If not given, 1 million pixels are used."))
+    tileGroup.add_argument("--simplerecode", default=False, action="store_true",
+        help=("Use a simple recode method when merging tiles, rather "+
+            "than merge segments across the tile boundary. This is mainly "+
+            "for use when testing the default merge/recode. "))
+
+    statsGroup.add_argument("--statsbands", help=("Comma-separated list of "+
+        "bands in the input raster file for which to calculate per-segment "+
+        "statistics, as columns in a raster attribute table (RAT). "+
+        "Default will not calculate any per-segment statistics. "))
+    statsGroup.add_argument("--statspec", default=[], action="append",
+        help=("Specification of a statistic to be included in the "+
+        "per-segment statistics in the raster attribute table (RAT). "+
+        "This can be given more than once, and the nominated statistic "+
+        "will be calculated for all bands given in --statsbands. "+
+        "Options are 'mean', 'stddev', 'min', 'max', 'median', 'mode' or "+
+        "'percentile,p' (where 'p' is a percentile (0-100) to calculate). "))
+
     cmdargs = p.parse_args()
     
     if cmdargs.infile is None:
@@ -123,7 +141,8 @@ def getCmdargs():
             
     # turn string of bands into list of ints
     cmdargs.bands = [int(x) for x in cmdargs.bands.split(',')]
-            
+    cmdargs.statsbands = [int(x) for x in cmdargs.statsbands.split(',')]
+
     return cmdargs
 
 
@@ -149,22 +168,40 @@ def main():
 
     band = outDs.GetRasterBand(1)
 
+    t0 = time.time()
     utils.estimateStatsFromHisto(band, hist)
+    if cmdargs.verbose:
+        print('Done global stats: {:.2f} seconds'.format(time.time()-t0))
+
+    # Should have some options for a colour table derived from the RAT
     utils.writeRandomColourTable(band, tiledSegResult.maxSegId+1)
     
-    del outDs    
+    del outDs
 
-def writeClusterCentresToMetadata(bandObj, km):
+    t0 = time.time()
+    doPerSegmentStats(cmdargs)
+    if cmdargs.verbose:
+        print('Done per-segment statistics: {:.2f} seconds'.format(time.time()-t0))
+
+
+def doPerSegmentStats(cmdargs):
     """
-    Pulls out the cluster centres from the kmeans object 
-    and writes them to the metadata (under CLUSTER_CNTRS_METADATA_NAME)
-    for the given band object.
+    If requested, calculate RAT columns of per-segment statistics
     """
-    # convert to list so we can json them
-    ctrsList = [list(r) for r in km.cluster_centers_]
-    ctrsString = json.dumps(ctrsList)
-    
-    bandObj.SetMetadataItem(CLUSTER_CNTRS_METADATA_NAME, ctrsString)
+    for statsBand in cmdargs.statsbands:
+        statsSelection = []
+        for statsSpec in cmdargs.statspec:
+            if statsSpec.startswith('percentile,'):
+                param = int(statsSpec.split(',')[1])
+                name = "Band_{}_pcnt{}".format(statsBand, param)
+                selection = (name, 'percentile', param)
+            else:
+                name = "Band_{}_{}".format(statsBand, statsSpec)
+                selection = (name, statsSpec)
+            statsSelection.append(selection)
+
+        tiling.calcPerSegmentStatsTiled(cmdargs.infile, statsBand, 
+            cmdargs.outfile, statsSelection)
 
 
 if __name__ == "__main__":
