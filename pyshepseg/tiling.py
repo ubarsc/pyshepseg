@@ -917,7 +917,12 @@ def calcStatsForCompletedSegs(segDict, pagedRat, statsSelection_fast, segSize,
 
 def createSegDict():
     """
-    Create the Dict of Dicts for handling per-segment histograms
+    Create the Dict of Dicts for handling per-segment histograms. 
+    Each entry is a dictionary, and the key is a segment ID.
+    Each dictionary within this is the per-segment histogram for
+    a single segment. Each of its entries is for a single value from 
+    the imagery, the key is the pixel value, and the dictionary value 
+    is the number of times that pixel value appears in the segment. 
     """
     histDict = Dict.empty(key_type=numbaTypeForImageType, value_type=types.uint32)
     segDict = Dict.empty(key_type=segIdNumbaType, value_type=histDict._dict_type)
@@ -926,7 +931,12 @@ def createSegDict():
 
 def createPagedRat():
     """
-    Create the dictionary for the paged RAT. Each element is a
+    Create the dictionary for the paged RAT. Each element is a page of
+    the RAT, with entries for a range of segment IDs. The key is the 
+    segment ID of the first entry in the page. 
+
+    The returned dictionary is initially empty. 
+
     """
     pagedRat = Dict.empty(key_type=segIdNumbaType, 
         value_type=RatPage.class_type.instance_type)
