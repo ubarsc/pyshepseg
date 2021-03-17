@@ -111,6 +111,11 @@ def getCmdargs():
         "will be calculated for all bands given in --statsbands. "+
         "Options are 'mean', 'stddev', 'min', 'max', 'median', 'mode' or "+
         "'percentile,p' (where 'p' is a percentile (0-100) to calculate). "))
+    statsGroup.add_argument("--colortablebands", help=("Comma-separated list "+
+        "of 3 band numbers to use for coloring of segments. Assumes that "+
+        "the per-segment mean has been calculated for each band, and this "+
+        "is used to derive a colour. Band numbers are used in the order "+
+        "red,green,blue"))
 
     cmdargs = p.parse_args()
     
@@ -139,7 +144,21 @@ def getCmdargs():
             
     # turn string of bands into list of ints
     cmdargs.bands = [int(x) for x in cmdargs.bands.split(',')]
-    cmdargs.statsbands = [int(x) for x in cmdargs.statsbands.split(',')]
+    if cmdargs.statsbands is not None:
+        cmdargs.statsbands = [int(x) for x in cmdargs.statsbands.split(',')]
+    else:
+        cmdargs.statsbands = []
+    # Check that requested color table bands can be used for this. 
+    if cmdargs.colortablebands is not None:
+        cmdargs.colortablebands = [int(x) for x in 
+            cmdargs.colortablebands.split(',')]
+        if cmdargs.statspec is None or 'mean' not in cmdargs.statspec:
+            print('Using --colortablebands requires "--statspec mean"')
+            sys.exit()
+        for i in cmdargs.colortablebands:
+            if i not in cmdargs.statsbands:
+                print("Bands given in --colortablebands must also be in --statsbands")
+                sys.exit()
 
     return cmdargs
 
@@ -171,8 +190,8 @@ def main():
     if cmdargs.verbose:
         print('Done global stats: {:.2f} seconds'.format(time.time()-t0))
 
-    # Should have some options for a colour table derived from the RAT
-    utils.writeRandomColourTable(band, tiledSegResult.maxSegId+1)
+    if cmdargs.colortablebands is None:
+        utils.writeRandomColourTable(band, tiledSegResult.maxSegId+1)
     
     del outDs
 
@@ -180,6 +199,11 @@ def main():
     doPerSegmentStats(cmdargs)
     if cmdargs.verbose:
         print('Done per-segment statistics: {:.2f} seconds'.format(time.time()-t0))
+
+    if cmdargs.colortablebands is not None:
+        colorTableNames = ['Band_{}_mean'.format(i) for i in cmdargs.colortablebands]
+        utils.writeColorTableFromRatColumns(cmdargs.outfile, 
+            colorTableNames[0], colorTableNames[1], colorTableNames[2])
 
 
 def doPerSegmentStats(cmdargs):
