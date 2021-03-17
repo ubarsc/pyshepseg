@@ -151,3 +151,62 @@ def writeRandomColourTable(outBand, nRows):
     attrTbl.CreateColumn('Alpha', gdal.GFT_Integer, gdal.GFU_Alpha)
     colNum = attrTbl.GetColumnCount() - 1
     attrTbl.WriteArray(alpha, colNum)
+
+
+def writeColorTableFromRatColumns(segfile, redColName, greenColName, 
+        blueColName):
+    """
+    Use the values in the given columns in the raster attribute 
+    table (RAT) to create corresponding color table columns, so that 
+    the segmented image will display similarly to same bands of the 
+    the original image. 
+
+    segfile is the completed segmentation image, with RAT columns 
+    already written. 
+
+    The three column names are strings, being the names of columns 
+    to use to derive corresponding colors. 
+
+    The general idea is that the given columns would be the per-segment 
+    means of the desired bands (see tiling.calcPerSegmentStatsTiled()
+    to create such columns). 
+    """
+    colList = [redColName, greenColName, blueColName]
+    colorColList = ['Red', 'Green', 'Blue']
+    usageList = [gdal.GFU_Red, gdal.GFU_Green, gdal.GFU_Blue]
+
+    ds = gdal.Open(segfile, gdal.GA_Update)
+    band = ds.GetRasterBand(1)
+    attrTbl = band.GetDefaultRAT()
+    colNameList = [attrTbl.GetNameOfCol(i) 
+        for i in range(attrTbl.GetColumnCount())]
+
+    for i in range(3):
+        n = colNameList.index(colList[i])
+        colVals = attrTbl.ReadAsArray(n)
+
+        # If the corresponding color column does not yet exist, then create it
+        if colorColList[i] not in colNameList:
+            attrTbl.CreateColumn(colorColList[i], gdal.GFT_Integer, usageList[i])
+            clrColNdx = attrTbl.GetColumnCount() - 1
+        else:
+            clrColNdx = colNameList.index(colorColList[i])
+
+        # Use the column values to create a color column of values in 
+        # the range 0-255. Stretch to the 5-th and 95th percentiles, to
+        # avoid extreme values causing washed out colors. 
+        colMin = numpy.percentile(colVals, 5)
+        colMax = numpy.percentile(colVals, 95)
+        clr = (255 * ((colVals - colMin) / (colMax - colMin)).clip(0, 1))
+
+        # Write the color column
+        attrTbl.WriteArray(clr.astype(numpy.uint8), clrColNdx)
+
+    # Now write the opacity (alpha) column. Set to full opacity. 
+    alpha = numpy.full(len(colVals), 255, dtype=numpy.uint8)
+    if 'Alpha' not in colNameList:
+        attrTbl.CreateColumn('Alpha', gdal.GFT_Integer, gdal.GFU_Alpha)
+        i = attrTbl.GetColumnCount() - 1
+    else:
+        i = colNameList.index('Alpha')
+    attrTbl.WriteArray(alpha, i)
