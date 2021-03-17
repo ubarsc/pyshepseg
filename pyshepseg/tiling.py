@@ -63,6 +63,9 @@ from osgeo import gdal
 import scipy.stats
 
 from numba import njit
+from numba.core import types
+from numba.typed import Dict
+from numba.experimental import jitclass
 
 from . import shepseg
 
@@ -71,6 +74,8 @@ TEMPFILES_EXT = 'kea'
 
 DFLT_TILESIZE = 4096
 DFLT_OVERLAPSIZE = 200
+
+DFLT_CHUNKSIZE = 100000
 
 
 class TiledSegmentationResult(object):
@@ -738,6 +743,538 @@ def crossesMidline(overlap, segLoc, orientation):
     return ((minN < mid) & (maxN >= mid))
 
 
+def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile, 
+            statsSelection):
+    """
+    Calculate selected per-segment statistics for the given band 
+    of the imgfile, against the given segment raster file. 
+    Calculated statistics are written to the segfile raster 
+    attribute table (RAT), so this file format must support RATs. 
+    
+    Calculations are carried out in a memory-efficient way, allowing 
+    very large rasters to be processed. Raster data is handled in 
+    small tiles, attribute table is handled in fixed-size chunks. 
+    
+    The statsSelection parameter is a list of tuples, one for each
+    statistics to be included. Each tuple is either 2 or 3 elements,
+        (columnName, statName) or (columnName, statName, parameter)
+    The 3-element form is used for any statistic which requires
+    a parameter, which currently is only the percentile. 
+    
+    The columnName is a string, used to name the column in the 
+    output RAT. 
+    The statName is a string used to identify which statistic 
+    is to be calculated. Available options are:
+        'min', 'max', 'mean', 'stddev', 'median', 'mode', 'percentile'.
+    The 'percentile' statistic requires the 3-element form, with 
+    the 3rd element being the percentile to be calculated. 
+    
+    For example
+        [('Band1_Mean', 'mean'),
+         ('Band1_stdDev', 'stddev'),
+         ('Band1_LQ', 'percentile', 25),
+         ('Band1_UQ', 'percentile', 75)
+        ]
+    would create 4 columns, for the per-segment mean and 
+    standard deviation of the given band, and the lower and upper 
+    quartiles, with corresponding column names. 
+
+    """
+    segds = segfile
+    if not isinstance(segds, gdal.Dataset):
+        segds = gdal.Open(segfile, gdal.GA_Update)
+    segband = segds.GetRasterBand(1)
+
+    imgds = imgfile
+    if not isinstance(imgds, gdal.Dataset):
+        imgds = gdal.Open(imgfile, gdal.GA_Update)
+    imgband = imgds.GetRasterBand(imgbandnum)
+    
+    attrTbl = segband.GetDefaultRAT()
+    existingColNames = [attrTbl.GetNameOfCol(i) 
+        for i in range(attrTbl.GetColumnCount())]
+        
+    histColNdx = checkHistColumn(existingColNames)
+    segSize = attrTbl.ReadAsArray(histColNdx).astype(numpy.uint32)
+    
+    # Create columns, as required
+    colIndexList = createStatColumns(statsSelection, attrTbl, existingColNames)
+    (statsSelection_fast, numIntCols, numFloatCols) = (
+        makeFastStatsSelection(colIndexList, statsSelection))
+
+    # Loop over all tiles in image
+    tileSize = 1024
+    (nlines, npix) = (segband.YSize, segband.XSize)
+    numXtiles = int(numpy.ceil(npix / tileSize))
+    numYtiles = int(numpy.ceil(nlines / tileSize))
+    
+    segDict = createSegDict()
+    pagedRat = createPagedRat()
+    
+    for tileRow in range(numYtiles):
+        for tileCol in range(numXtiles):
+            topLine = tileRow * tileSize
+            leftPix = tileCol * tileSize
+            xsize = min(tileSize, npix-leftPix)
+            ysize = min(tileSize, nlines-topLine)
+            
+            tileSegments = segband.ReadAsArray(leftPix, topLine, xsize, ysize)
+            tileImageData = imgband.ReadAsArray(leftPix, topLine, xsize, ysize)
+            
+            accumulateSegDict(segDict, tileSegments, tileImageData)
+            calcStatsForCompletedSegs(segDict, pagedRat, statsSelection_fast, 
+                segSize, numIntCols, numFloatCols)
+            
+            writeCompletePages(pagedRat, attrTbl, statsSelection_fast)
+
+
+# This type is used for all numba jit-ed data which is supposed to 
+# match the data type of the imagery pixels. Int64 should be enough
+# to hold any integer type, signed or unsigned, up to uint32. 
+numbaTypeForImageType = types.int64
+# This is the numba equivalent type of shepseg.SegIdType
+segIdNumbaType = types.uint32
+
+@njit
+def accumulateSegDict(segDict, tileSegments, tileImageData):
+    """
+    Accumulate per-segment histogram counts for all 
+    pixels in the given tile. Updates segDict entries in-place. 
+    """
+    ysize, xsize = tileSegments.shape
+    
+    for y in range(ysize):
+        for x in range(xsize):
+            segId = tileSegments[y, x]
+            if segId != shepseg.SEGNULLVAL:
+                if segId not in segDict:
+                    segDict[segId] = Dict.empty(key_type=numbaTypeForImageType, 
+                        value_type=types.uint32)
+                
+                imgVal = tileImageData[y, x]
+
+                d = segDict[segId]
+                imgVal_typed = numbaTypeForImageType(imgVal)
+                if imgVal_typed not in d:
+                    d[imgVal_typed] = types.uint32(0)
+
+                d[imgVal_typed] = types.uint32(d[imgVal_typed] + 1)
+
+
+@njit
+def checkSegComplete(segDict, segSize, segId):
+    """
+    Return True if the given segment has a complete entry
+    in the segDict, meaning that the pixel count is equal to
+    the segment size
+    """
+    d = segDict[segIdNumbaType(segId)]
+    count = 0
+    for pixVal in d:
+        count += d[pixVal]
+    return (count == segSize[segId])
+
+
+@njit
+def calcStatsForCompletedSegs(segDict, pagedRat, statsSelection_fast, segSize,
+        numIntCols, numFloatCols):
+    """
+    Calculate statistics for all complete segments in the segDict.
+    Update the pagedRat with the resulting entries. Completed segments
+    are then removed from segDict. 
+    """
+    numStats = len(statsSelection_fast)
+    maxSegId = len(segSize) - 1
+    segDictKeys = numpy.empty(len(segDict), dtype=segIdNumbaType)
+    i = 0
+    for segId in segDict:
+        segDictKeys[i] = segId
+        i += 1
+    for segId in segDictKeys:
+        segComplete = checkSegComplete(segDict, segSize, segId)
+        if segComplete:
+            segStats = SegmentStats(segDict[segId])
+            ratPageId = getRatPageId(segId)
+            if ratPageId not in pagedRat:
+                numSegThisPage = min(RAT_PAGE_SIZE, (maxSegId - ratPageId + 1))
+                pagedRat[ratPageId] = RatPage(numIntCols, numFloatCols, 
+                    ratPageId, numSegThisPage, statsSelection_fast)
+            ratPage = pagedRat[ratPageId]
+            for i in range(numStats):
+                statId = statsSelection_fast[i, STATSEL_STATID]
+                param = statsSelection_fast[i, STATSEL_PARAM]
+                val = segStats.getStat(statId, param)
+                
+                colType = statsSelection_fast[i, STATSEL_COLTYPE]
+                colArrayNdx = statsSelection_fast[i, STATSEL_COLARRAYINDEX]
+                ratPage.setRatVal(segId, colType, colArrayNdx, val)
+
+            ratPage.setSegmentComplete(segId)
+            
+            # Stats now done for this segment, so remove its histogram
+            segDict.pop(segIdNumbaType(segId))
+
+
+def createSegDict():
+    """
+    Create the Dict of Dicts for handling per-segment histograms. 
+    Each entry is a dictionary, and the key is a segment ID.
+    Each dictionary within this is the per-segment histogram for
+    a single segment. Each of its entries is for a single value from 
+    the imagery, the key is the pixel value, and the dictionary value 
+    is the number of times that pixel value appears in the segment. 
+    """
+    histDict = Dict.empty(key_type=numbaTypeForImageType, value_type=types.uint32)
+    segDict = Dict.empty(key_type=segIdNumbaType, value_type=histDict._dict_type)
+    return segDict
+
+
+def createPagedRat():
+    """
+    Create the dictionary for the paged RAT. Each element is a page of
+    the RAT, with entries for a range of segment IDs. The key is the 
+    segment ID of the first entry in the page. 
+
+    The returned dictionary is initially empty. 
+
+    """
+    pagedRat = Dict.empty(key_type=segIdNumbaType, 
+        value_type=RatPage.class_type.instance_type)
+    return pagedRat
+
+
+@njit
+def getRatPageId(segId):
+    """
+    For the given segment ID, return the page ID. This is the segment
+    ID of the first segment in the page. 
+    """
+    pageId = (segId // RAT_PAGE_SIZE) * RAT_PAGE_SIZE
+    return segIdNumbaType(pageId)
+
+    
+def checkHistColumn(existingColNames):
+    """
+    Check for the Histogram column in the attribute table. Return
+    its column number, and raise an exception if it is not present
+    """
+    histColNdx = -1
+    for i in range(len(existingColNames)):
+        if existingColNames[i] == 'Histogram':
+            histColNdx = i
+    if histColNdx < 0:
+        msg = "Histogram column must exist before calculating per-segment stats"
+        raise PyShepSegTilingError(msg)
+    return histColNdx
+
+
+def createStatColumns(statsSelection, attrTbl, existingColNames):
+    """
+    Create requested statistic columns on the segmentation image RAT.
+    Statistic columns are of type gdal.GFT_Real for mean and stddev, 
+    and gdal.GFT_Integer for all other statistics. 
+    
+    Return the column indexes for all requested columns, in the same
+    order. 
+    """
+    colIndexList = []
+    for selection in statsSelection:
+        (colName, statName) = selection[:2]
+        if colName not in existingColNames:
+            colType = gdal.GFT_Integer
+            if statName in ('mean', 'stddev'):
+                colType = gdal.GFT_Real
+            attrTbl.CreateColumn(colName, colType, gdal.GFU_Generic)
+            colNdx = attrTbl.GetColumnCount() - 1
+        else:
+            print('Column {} already exists'.format(colName))
+            colNdx = existingColNames.index(colName)
+        colIndexList.append(colNdx)
+    return colIndexList
+
+
+def writeCompletePages(pagedRat, attrTbl, statsSelection_fast):
+    """
+    Check for completed pages, and write them to the attribute table.
+    Remove them from the pagedRat after writing. 
+    """
+    numStat = len(statsSelection_fast)
+    
+    pagedRatKeys = numpy.empty(len(pagedRat), dtype=shepseg.SegIdType)
+    i = 0
+    for pageId in pagedRat:
+        pagedRatKeys[i] = pageId
+        i += 1
+
+    for pageId in pagedRatKeys:
+        ratPage = pagedRat[pageId]
+        if ratPage.pageComplete():
+            startSegId = ratPage.startSegId
+            for i in range(numStat):
+                statSel = statsSelection_fast[i]
+                colNumber = int(statSel[STATSEL_GLOBALCOLINDEX])
+                colType = statSel[STATSEL_COLTYPE]
+                colArrayNdx = statSel[STATSEL_COLARRAYINDEX]
+                if colType == STAT_DTYPE_INT:
+                    colArr = ratPage.intcols[colArrayNdx]
+                elif colType == STAT_DTYPE_FLOAT:
+                    colArr = ratPage.floatcols[colArrayNdx]
+
+                attrTbl.WriteArray(colArr, colNumber, start=startSegId)
+            
+            # Remove page after writing. 
+            pagedRat.pop(pageId)
+
+
+RAT_PAGE_SIZE = 100000
+ratPageSpec = [
+    ('startSegId', segIdNumbaType),
+    ('intcols', numbaTypeForImageType[:,:]),
+    ('floatcols', types.float32[:,:]),
+    ('complete', types.boolean[:])
+]
+
+@jitclass(ratPageSpec)
+class RatPage(object):
+    """
+    Hold a single page of the paged RAT
+    """
+    def __init__(self, numIntCols, numFloatCols, startSegId, numSeg,
+            statSelection):
+        """
+        Allocate arrays for int and float columns. Int columns are
+        stored as signed int32, floats are float32. 
+        
+        startSegId is the segment ID number of the lowest segment in this page.
+        numSeg is the number of segments within this page, normally the
+        page size, but the last page will be smaller. 
+        
+        statSelection is the result of makeFastStatSelection(). 
+        
+        """
+        self.startSegId = startSegId
+        self.intcols = numpy.empty((numIntCols, numSeg), dtype=numbaTypeForImageType)
+        self.floatcols = numpy.empty((numFloatCols, numSeg), dtype=numpy.float32)
+        self.complete = numpy.zeros(numSeg, dtype=types.boolean)
+        # The null segment is always complete
+        self.complete[0] = True
+        self.intcols[:, 0] = 0
+        self.floatcols[:, 0] = 0
+    
+    def getIndexInPage(self, segId):
+        """
+        Return the index for the given segment, within the current
+        page. 
+        """
+        return segId - self.startSegId
+
+    def setRatVal(self, segId, colType, colArrayNdx, val):
+        """
+        Set the RAT entry for the given stat selection, for the given segment,
+        to be the given value. 
+        """
+        ndxInPage = self.getIndexInPage(segId)
+        if colType == STAT_DTYPE_INT:
+            self.intcols[colArrayNdx, ndxInPage] = val
+        elif colType == STAT_DTYPE_FLOAT:
+            self.floatcols[colArrayNdx, ndxInPage] = val
+    
+    def setSegmentComplete(self, segId):
+        """
+        Flag that the given segment has had all stats calculated. 
+        """
+        ndxInPage = self.getIndexInPage(segId)
+        self.complete[ndxInPage] = True
+    
+    def pageComplete(self):
+        """
+        Return True if the current page has been completed
+        """
+        return self.complete.all()
+    
+
+# Translate statistic name strings into integer ID values
+STATID_MIN = 0
+STATID_MAX = 1
+STATID_MEAN = 2
+STATID_STDDEV = 3
+STATID_MEDIAN = 4
+STATID_MODE = 5
+STATID_PERCENTILE = 6
+statIDdict = {
+    'min':STATID_MIN,
+    'max':STATID_MAX,
+    'mean':STATID_MEAN,
+    'stddev':STATID_STDDEV,
+    'median':STATID_MEDIAN,
+    'mode':STATID_MODE,
+    'percentile':STATID_PERCENTILE
+}
+NOPARAM = -1
+
+# Array indexes for the fast stat selection array
+STATSEL_GLOBALCOLINDEX = 0
+STATSEL_STATID = 1
+STATSEL_COLTYPE = 2
+STATSEL_COLARRAYINDEX = 3
+STATSEL_PARAM = 4
+STAT_DTYPE_INT = 0
+STAT_DTYPE_FLOAT = 1
+
+def makeFastStatsSelection(colIndexList, statsSelection):
+    """
+    Make a fast version of the statsSelection data structure, combined
+    with the global column index numbers.
+    
+    Return a tuple of 
+        (statsSelection_fast, numIntCols, numFloatCols)
+    The statsSelection_fast is a single array, of shape (numStats, 5). 
+    The first index corresponds to the sequence in statsSelection. 
+    The second index corresponds to the STATSEL_* values. 
+    
+    Everything is encoded as an integer value in a single numpy array, 
+    suitable for fast access within numba njit-ed functions. 
+    
+    This is all a bit ugly and un-pythonic. Not sure if there is
+    a better way. 
+    
+    """
+    numStats = len(colIndexList)
+    statsSelection_fast = numpy.empty((numStats, 5), dtype=numpy.uint32)
+    
+    intCount = 0
+    floatCount = 0
+    for i in range(numStats):
+        statsSelection_fast[i, STATSEL_GLOBALCOLINDEX] = colIndexList[i]
+        
+        statName = statsSelection[i][1]
+        statId = statIDdict[statName]
+        statsSelection_fast[i, STATSEL_STATID] = statId
+        
+        statType = STAT_DTYPE_INT
+        if statName in ('mean', 'stddev'):
+            statType = STAT_DTYPE_FLOAT
+        statsSelection_fast[i, STATSEL_COLTYPE] = statType
+        
+        if statType == STAT_DTYPE_INT:
+            statsSelection_fast[i, STATSEL_COLARRAYINDEX] = intCount
+            intCount += 1
+        elif statType == STAT_DTYPE_FLOAT:
+            statsSelection_fast[i, STATSEL_COLARRAYINDEX] = floatCount
+            floatCount += 1
+
+        statsSelection_fast[i, STATSEL_PARAM] = NOPARAM
+        if statName == 'percentile':
+            statsSelection_fast[i, STATSEL_PARAM] = statsSelection[i][2]
+    
+    return (statsSelection_fast, intCount, floatCount)
+
+
+@njit
+def getSortedKeysAndValuesForDict(d):
+    """
+    The given dictionary is keyed by pixel values from the imagery,
+    and the values are counts of occurences of the corresponding pixel
+    value. This function returns a pair of numpy arrays (as a tuple),
+    one for the list of pixel values, and one for the corresponding
+    counts. The arrays are sorted in increasing order of pixel value.
+    """
+    size = len(d)
+    keysArray = numpy.empty(size, dtype=numbaTypeForImageType)
+    valuesArray = numpy.empty(size, dtype=numpy.uint32)
+    
+    dictKeys = d.keys()
+    c = 0
+    for key in dictKeys:
+        keysArray[c] = key
+        valuesArray[c] = d[key]
+        c += 1
+    
+    index = numpy.argsort(keysArray)
+    keysSorted = keysArray[index]
+    valuesSorted = valuesArray[index]
+    
+    return keysSorted, valuesSorted
+    
+# Warning - currently using uint32 or float32 for all of the types
+# which should really be dependent on the imagery datatype. 
+# Not sure whether it is possible to do better. 
+segStatsSpec = [('pixVals', numbaTypeForImageType[:]), 
+                ('counts', types.uint32[:]),
+                ('pixCount', types.uint32),
+                ('min', numbaTypeForImageType),
+                ('max', numbaTypeForImageType),
+                ('mean', types.float32),
+                ('stddev', types.float32),
+                ('median', numbaTypeForImageType),
+                ('mode', numbaTypeForImageType)
+               ]
+@jitclass(segStatsSpec)
+class SegmentStats(object):
+    "Manage statistics for a single segment"
+    def __init__(self, segmentHistDict):
+        """
+        Construct with generic statistics, given a typed 
+        dictionary of the histogram counts of all values
+        in the segment
+        """
+        self.pixVals, self.counts = getSortedKeysAndValuesForDict(segmentHistDict)
+        # Total number of pixels in segment
+        self.pixCount = self.counts.sum()
+
+        # Min and max pixel values
+        self.min = self.pixVals[0]
+        self.max = self.pixVals[-1]
+
+        # Mean value
+        self.mean = (self.pixVals * self.counts).sum() / self.pixCount
+
+        # Standard deviation
+        variance = (self.counts * (self.pixVals - self.mean)**2).sum() / self.pixCount
+        self.stddev = numpy.sqrt(variance)
+
+        # Mode
+        self.mode = self.pixVals[numpy.argmax(self.counts)]
+        
+        # Median
+        self.median = self.getPercentile(50)
+        
+    def getPercentile(self, percentile):
+        """
+        Return the pixel value for the given percentile, 
+        e.g. getPercentile(50) would return the median value of 
+        the segment
+        """
+        countAtPcntile = self.pixCount * (percentile / 100)
+        cumCount = 0
+        i = 0
+        while cumCount < countAtPcntile:
+            cumCount += self.counts[i]
+            i += 1
+        pcntileVal = self.pixVals[i-1]
+        return pcntileVal
+    
+    def getStat(self, statID, param):
+        """
+        Return the requested statistic
+        """
+        if statID == STATID_MIN:
+            val = self.min
+        elif statID == STATID_MAX:
+            val = self.max
+        elif statID == STATID_MEAN:
+            val = self.mean
+        elif statID == STATID_STDDEV:
+            val = self.stddev
+        elif statID == STATID_MEDIAN:
+            val = self.median
+        elif statID == STATID_MODE:
+            val = self.mode
+        elif statID == STATID_PERCENTILE:
+            val = self.getPercentile(param)
+        return val
+
+
 def calcHistogramTiled(segfile, maxSegId, writeToRat=True):
     """
     Calculate a histogram of the given segment image file. 
@@ -750,9 +1287,7 @@ def calcHistogramTiled(segfile, maxSegId, writeToRat=True):
     we need to write our own routine. 
     
     It works in tiles across the image, so that it can process 
-    very large images in a memory-efficient way. For the same 
-    reason, it keeps the temporary histogram on disk while 
-    accumulating it. 
+    very large images in a memory-efficient way. 
     
     For a raster which can easily fit into memory, a histogram
     can be calculated directly using 
