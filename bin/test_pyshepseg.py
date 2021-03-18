@@ -170,9 +170,6 @@ def writeOutput(cmdargs, seg, segSize, spectSum, kmeansObj):
     b.SetMetadataItem('LAYER_TYPE', 'thematic')
     b.SetNoDataValue(shepseg.SEGNULLVAL)
     
-    # write a colour table based on the input values
-    utils.setColourTable(b, segSize, spectSum)
-    
     # since we have the histo we can do the stats
     utils.estimateStatsFromHisto(b, segSize)
     
