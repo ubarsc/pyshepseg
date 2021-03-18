@@ -76,5 +76,36 @@ they can also be used directly for simple segmentation tasks.
 
 The `test_pyshepseg.py` script is a wrapper around the basic in-memory usage. 
 The `test_pyshepseg_tiling.py` script is a wrapper around the tiled 
-segmentation for large rasters. 
+segmentation for large rasters. Use the `--help` option on each script
+for usage details. 
 
+### Per-segment Statistics
+It can be useful to calculate statistics of the pixels from 
+the original input imagery on a per-segment basis. For example, for
+all the pixels in a single segment, one might calculate the mean value 
+of one or more of the bands from the original imagery. 
+
+A routine is provided to do this in a memory-efficient way, given the
+original image and the completed segmentation image. A standard set of
+statistics are available, including mean, standard deviation, and 
+arbitrary percentile values, amongst others. The selected per-segment 
+statistics are written to the segment image file as columns of a raster
+attribute table (RAT). 
+
+For details, see the help on the `tiling.calcPerSegmentStatsTiled()` 
+function. 
+
+### Segment Colour Tables
+The segment image contains a large number of individual segment values, and 
+can be difficult to view in simple greyscale colouring. To improve this, two 
+routines are provided in the `pyshepseg.utils` module which will attach a colour table. 
+
+The simplest routine is `utils.writeRandomColourTable`, which attaches a 
+randomly-generated colour table, so that each segment is assigned a randomly 
+chosen colour, which merely serves to distinguish it from the surrounding segments. 
+See its help for details. 
+
+More sophisticated and more useful is the function `utils.writeColorTableFromRatColumns`,
+which uses previously calculated columns in the raster attribute table (RAT) to 
+create a colour table which approximates the original imagery. See its help for 
+details, and the preceding section on how to create suitable RAT columns. 

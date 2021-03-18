@@ -36,48 +36,6 @@ from osgeo import gdal
 DEFAULT_MINOVERVIEWDIM = 100
 DEFAULT_OVERVIEWLEVELS = [ 4, 8, 16, 32, 64, 128, 256, 512 ]
 
-def setColourTable(bandObj, segSize, spectSum):
-    """
-    Set a colour table based on the segment mean spectral values. 
-    It assumes we only used three bands, and assumes they will be
-    mapped to (blue, green, red) in that order. 
-    """
-    nRows, nBands = spectSum.shape
-
-    attrTbl = bandObj.GetDefaultRAT()
-    attrTbl.SetRowCount(nRows)
-    
-    colNames = ["Blue", "Green", "Red"]
-    colUsages = [gdal.GFU_Blue, gdal.GFU_Green, gdal.GFU_Red]
-    
-    for band in range(nBands):
-        meanVals = spectSum[..., band] / segSize
-        minVal = numpy.percentile(meanVals[1:], 5)
-        maxVal = numpy.percentile(meanVals[1:], 95)
-        colour = (255 * ((meanVals - minVal) / (maxVal - minVal))).clip(0, 255)
-        # reset this as it is the ignore
-        colour[shepseg.SEGNULLVAL] = 0
-        
-        attrTbl.CreateColumn(colNames[band], gdal.GFT_Integer, colUsages[band])
-        colNum = attrTbl.GetColumnCount() - 1
-        attrTbl.WriteArray(colour.astype(numpy.uint), colNum)
-        
-    # alpha
-    alpha = numpy.full((nRows,), 255, dtype=numpy.uint8)
-    alpha[shepseg.SEGNULLVAL] = 0
-    attrTbl.CreateColumn('Alpha', gdal.GFT_Integer, gdal.GFU_Alpha)
-    colNum = attrTbl.GetColumnCount() - 1
-    attrTbl.WriteArray(alpha, colNum)
-    
-    # histo
-    # since the ignore value is shepseg.SEGNULLVAL
-    # we should reset the histogram for this bin
-    # so the stats are correctly calculated
-    segSize[shepseg.SEGNULLVAL] = 0
-    attrTbl.CreateColumn('Histogram', gdal.GFT_Integer, gdal.GFU_PixelCount)
-    colNum = attrTbl.GetColumnCount() - 1
-    attrTbl.WriteArray(segSize, colNum)
-    
 def estimateStatsFromHisto(bandObj, hist):
     """
     As a shortcut to calculating stats with GDAL, use the histogram 
@@ -132,7 +90,13 @@ def addOverviews(ds):
 
 
 def writeRandomColourTable(outBand, nRows):
-
+    """
+    Attach a randomly-generated colour table to the given segmentation
+    image. The image is given as an open gdal.Band object. Also
+    requires the number of rows in the attribute table, i.e. the
+    number of segments + 1. 
+    
+    """
     nRows = int(nRows)
     colNames = ["Blue", "Green", "Red"]
     colUsages = [gdal.GFU_Blue, gdal.GFU_Green, gdal.GFU_Red]
