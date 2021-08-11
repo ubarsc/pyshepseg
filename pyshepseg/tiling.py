@@ -789,6 +789,9 @@ def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile,
     if not isinstance(imgds, gdal.Dataset):
         imgds = gdal.Open(imgfile, gdal.GA_Update)
     imgband = imgds.GetRasterBand(imgbandnum)
+    if (imgband.DataType == gdal.GDT_Float32 or 
+            imgband.DataType == gdal.GDT_Float64):
+        raise PyShepSegTilingError("Float image types not supported")
     
     attrTbl = segband.GetDefaultRAT()
     existingColNames = [attrTbl.GetNameOfCol(i) 
