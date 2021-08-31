@@ -60,6 +60,7 @@ import tempfile
 
 import numpy
 from osgeo import gdal
+from osgeo import osr
 import scipy.stats
 
 from numba import njit
@@ -742,7 +743,19 @@ def crossesMidline(overlap, segLoc, orientation):
     
     return ((minN < mid) & (maxN >= mid))
 
+def equalProjection(proj1, proj2):
+    """
+    Returns True if the proj1 is the same as proj2
+    
+    Stolen from rios/pixelgrid.py
 
+    """
+    selfProj = str(proj1) if proj1 is not None else ''
+    otherProj = str(proj2) if proj2 is not None else ''
+    srSelf = osr.SpatialReference(wkt=selfProj)
+    srOther = osr.SpatialReference(wkt=otherProj)
+    return bool(srSelf.IsSame(srOther))
+    
 def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile, 
             statsSelection):
     """
@@ -792,6 +805,15 @@ def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile,
     if (imgband.DataType == gdal.GDT_Float32 or 
             imgband.DataType == gdal.GDT_Float64):
         raise PyShepSegTilingError("Float image types not supported")
+        
+    if segband.XSize != imgband.XSize or segband.YSize != imgband.YSize:
+        raise PyShepSegTilingError("Images must be same size")
+        
+    if segds.GetGeoTransform() != imgds.GetGeoTransform():
+        raise PyShepSegTilingError("Images must have same spatial extent and pixel size")
+        
+    if not equalProjection(segds.GetProjection(), imgds.GetProjection()):
+        raise PyShepSegTilingError("Images must be in the same projection")
     
     attrTbl = segband.GetDefaultRAT()
     existingColNames = [attrTbl.GetNameOfCol(i) 
