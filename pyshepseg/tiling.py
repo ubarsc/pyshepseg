@@ -312,7 +312,7 @@ def doTiledShepherdSegmentation(infile, outfile, tileSize=DFLT_TILESIZE,
         bandNumbers=None, subsamplePcnt=None, maxSpectralDiff='auto', 
         imgNullVal=None, fixedKMeansInit=False, fourConnected=True, 
         verbose=False, simpleTileRecode=False, outputDriver='KEA',
-        spectDistPcntile=50):
+        creationOptions=[], spectDistPcntile=50):
     """
     Run the Shepherd segmentation algorithm in a memory-efficient
     manner, suitable for large raster files. Runs the segmentation
@@ -407,7 +407,8 @@ def doTiledShepherdSegmentation(infile, outfile, tileSize=DFLT_TILESIZE,
 
         outType = gdal.GDT_UInt32
 
-        outDs = outDrvr.Create(filename, xsize, ysize, 1, outType)
+        outDs = outDrvr.Create(filename, xsize, ysize, 1, outType, 
+                    options=creationOptions)
         outDs.SetProjection(inDs.GetProjection())
         subsetTransform = list(transform)
         subsetTransform[0] = transform[0] + xpos * transform[1]
@@ -422,7 +423,7 @@ def doTiledShepherdSegmentation(infile, outfile, tileSize=DFLT_TILESIZE,
         tileNum += 1
         
     maxSegId = stitchTiles(inDs, outfile, tileFilenames, tileInfo, overlapSize,
-        tempDir, simpleTileRecode, outputDriver, verbose)
+        tempDir, simpleTileRecode, outputDriver, creationOptions, verbose)
         
     shutil.rmtree(tempDir)
 
@@ -438,7 +439,7 @@ def doTiledShepherdSegmentation(infile, outfile, tileSize=DFLT_TILESIZE,
 
 
 def stitchTiles(inDs, outfile, tileFilenames, tileInfo, overlapSize,
-        tempDir, simpleTileRecode, outputDriver, verbose):
+        tempDir, simpleTileRecode, outputDriver, creationOptions, verbose):
     """
     Recombine individual tiles into a single segment raster output 
     file. Segment ID values are recoded to be unique across the whole
@@ -472,7 +473,8 @@ def stitchTiles(inDs, outfile, tileFilenames, tileInfo, overlapSize,
 
     outType = gdal.GDT_UInt32
 
-    outDs = outDrvr.Create(outfile, inDs.RasterXSize, inDs.RasterYSize, 1, outType)
+    outDs = outDrvr.Create(outfile, inDs.RasterXSize, inDs.RasterYSize, 1, 
+                outType, creationOptions)
     outDs.SetProjection(inDs.GetProjection())
     outDs.SetGeoTransform(inDs.GetGeoTransform())
     outBand = outDs.GetRasterBand(1)
