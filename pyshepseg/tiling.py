@@ -1364,8 +1364,12 @@ def calcHistogramTiled(segfile, maxSegId, writeToRat=True):
         numTableRows = int(maxSegId + 1)
         if attrTbl.GetRowCount() != numTableRows:
             attrTbl.SetRowCount(numTableRows)
-        attrTbl.CreateColumn('Histogram', gdal.GFT_Integer, gdal.GFU_PixelCount)
-        colNum = attrTbl.GetColumnCount() - 1
+            
+        colNum = attrTbl.GetColOfUsage(gdal.GFU_PixelCount)
+        if colNum == -1:
+            # Use GFT_Real to match rios.calcstats (And I think GDAL in general)
+            attrTbl.CreateColumn('Histogram', gdal.GFT_Real, gdal.GFU_PixelCount)
+            colNum = attrTbl.GetColumnCount() - 1
         attrTbl.WriteArray(hist, colNum)
 
     return hist
