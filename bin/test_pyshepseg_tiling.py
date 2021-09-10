@@ -166,6 +166,10 @@ def getCmdargs():
 def main():
     cmdargs = getCmdargs()
     
+    creationOptions = []
+    if cmdargs.format in GDAL_DRIVER_CREATION_OPTIONS:
+        creationOptions = GDAL_DRIVER_CREATION_OPTIONS[cmdargs.format]
+    
     tiledSegResult = tiling.doTiledShepherdSegmentation(cmdargs.infile, cmdargs.outfile, 
             tileSize=cmdargs.tilesize, overlapSize=cmdargs.overlapsize, 
             minSegmentSize=cmdargs.minsegmentsize, numClusters=cmdargs.nclusters,
@@ -173,7 +177,8 @@ def main():
             maxSpectralDiff=cmdargs.maxspectraldiff, imgNullVal=cmdargs.nullvalue,
             fixedKMeansInit=cmdargs.fixedkmeansinit, 
             fourConnected=not cmdargs.eightway, verbose=cmdargs.verbose,
-            simpleTileRecode=cmdargs.simplerecode, outputDriver=cmdargs.format)
+            simpleTileRecode=cmdargs.simplerecode, outputDriver=cmdargs.format,
+            creationOptions=creationOptions)
 
     # Do histogram, stats and colour table on final output file. 
     outDs = gdal.Open(cmdargs.outfile, gdal.GA_Update)
