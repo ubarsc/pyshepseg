@@ -757,7 +757,8 @@ def equalProjection(proj1, proj2):
     srSelf = osr.SpatialReference(wkt=selfProj)
     srOther = osr.SpatialReference(wkt=otherProj)
     return bool(srSelf.IsSame(srOther))
-    
+
+
 def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile, 
             statsSelection):
     """
@@ -823,6 +824,15 @@ def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile,
         
     histColNdx = checkHistColumn(existingColNames)
     segSize = attrTbl.ReadAsArray(histColNdx).astype(numpy.uint32)
+    if segSize.max() > 16000000:
+        # GDAL stores Histogram as float32. If segment sizes are too large,
+        # there is a chance of precision loss, which would impact stats
+        # calculations, so we should re-calculate the histogram directly,
+        # keeping full precision. The worst impact would be in the
+        # checkSegComplete() function, affecting termination of the paged
+        # statistics calculation.
+        maxSegId = len(segSize) - 1
+        segSize = calcHistogramTiled(segfile, maxSegId, writeToRat=False)
     
     # Create columns, as required
     colIndexList = createStatColumns(statsSelection, attrTbl, existingColNames)
