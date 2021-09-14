@@ -105,8 +105,10 @@ def writeRandomColourTable(outBand, nRows):
     attrTbl.SetRowCount(nRows)
     
     for band in range(3):
-        attrTbl.CreateColumn(colNames[band], gdal.GFT_Integer, colUsages[band])
-        colNum = attrTbl.GetColumnCount() - 1
+        colNum = attrTbl.GetColOfUsage(colUsages[band])
+        if colNum == -1:
+            attrTbl.CreateColumn(colNames[band], gdal.GFT_Integer, colUsages[band])
+            colNum = attrTbl.GetColumnCount() - 1
         colour = numpy.random.random_integers(0, 255, size=nRows)
         attrTbl.WriteArray(colour, colNum)
         
