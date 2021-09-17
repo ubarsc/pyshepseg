@@ -925,7 +925,7 @@ def calcStatsForCompletedSegs(segDict, pagedRat, statsSelection_fast, segSize,
             if ratPageId not in pagedRat:
                 numSegThisPage = min(RAT_PAGE_SIZE, (maxSegId - ratPageId + 1))
                 pagedRat[ratPageId] = RatPage(numIntCols, numFloatCols, 
-                    ratPageId, numSegThisPage, statsSelection_fast)
+                    ratPageId, numSegThisPage)
             ratPage = pagedRat[ratPageId]
             for i in range(numStats):
                 statId = statsSelection_fast[i, STATSEL_STATID]
@@ -1066,8 +1066,7 @@ class RatPage(object):
     """
     Hold a single page of the paged RAT
     """
-    def __init__(self, numIntCols, numFloatCols, startSegId, numSeg,
-            statSelection):
+    def __init__(self, numIntCols, numFloatCols, startSegId, numSeg):
         """
         Allocate arrays for int and float columns. Int columns are
         stored as signed int32, floats are float32. 
@@ -1076,7 +1075,7 @@ class RatPage(object):
         numSeg is the number of segments within this page, normally the
         page size, but the last page will be smaller. 
         
-        statSelection is the result of makeFastStatSelection(). 
+        numIntCols and numFloatCols are as returned by makeFastStatSelection(). 
         
         """
         self.startSegId = startSegId
