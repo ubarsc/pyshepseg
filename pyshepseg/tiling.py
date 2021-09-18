@@ -1082,10 +1082,11 @@ class RatPage(object):
         self.intcols = numpy.empty((numIntCols, numSeg), dtype=numbaTypeForImageType)
         self.floatcols = numpy.empty((numFloatCols, numSeg), dtype=numpy.float32)
         self.complete = numpy.zeros(numSeg, dtype=types.boolean)
-        # The null segment is always complete
-        self.complete[0] = True
-        self.intcols[:, 0] = 0
-        self.floatcols[:, 0] = 0
+        if startSegId == shepseg.SEGNULLVAL:
+            # The null segment is always complete
+            self.complete[0] = True
+            self.intcols[:, 0] = 0
+            self.floatcols[:, 0] = 0
     
     def getIndexInPage(self, segId):
         """
