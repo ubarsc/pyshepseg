@@ -854,6 +854,14 @@ def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile,
             
             writeCompletePages(pagedRat, attrTbl, statsSelection_fast)
 
+    # now mark all remaining pages as "complete" so they can be written 
+    # out. There will always be some segs at the end (or beginning) that
+    # don't have all the data but still need to be written out          
+    for pageId in pagedRat:
+        ratPage = pagedRat[pageId]
+        ratPage.complete.fill(True)
+    writeCompletePages(pagedRat, attrTbl, statsSelection_fast)
+
 
 # This type is used for all numba jit-ed data which is supposed to 
 # match the data type of the imagery pixels. Int64 should be enough
