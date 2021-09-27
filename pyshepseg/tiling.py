@@ -855,9 +855,10 @@ def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile,
             writeCompletePages(pagedRat, attrTbl, statsSelection_fast)
 
     # now mark all remaining pages as "complete" so they can be written 
-    # out. There will always be some segs at the end (or beginning) that
-    # don't have all the data but still need to be written out          
+    # out. If not all segId's in the RAT have been found in the image
+    # then this step will write them out    
     for pageId in pagedRat:
+        print('Not all segments for page {} found. Writing what we have.'.format(pageId))
         ratPage = pagedRat[pageId]
         ratPage.complete.fill(True)
     writeCompletePages(pagedRat, attrTbl, statsSelection_fast)
