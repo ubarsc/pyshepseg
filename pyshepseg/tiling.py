@@ -1105,6 +1105,17 @@ class RatPage(object):
             self.intcols[colArrayNdx, ndxInPage] = val
         elif colType == STAT_DTYPE_FLOAT:
             self.floatcols[colArrayNdx, ndxInPage] = val
+            
+    def getRatVal(self, segId, colType, colArrayNdx):
+        """
+        Get the RAT entry for the given segment.
+        """
+        ndxInPage = self.getIndexInPage(segId)
+        if colType == STAT_DTYPE_INT:
+            val = self.intcols[colArrayNdx, ndxInPage]
+        elif colType == STAT_DTYPE_FLOAT:
+            val = self.floatcols[colArrayNdx, ndxInPage]
+        return val
     
     def setSegmentComplete(self, segId):
         """
@@ -1112,13 +1123,29 @@ class RatPage(object):
         """
         ndxInPage = self.getIndexInPage(segId)
         self.complete[ndxInPage] = True
+        
+    def getSegmentComplete(self, segId):
+        """
+        Returns True if the segment has been flagged as complete
+        """
+        ndxInPage = self.getIndexInPage(segId)
+        return self.complete[ndxInPage]
     
     def pageComplete(self):
         """
         Return True if the current page has been completed
         """
         return self.complete.all()
-    
+        
+    def resize(self, numSeg):
+        """
+        Resize this page to be the given size. Currently only supports
+        making the page smaller as resize not implemented in Numba.
+        Note that any data written beyond numSeg will be lost.
+        """
+        self.intcols = self.intcols[:,:numSeg]
+        self.floatcols = self.floatcols[:,:numSeg]
+        self.complete = self.complete[:numSeg]
 
 # Translate statistic name strings into integer ID values
 STATID_MIN = 0
@@ -1385,6 +1412,216 @@ def updateCounts(tileData, hist):
         for j in range(ncols):
             segid = tileData[i, j]
             hist[segid] += 1
+
+def subsetImage(inname, outname, tlx, tly, newXsize, newYsize, outformat):
+    """
+    Subset an image "compressing" the RAT so only values that 
+    are in the new image are in the RAT. Note: the image values
+    will be recoded in the process.
+    
+    gdal_translate seems to have a problem with files that
+    have large RAT's so while that gets fixed do the subsetting
+    in this function.
+    """
+    inds = gdal.Open(inname)
+    inband = inds.GetRasterBand(1)
+    
+    driver = gdal.GetDriverByName(outformat)
+    outds = driver.Create(outname, newXsize, newYsize, 1, inband.DataType)
+    outds.SetProjection(inds.GetProjection())
+    transform = list(inds.GetGeoTransform())
+    transform[0] = transform[0] + transform[1] * tlx
+    transform[3] = transform[3] + transform[5] * tly
+    outds.SetGeoTransform(transform)
+    
+    outband = outds.GetRasterBand(1)
+    outband.SetMetadataItem('LAYER_TYPE', 'thematic')
+    outRAT = outband.GetDefaultRAT()
+    
+    inRAT = inband.GetDefaultRAT()
+    recodeDict = Dict.empty(key_type=segIdNumbaType,
+        value_type=segIdNumbaType)  # keyed on original ID - value is new row ID
+ 
+    numIntCols, numFloatCols = copyColumns(inRAT, outRAT)
+            
+    outPagedRat = createPagedRat()
+    
+    tileSize = 256
+    (nlines, npix) = (newYsize, newXsize)
+    numXtiles = int(numpy.ceil(npix / tileSize))
+    numYtiles = int(numpy.ceil(nlines / tileSize))
+    
+    currRow = 1 # skip SEGNULLVAL row
+    maxSegId = None
+    for tileRow in range(numYtiles):
+        for tileCol in range(numXtiles):
+            topLine = tlx + tileRow * tileSize
+            leftPix = tly + tileCol * tileSize
+            xsize = min(tileSize, npix-leftPix)
+            ysize = min(tileSize, nlines-topLine)
+            
+            inData = inband.ReadAsArray(leftPix, topLine, xsize, ysize)
+            minVal = inData.min()
+            maxVal = inData.max()
+            
+            page = readRATIntoPage(inRAT, numIntCols, numFloatCols, minVal, maxVal)
+
+            outData = processSubsetTile(inData, page, outPagedRat, minVal, numIntCols, 
+                            numFloatCols, recodeDict)
+            maxOutData = outData.max()
+            if maxSegId is None or maxOutData > maxSegId:
+                maxSegId = maxOutData
+
+            outband.WriteArray(outData, tileCol * tileSize, tileRow * tileSize)
+            
+            writeCompletedPagesForSubset(inRAT, outRAT, outPagedRat)
+
+    # should only be the last (incomplete) page left - or none if we are very lucky
+    assert(len(outPagedRat) < 2)
+    for pageId in outPagedRat:
+        ratPage = outPagedRat[pageId]
+        ratPage.resize(maxSegId - pageId)
+
+    writeCompletedPagesForSubset(inRAT, outRAT, outPagedRat)
+    
+    # TODO: histogram
+    
+            
+@njit
+def readColDataIntoPage(page, data, idx, colType, minVal):
+    """
+    Numba function to quickly read a column returned by
+    rat.ReadAsArra() info a RatPage.
+    """
+    for i in range(data.shape[0]):
+        page.setRatVal(i + minVal, colType, idx, data[i])
+    
+
+def readRATIntoPage(rat, numIntCols, numFloatCols, minVal, maxVal):
+    """
+    Create a new RatPage() object that represents the section of the RAT
+    for a tile of an image. The part of the RAT between minVal and maxVal
+    is read in and a RatPage() instance returned with the startSegId param
+    set to minVal.
+    
+    """
+    minVal = int(minVal)
+    nrows = int(maxVal - minVal) + 1
+    page = RatPage(numIntCols, numFloatCols, minVal, nrows)
+
+    intColIdx = 0
+    floatColIdx = 0
+    for col in range(rat.GetColumnCount()):
+        dtype = rat.GetTypeOfCol(col)
+        data = rat.ReadAsArray(col, start=minVal, length=nrows)
+        if dtype == gdal.GFT_Integer:
+            readColDataIntoPage(page, data, intColIdx, STAT_DTYPE_INT, minVal)
+            intColIdx += 1
+        else:
+            readColDataIntoPage(page, data, floatColIdx, STAT_DTYPE_FLOAT, minVal)
+            floatColIdx += 1
+    
+    return page 
+
+def copyColumns(inRat, outRat):
+    """
+    Copies columns between RATs. Note that empty
+    columns will be created - no data is copied.
+    
+    Also return numIntCols and NumFloatCols for RatPage()
+    processing.
+    """
+    numIntCols = 0
+    numFloatCols = 0
+    for col in range(inRat.GetColumnCount()):
+        dtype = inRat.GetTypeOfCol(col)
+        usage = inRat.GetUsageOfCol(col)
+        name = inRat.GetNameOfCol(col)
+        outRat.CreateColumn(name, dtype, usage)
+        if dtype == gdal.GFT_Integer:
+            numIntCols += 1
+        elif dtype == gdal.GFT_Real:
+            numFloatCols += 1
+        else:
+            raise TypeError("String columns not supported")
+        
+    return numIntCols, numFloatCols
+
+@njit
+def processSubsetTile(tile, page, outPagedRat, minVal, 
+        numIntCols, numFloatCols, recodeDict):
+    """
+    Process a tile of the subset area. Returns a new tile with the new codes.
+    Fills in the outPagedRat and the recodeDict as it goes.
+    """
+    outData = numpy.zeros_like(tile)
+
+    ysize, xsize = tile.shape
+    for y in range(ysize):
+        for x in range(xsize):
+            segId = tile[y, x]
+            if segId == shepseg.SEGNULLVAL:
+                outData[y, x] = shepseg.SEGNULLVAL
+                continue
+            
+            if segId not in recodeDict:
+                outSegId = len(recodeDict) + 1
+            
+                outRatPageId = getRatPageId(outSegId)
+                if outRatPageId not in outPagedRat:
+                    outPagedRat[outRatPageId] = RatPage(numIntCols, numFloatCols, 
+                        outRatPageId, RAT_PAGE_SIZE)
+            
+                outPage = outPagedRat[outRatPageId]
+                if not outPage.getSegmentComplete(outSegId):
+                    # copy
+                    inIdx = page.getIndexInPage(segId)
+                    for n in range(numIntCols):
+                        val = page.getRatVal(segId, STAT_DTYPE_INT, n)
+                        outPage.setRatVal(outSegId, 
+                                STAT_DTYPE_INT, n, val)
+                    for n in range(numFloatCols):
+                        val = page.getRatVal(segId, STAT_DTYPE_FLOAT, n)
+                        outPage.setRatVal(outSegId, 
+                                STAT_DTYPE_FLOAT, n, val)
+                                
+                    # note that we flag the segment as complete when we have
+                    # set the RAT values on the new file - not when we've seen all the
+                    # pixels for it (and we may never see them all as we are doing a subset)
+                    outPage.setSegmentComplete(outSegId)
+                
+                recodeDict[segId] = types.uint32(outSegId)
+                
+            outData[y, x] = recodeDict[segId]
+            
+    return outData
+
+def writeCompletedPagesForSubset(inRAT, outRAT, outPagedRat):
+    """
+    For the subset operation. Writes out any completed pages to outRAT
+    using the inRAT as a template.
+    """
+    for pageId in outPagedRat:
+        ratPage = outPagedRat[pageId]
+        if ratPage.pageComplete():
+            maxRow = ratPage.startSegId + ratPage.intcols.shape[1]
+            if outRAT.GetRowCount() < maxRow:
+                outRAT.SetRowCount(maxRow)
+
+            intColIdx = 0
+            floatColIdx = 0
+            for col in range(inRAT.GetColumnCount()):
+                dtype = inRAT.GetTypeOfCol(col)
+                if dtype == gdal.GFT_Integer:
+                    data = ratPage.intcols[intColIdx]
+                    intColIdx += 1
+                else:
+                    data = ratPage.floatcols[floatColIdx]
+                    floatColIdx += 1
+
+                outRAT.WriteArray(data, col, start=ratPage.startSegId)
+                
+            outPagedRat.pop(pageId)
 
 
 class PyShepSegTilingError(Exception): pass
