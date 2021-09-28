@@ -29,7 +29,6 @@ from __future__ import print_function, division
 
 import argparse
 from pyshepseg import tiling
-tiling.RAT_PAGE_SIZE = 100
 
 DFLT_OUTPUT_DRIVER = 'KEA'
 GDAL_DRIVER_CREATION_OPTIONS = {'KEA' : [], 'HFA' : ['COMPRESS=YES']}
