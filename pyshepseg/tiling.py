@@ -1441,6 +1441,8 @@ def subsetImage(inname, outname, tlx, tly, newXsize, newYsize, outformat):
     inRAT = inband.GetDefaultRAT()
     recodeDict = Dict.empty(key_type=segIdNumbaType,
         value_type=segIdNumbaType)  # keyed on original ID - value is new row ID
+    histogramDict = Dict.empty(key_type=segIdNumbaType,
+        value_type=segIdNumbaType)  # keyed on new ID - value is count
  
     numIntCols, numFloatCols = copyColumns(inRAT, outRAT)
             
@@ -1467,7 +1469,7 @@ def subsetImage(inname, outname, tlx, tly, newXsize, newYsize, outformat):
             page = readRATIntoPage(inRAT, numIntCols, numFloatCols, minVal, maxVal)
 
             outData = processSubsetTile(inData, page, outPagedRat, minVal, numIntCols, 
-                            numFloatCols, recodeDict)
+                            numFloatCols, recodeDict, histogramDict)
             maxOutData = outData.max()
             if maxSegId is None or maxOutData > maxSegId:
                 maxSegId = maxOutData
@@ -1484,14 +1486,30 @@ def subsetImage(inname, outname, tlx, tly, newXsize, newYsize, outformat):
 
     writeCompletedPagesForSubset(inRAT, outRAT, outPagedRat)
     
-    # TODO: histogram
+    # histogram
+    histArray = numpy.empty(len(histogramDict), dtype=numpy.float64)
+    setHistogramFromDictionary(histogramDict, histArray)
     
+    colNum = outRAT.GetColOfUsage(gdal.GFU_PixelCount)
+    if colNum == -1:
+        outRAT.CreateColumn('Histogram', gdal.GDT_Float, gdal.GFU_PixelCount)
+        colNum = outRAT.GetColumnCount() - 1
+    outRAT.WriteArray(histArray, colNum)
+    
+@njit
+def setHistogramFromDictionary(dictn, histArray):
+    """
+    Given a dictionary of pixel counts keyed on index,
+    write these values to the array.
+    """
+    for idx in dictn:
+        histArray[idx] = dictn[idx]
             
 @njit
 def readColDataIntoPage(page, data, idx, colType, minVal):
     """
     Numba function to quickly read a column returned by
-    rat.ReadAsArra() info a RatPage.
+    rat.ReadAsArray() info a RatPage.
     """
     for i in range(data.shape[0]):
         page.setRatVal(i + minVal, colType, idx, data[i])
@@ -1549,10 +1567,11 @@ def copyColumns(inRat, outRat):
 
 @njit
 def processSubsetTile(tile, page, outPagedRat, minVal, 
-        numIntCols, numFloatCols, recodeDict):
+        numIntCols, numFloatCols, recodeDict, histogramDict):
     """
     Process a tile of the subset area. Returns a new tile with the new codes.
     Fills in the outPagedRat and the recodeDict as it goes.
+    Also updates histogramDict.
     """
     outData = numpy.zeros_like(tile)
 
@@ -1592,7 +1611,11 @@ def processSubsetTile(tile, page, outPagedRat, minVal,
                 
                 recodeDict[segId] = types.uint32(outSegId)
                 
-            outData[y, x] = recodeDict[segId]
+            newval = recodeDict[segId]
+            outData[y, x] = newval
+            if newval not in histogramDict:
+                histogramDict[newval] = segIdNumbaType(0)
+            histogramDict[newval] = segIdNumbaType(histogramDict[newval] + 1)
             
     return outData
 
