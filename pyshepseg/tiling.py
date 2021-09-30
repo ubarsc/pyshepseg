@@ -1414,7 +1414,7 @@ def updateCounts(tileData, hist):
             hist[segid] += 1
 
 def subsetImage(inname, outname, tlx, tly, newXsize, newYsize, outformat, 
-        creationOptions=[], origSegIdColName=None):
+        creationOptions=[], origSegIdColName=None, maskImage=None):
     """
     Subset an image "compressing" the RAT so only values that 
     are in the new image are in the RAT. Note: the image values
@@ -1435,6 +1435,10 @@ def subsetImage(inname, outname, tlx, tly, newXsize, newYsize, outformat,
     If origSegIdColName is not None, a column of this name will be created
     in the output file that has the original segment ids so they can be
     linked back to the input file.
+    
+    If maskFile is not None then only pixels != 0 in this image are considered.
+    It is assumed that the top left of this image is at tlx, tly on the 
+    input image.
     
     """
     inds = gdal.Open(inname)
@@ -1467,6 +1471,13 @@ def subsetImage(inname, outname, tlx, tly, newXsize, newYsize, outformat,
             
     outPagedRat = createPagedRat()
     
+    maskds = None
+    maskBand = None
+    maskData = None
+    if maskImage is not None:
+        maskds = gdal.Open(maskImage)
+        maskBand = maskds.GetRasterBand(1)
+    
     tileSize = 256
     numXtiles = int(numpy.ceil(newXsize / tileSize))
     numYtiles = int(numpy.ceil(newYsize / tileSize))
@@ -1485,9 +1496,13 @@ def subsetImage(inname, outname, tlx, tly, newXsize, newYsize, outformat,
             maxVal = inData.max()
             
             page = readRATIntoPage(inRAT, numIntCols, numFloatCols, minVal, maxVal)
+            
+            if maskBand is not None:
+                maskData = maskBand.ReadAsArray(tileCol * tileSize, 
+                                tileRow * tileSize, xsize, ysize)
 
             outData = processSubsetTile(inData, page, outPagedRat, minVal, numIntCols, 
-                            numFloatCols, recodeDict, histogramDict)
+                            numFloatCols, recodeDict, histogramDict, maskData)
             maxOutData = outData.max()
             if maxSegId is None or maxOutData > maxSegId:
                 maxSegId = maxOutData
@@ -1500,12 +1515,12 @@ def subsetImage(inname, outname, tlx, tly, newXsize, newYsize, outformat,
     assert(len(outPagedRat) < 2)
     for pageId in outPagedRat:
         ratPage = outPagedRat[pageId]
-        ratPage.resize(maxSegId - pageId)
+        ratPage.resize(maxSegId - pageId + 1)
 
     writeCompletedPagesForSubset(inRAT, outRAT, outPagedRat)
     
-    # histogram
-    histArray = numpy.empty(len(histogramDict), dtype=numpy.float64)
+    # histogram - add one for null segment
+    histArray = numpy.empty(outRAT.GetRowCount(), dtype=numpy.float64)
     setHistogramFromDictionary(histogramDict, histArray)
     
     colNum = outRAT.GetColOfUsage(gdal.GFU_PixelCount)
@@ -1529,7 +1544,7 @@ def subsetImage(inname, outname, tlx, tly, newXsize, newYsize, outformat,
                     gdal.GFU_Generic)
             colNum = outRAT.GetColumnCount() - 1
             
-        origSegIdArray = numpy.empty(len(recodeDict), dtype=numpy.int32)
+        origSegIdArray = numpy.empty(outRAT.GetRowCount(), dtype=numpy.int32)
         setSubsetRecodeFromDictionary(recodeDict, origSegIdArray)
         outRAT.WriteArray(origSegIdArray, colNum)
     
@@ -1614,11 +1629,14 @@ def copyColumns(inRat, outRat):
 
 @njit
 def processSubsetTile(tile, page, outPagedRat, minVal, 
-        numIntCols, numFloatCols, recodeDict, histogramDict):
+        numIntCols, numFloatCols, recodeDict, histogramDict, maskData):
     """
     Process a tile of the subset area. Returns a new tile with the new codes.
     Fills in the outPagedRat and the recodeDict as it goes.
     Also updates histogramDict.
+    
+    if maskData is not None then only pixels != 0 are considered. Assumed 
+    that maskData is for the same area/size as tile.
     """
     outData = numpy.zeros_like(tile)
 
@@ -1626,6 +1644,10 @@ def processSubsetTile(tile, page, outPagedRat, minVal,
     for y in range(ysize):
         for x in range(xsize):
             segId = tile[y, x]
+            if maskData is not None and maskData[y, x] == 0:
+                outData[y, x] = shepseg.SEGNULLVAL
+                continue
+            
             if segId == shepseg.SEGNULLVAL:
                 outData[y, x] = shepseg.SEGNULLVAL
                 continue

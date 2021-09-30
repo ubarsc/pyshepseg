@@ -52,6 +52,8 @@ def getCmdargs():
     group.add_argument("--projwin", type=float, nargs=4,
         metavar=('ulx', 'uly', 'lrx', 'lry'),
         help="Projected coordinates to extract subset from the input file")
+    group.add_argument("--mask", help="Use extent of specified raster as subset " +
+        "area. Also only use pixels that are != 0 in this image")
     p.add_argument("--origsegidcol", help="Name of column to write the original" +
                 " segment ids")
     p.add_argument("-f", "--format", default=DFLT_OUTPUT_DRIVER, 
@@ -85,6 +87,50 @@ def getPixelCoords(fname, coords):
     xsize = pix_brx - pix_tlx
     ysize = pix_bry - pix_tly
     return pix_tlx, pix_tly, xsize, ysize
+    
+def getExtentOfMaskForInfile(infile, maskfile):
+    """
+    Get the extent of maskfile in the pixel coordinates of infile.
+    Returns (tlx, tly, xsize, ysize)
+    """
+    inds = gdal.Open(infile)
+    in_transform = inds.GetGeoTransform()
+    
+    maskds = gdal.Open(maskfile)
+    mask_transform = maskds.GetGeoTransform()
+
+    if not tiling.equalProjection(inds.GetProjection(),
+            maskds.GetProjection()):
+        msg = "Mask and infile don't have same projection"
+    
+    if (in_transform[1] != mask_transform[1] or 
+            in_transform[5] != mask_transform[5]):
+        msg = "Mask and infile don't have same pixel size"
+        raise ValueError(msg)
+        
+    if ((in_transform[0] - mask_transform[0]) % in_transform[1]) != 0:
+        msg = "Mask and infile not on same grid"
+        raise ValueError(msg)
+
+    if ((in_transform[3] - mask_transform[3]) % in_transform[5]) != 0:
+        msg = "Mask and infile not on same grid"
+        raise ValueError(msg)
+    
+    mask_tlx, mask_tly = gdal.ApplyGeoTransform(mask_transform, 0, 0)
+    mask_brx, mask_bry = gdal.ApplyGeoTransform(mask_transform, 
+            maskds.RasterXSize, maskds.RasterYSize)
+    
+    inv_transform = gdal.InvGeoTransform(in_transform)
+    tlx, tly = gdal.ApplyGeoTransform(inv_transform, mask_tlx, mask_tly)
+    brx, bry = gdal.ApplyGeoTransform(inv_transform, mask_brx, mask_bry)
+    tlx = int(tlx)
+    tly = int(tly)
+    brx = int(brx)
+    bry = int(bry)
+    xsize = brx - tlx
+    ysize = bry - tly
+    # note - check that coords are within infile is made in subsetImage()
+    return tlx, tly, xsize, ysize
 
 def main():
     cmdargs = getCmdargs()
@@ -96,15 +142,19 @@ def main():
     if cmdargs.srcwin is not None:
         tlx, tly, xsize, ysize = cmdargs.srcwin
     elif cmdargs.projwin is not None:
-        tlx, tly, xsize, ysize = getPixelCoords(cmdargs.infile, cmdargs.projwin)
+        tlx, tly, xsize, ysize = getPixelCoords(cmdargs.infile, 
+                cmdargs.projwin)
+    else:
+        tlx, tly, xsize, ysize = getExtentOfMaskForInfile(cmdargs.infile, 
+                cmdargs.mask)
     
     creationOptions = []
     if cmdargs.format in GDAL_DRIVER_CREATION_OPTIONS:
         creationOptions = GDAL_DRIVER_CREATION_OPTIONS[cmdargs.format]
     
     tiling.subsetImage(cmdargs.infile, cmdargs.outfile, tlx, tly, 
-        xsize, ysize, cmdargs.format, creationOptions, 
-        cmdargs.origsegidcol)
+        xsize, ysize, cmdargs.format, creationOptions=creationOptions, 
+        origSegIdColName=cmdargs.origsegidcol, maskImage=cmdargs.mask)
     
 if __name__ == "__main__":
     main()
