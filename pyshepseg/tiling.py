@@ -1426,6 +1426,10 @@ def subsetImage(inname, outname, tlx, tly, newXsize, newYsize, outformat):
     inds = gdal.Open(inname)
     inband = inds.GetRasterBand(1)
     
+    if (tlx + newXsize) > inband.XSize or (tly + newYsize) > inband.YSize:
+        msg = 'Requested subset is not within input image'
+        raise PyShepSegTilingError(msg)
+    
     driver = gdal.GetDriverByName(outformat)
     outds = driver.Create(outname, newXsize, newYsize, 1, inband.DataType)
     outds.SetProjection(inds.GetProjection())
@@ -1449,18 +1453,17 @@ def subsetImage(inname, outname, tlx, tly, newXsize, newYsize, outformat):
     outPagedRat = createPagedRat()
     
     tileSize = 256
-    (nlines, npix) = (newYsize, newXsize)
-    numXtiles = int(numpy.ceil(npix / tileSize))
-    numYtiles = int(numpy.ceil(nlines / tileSize))
+    numXtiles = int(numpy.ceil(newXsize / tileSize))
+    numYtiles = int(numpy.ceil(newYsize / tileSize))
     
     currRow = 1 # skip SEGNULLVAL row
     maxSegId = None
     for tileRow in range(numYtiles):
         for tileCol in range(numXtiles):
-            topLine = tlx + tileRow * tileSize
-            leftPix = tly + tileCol * tileSize
-            xsize = min(tileSize, npix-leftPix)
-            ysize = min(tileSize, nlines-topLine)
+            leftPix = tlx + tileCol * tileSize
+            topLine = tly + tileRow * tileSize
+            xsize = min(tileSize, newXsize - leftPix + tlx)
+            ysize = min(tileSize, newYsize - topLine + tly)
             
             inData = inband.ReadAsArray(leftPix, topLine, xsize, ysize)
             minVal = inData.min()
@@ -1504,6 +1507,7 @@ def setHistogramFromDictionary(dictn, histArray):
     """
     for idx in dictn:
         histArray[idx] = dictn[idx]
+    histArray[shepseg.SEGNULLVAL] = 0
             
 @njit
 def readColDataIntoPage(page, data, idx, colType, minVal):
