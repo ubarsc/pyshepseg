@@ -50,6 +50,8 @@ def getCmdargs():
         help="X size of the window to extract")
     p.add_argument("--ysize", type=int,  required=True,
         help="Y size of the window to extract")
+    p.add_argument("--origsegidcol", help="Name of column to write the original" +
+                " segment ids")
     p.add_argument("-f", "--format", default=DFLT_OUTPUT_DRIVER, 
         choices=[DFLT_OUTPUT_DRIVER, "HFA"],
         help="Name of output GDAL format that supports RATs (default=%(default)s)")
@@ -58,8 +60,14 @@ def getCmdargs():
 
 def main():
     cmdargs = getCmdargs()
+    
+    creationOptions = []
+    if cmdargs.format in GDAL_DRIVER_CREATION_OPTIONS:
+        creationOptions = GDAL_DRIVER_CREATION_OPTIONS[cmdargs.format]
+    
     tiling.subsetImage(cmdargs.infile, cmdargs.outfile, cmdargs.tlx, cmdargs.tly, 
-        cmdargs.xsize, cmdargs.ysize, cmdargs.format)
+        cmdargs.xsize, cmdargs.ysize, cmdargs.format, creationOptions, 
+        cmdargs.origsegidcol)
     
 if __name__ == "__main__":
     main()

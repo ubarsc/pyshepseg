@@ -1413,7 +1413,8 @@ def updateCounts(tileData, hist):
             segid = tileData[i, j]
             hist[segid] += 1
 
-def subsetImage(inname, outname, tlx, tly, newXsize, newYsize, outformat):
+def subsetImage(inname, outname, tlx, tly, newXsize, newYsize, outformat, 
+        creationOptions=[], origSegIdColName=None):
     """
     Subset an image "compressing" the RAT so only values that 
     are in the new image are in the RAT. Note: the image values
@@ -1422,6 +1423,19 @@ def subsetImage(inname, outname, tlx, tly, newXsize, newYsize, outformat):
     gdal_translate seems to have a problem with files that
     have large RAT's so while that gets fixed do the subsetting
     in this function.
+    
+    tlx and tly are the top left of the image to extract in pixel coords
+    of the input image. newXSize and newYSize are the size of the subset 
+    to extract in pixels. 
+    
+    outformat is the GDAL driver name to use for the output image and
+    creationOptions is a list of creation options to use for creating the
+    output.
+    
+    If origSegIdColName is not None, a column of this name will be created
+    in the output file that has the original segment ids so they can be
+    linked back to the input file.
+    
     """
     inds = gdal.Open(inname)
     inband = inds.GetRasterBand(1)
@@ -1431,7 +1445,8 @@ def subsetImage(inname, outname, tlx, tly, newXsize, newYsize, outformat):
         raise PyShepSegTilingError(msg)
     
     driver = gdal.GetDriverByName(outformat)
-    outds = driver.Create(outname, newXsize, newYsize, 1, inband.DataType)
+    outds = driver.Create(outname, newXsize, newYsize, 1, inband.DataType,
+                options=creationOptions)
     outds.SetProjection(inds.GetProjection())
     transform = list(inds.GetGeoTransform())
     transform[0] = transform[0] + transform[1] * tlx
@@ -1495,9 +1510,28 @@ def subsetImage(inname, outname, tlx, tly, newXsize, newYsize, outformat):
     
     colNum = outRAT.GetColOfUsage(gdal.GFU_PixelCount)
     if colNum == -1:
-        outRAT.CreateColumn('Histogram', gdal.GDT_Float, gdal.GFU_PixelCount)
+        outRAT.CreateColumn('Histogram', gdal.GFT_Real, gdal.GFU_PixelCount)
         colNum = outRAT.GetColumnCount() - 1
     outRAT.WriteArray(histArray, colNum)
+    del histArray
+    
+    # optional column with old segids
+    if origSegIdColName is not None:
+        # find or create column
+        colNum = -1
+        for n in range(outRAT.GetColumnCount()):
+            if outRAT.GetNameOfCol(n) == origSegIdColName:
+                colNum = n
+                break
+                
+        if colNum == -1:
+            outRAT.CreateColumn(origSegIdColName, gdal.GFT_Integer, 
+                    gdal.GFU_Generic)
+            colNum = outRAT.GetColumnCount() - 1
+            
+        origSegIdArray = numpy.empty(len(recodeDict), dtype=numpy.int32)
+        setSubsetRecodeFromDictionary(recodeDict, origSegIdArray)
+        outRAT.WriteArray(origSegIdArray, colNum)
     
 @njit
 def setHistogramFromDictionary(dictn, histArray):
@@ -1508,6 +1542,15 @@ def setHistogramFromDictionary(dictn, histArray):
     for idx in dictn:
         histArray[idx] = dictn[idx]
     histArray[shepseg.SEGNULLVAL] = 0
+    
+@njit
+def setSubsetRecodeFromDictionary(dictn, array):
+    """
+    Given the recodeDict write the original values to the array
+    at the new indices.
+    """
+    for idx in dictn:
+        array[dictn[idx]] = idx
             
 @njit
 def readColDataIntoPage(page, data, idx, colType, minVal):
