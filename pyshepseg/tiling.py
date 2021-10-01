@@ -78,6 +78,7 @@ DFLT_OVERLAPSIZE = 200
 
 DFLT_CHUNKSIZE = 100000
 
+TILESIZE = 1024
 
 class TiledSegmentationResult(object):
     """
@@ -191,7 +192,7 @@ def readSubsampledImageBand(bandObj, subsampleProp):
     # A skip factor, applied to rows and column
     skip = int(round(1./subsampleProp))
     
-    tileSize = 1024
+    tileSize = TILESIZE
     (nlines, npix) = (bandObj.YSize, bandObj.XSize)
     numXtiles = int(numpy.ceil(npix / tileSize))
     numYtiles = int(numpy.ceil(nlines / tileSize))
@@ -830,7 +831,7 @@ def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile,
         makeFastStatsSelection(colIndexList, statsSelection))
 
     # Loop over all tiles in image
-    tileSize = 1024
+    tileSize = TILESIZE
     (nlines, npix) = (segband.YSize, segband.XSize)
     numXtiles = int(numpy.ceil(npix / tileSize))
     numYtiles = int(numpy.ceil(nlines / tileSize))
@@ -1368,7 +1369,7 @@ def calcHistogramTiled(segfile, maxSegId, writeToRat=True):
         ds = gdal.Open(segfile, gdal.GA_Update)
     segband = ds.GetRasterBand(1)
     
-    tileSize = 1024
+    tileSize = TILESIZE
     (nlines, npix) = (segband.YSize, segband.XSize)
     numXtiles = int(numpy.ceil(npix / tileSize))
     numYtiles = int(numpy.ceil(nlines / tileSize))
@@ -1416,7 +1417,7 @@ def updateCounts(tileData, hist):
 def subsetImage(inname, outname, tlx, tly, newXsize, newYsize, outformat, 
         creationOptions=[], origSegIdColName=None, maskImage=None):
     """
-    Subset an image "compressing" the RAT so only values that 
+    Subset an image and "compress" the RAT so only values that 
     are in the new image are in the RAT. Note: the image values
     will be recoded in the process.
     
@@ -1438,7 +1439,7 @@ def subsetImage(inname, outname, tlx, tly, newXsize, newYsize, outformat,
     
     If maskFile is not None then only pixels != 0 in this image are considered.
     It is assumed that the top left of this image is at tlx, tly on the 
-    input image.
+    input image and its size is (newXsize, newYsize).
     
     """
     inds = gdal.Open(inname)
@@ -1446,11 +1447,12 @@ def subsetImage(inname, outname, tlx, tly, newXsize, newYsize, outformat,
     
     if (tlx + newXsize) > inband.XSize or (tly + newYsize) > inband.YSize:
         msg = 'Requested subset is not within input image'
-        raise PyShepSegTilingError(msg)
+        raise PyShepSegSubsetError(msg)
     
     driver = gdal.GetDriverByName(outformat)
     outds = driver.Create(outname, newXsize, newYsize, 1, inband.DataType,
                 options=creationOptions)
+    # set the output projection and transform
     outds.SetProjection(inds.GetProjection())
     transform = list(inds.GetGeoTransform())
     transform[0] = transform[0] + transform[1] * tlx
@@ -1467,23 +1469,30 @@ def subsetImage(inname, outname, tlx, tly, newXsize, newYsize, outformat,
     histogramDict = Dict.empty(key_type=segIdNumbaType,
         value_type=segIdNumbaType)  # keyed on new ID - value is count
  
+    # make the output file has the same columns as the input
     numIntCols, numFloatCols = copyColumns(inRAT, outRAT)
             
+    # keep a track of the output RAT in a paged manner like the 
+    # tiling code above
     outPagedRat = createPagedRat()
     
+    # If a maskImage was specified then open it
     maskds = None
     maskBand = None
     maskData = None
     if maskImage is not None:
         maskds = gdal.Open(maskImage)
         maskBand = maskds.GetRasterBand(1)
+        if maskBand.XSize != newXsize or maskBand.YSize != newYsize:
+            msg = 'mask should match requested subset size if supplied'
+            raise PyShepSegSubsetError(msg)
     
-    tileSize = 256
+    # work out how many tiles we have
+    tileSize = TILESIZE
     numXtiles = int(numpy.ceil(newXsize / tileSize))
     numYtiles = int(numpy.ceil(newYsize / tileSize))
     
-    currRow = 1 # skip SEGNULLVAL row
-    maxSegId = None
+    maxSegId = None # keep a track of the maximum row so we can resize the last page
     for tileRow in range(numYtiles):
         for tileCol in range(numXtiles):
             leftPix = tlx + tileCol * tileSize
@@ -1491,35 +1500,45 @@ def subsetImage(inname, outname, tlx, tly, newXsize, newYsize, outformat,
             xsize = min(tileSize, newXsize - leftPix + tlx)
             ysize = min(tileSize, newYsize - topLine + tly)
             
+            # extract the image data for this tile from the input file
             inData = inband.ReadAsArray(leftPix, topLine, xsize, ysize)
+
+            # work out the range of data and read this part of the RAT into a page            
             minVal = inData.min()
             maxVal = inData.max()
-            
             page = readRATIntoPage(inRAT, numIntCols, numFloatCols, minVal, maxVal)
             
             if maskBand is not None:
+                # if a mask file was specified read the corresoponding data
                 maskData = maskBand.ReadAsArray(tileCol * tileSize, 
                                 tileRow * tileSize, xsize, ysize)
 
+            # process this tile, obtaining the image of the 'new' segment ids
             outData = processSubsetTile(inData, page, outPagedRat, minVal, numIntCols, 
                             numFloatCols, recodeDict, histogramDict, maskData)
+                            
+            # update the new maximum number
             maxOutData = outData.max()
             if maxSegId is None or maxOutData > maxSegId:
                 maxSegId = maxOutData
 
+            # write out the new segment ids to the output
             outband.WriteArray(outData, tileCol * tileSize, tileRow * tileSize)
             
+            # write any complete output RAT pages we have
             writeCompletedPagesForSubset(inRAT, outRAT, outPagedRat)
 
     # should only be the last (incomplete) page left - or none if we are very lucky
     assert(len(outPagedRat) < 2)
     for pageId in outPagedRat:
+        # resize the last RAT page
         ratPage = outPagedRat[pageId]
         ratPage.resize(maxSegId - pageId + 1)
 
+    # write this out
     writeCompletedPagesForSubset(inRAT, outRAT, outPagedRat)
     
-    # histogram - add one for null segment
+    # write out the histogram we've been updating
     histArray = numpy.empty(outRAT.GetRowCount(), dtype=numpy.float64)
     setHistogramFromDictionary(histogramDict, histArray)
     
@@ -1566,6 +1585,7 @@ def setSubsetRecodeFromDictionary(dictn, array):
     """
     for idx in dictn:
         array[dictn[idx]] = idx
+    array[shepseg.SEGNULLVAL] = 0
             
 @njit
 def readColDataIntoPage(page, data, idx, colType, minVal):
@@ -1641,28 +1661,34 @@ def processSubsetTile(tile, page, outPagedRat, minVal,
     outData = numpy.zeros_like(tile)
 
     ysize, xsize = tile.shape
+    # go through each pixel
     for y in range(ysize):
         for x in range(xsize):
             segId = tile[y, x]
             if maskData is not None and maskData[y, x] == 0:
+                # if this one is masked out - skip
                 outData[y, x] = shepseg.SEGNULLVAL
                 continue
             
             if segId == shepseg.SEGNULLVAL:
+                # null segment - skip
                 outData[y, x] = shepseg.SEGNULLVAL
                 continue
             
             if segId not in recodeDict:
+                # haven't encountered this pixel before, generate the new id for it
                 outSegId = len(recodeDict) + 1
             
+                # page for the output rat
                 outRatPageId = getRatPageId(outSegId)
                 if outRatPageId not in outPagedRat:
+                    # we don't have one - create
                     outPagedRat[outRatPageId] = RatPage(numIntCols, numFloatCols, 
                         outRatPageId, RAT_PAGE_SIZE)
             
                 outPage = outPagedRat[outRatPageId]
                 if not outPage.getSegmentComplete(outSegId):
-                    # copy
+                    # copy the row accross
                     inIdx = page.getIndexInPage(segId)
                     for n in range(numIntCols):
                         val = page.getRatVal(segId, STAT_DTYPE_INT, n)
@@ -1678,10 +1704,13 @@ def processSubsetTile(tile, page, outPagedRat, minVal,
                     # pixels for it (and we may never see them all as we are doing a subset)
                     outPage.setSegmentComplete(outSegId)
                 
+                # add this new value to our recode dictionary
                 recodeDict[segId] = types.uint32(outSegId)
-                
+            
+            # write this new value to the output image    
             newval = recodeDict[segId]
             outData[y, x] = newval
+            # update histogram
             if newval not in histogramDict:
                 histogramDict[newval] = segIdNumbaType(0)
             histogramDict[newval] = segIdNumbaType(histogramDict[newval] + 1)
@@ -1696,10 +1725,13 @@ def writeCompletedPagesForSubset(inRAT, outRAT, outPagedRat):
     for pageId in outPagedRat:
         ratPage = outPagedRat[pageId]
         if ratPage.pageComplete():
+            # this one one is complete. Grow RAT if required
             maxRow = ratPage.startSegId + ratPage.intcols.shape[1]
             if outRAT.GetRowCount() < maxRow:
                 outRAT.SetRowCount(maxRow)
 
+            # loop through the input RAT, using the type info 
+            # of each column to decide intcols/floatcols etc
             intColIdx = 0
             floatColIdx = 0
             for col in range(inRAT.GetColumnCount()):
@@ -1713,7 +1745,9 @@ def writeCompletedPagesForSubset(inRAT, outRAT, outPagedRat):
 
                 outRAT.WriteArray(data, col, start=ratPage.startSegId)
                 
+            # this one is done
             outPagedRat.pop(pageId)
 
 
 class PyShepSegTilingError(Exception): pass
+class PyShepSegSubsetError(PyShepSegTilingError): pass
