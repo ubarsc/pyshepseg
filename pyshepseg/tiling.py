@@ -309,10 +309,10 @@ def getTilesForFile(ds, tileSize, overlapSize):
 
 def doTiledShepherdSegmentation(infile, outfile, tileSize=DFLT_TILESIZE, 
         overlapSize=DFLT_OVERLAPSIZE, minSegmentSize=50, numClusters=60, 
-        bandNumbers=None, subsamplePcnt=None, maxSpectralDiff='auto', 
+        bandNumbers=None, subSamplePcnt=None, maxSpectralDiff='auto', 
         imgNullVal=None, fixedKMeansInit=False, fourConnected=True, 
         verbose=False, simpleTileRecode=False, outputDriver='KEA',
-        creationOptions=[], spectDistPcntile=50):
+        creationOptions=[], spectDistPcntile=50, kmeansObj=None):
     """
     Run the Shepherd segmentation algorithm in a memory-efficient
     manner, suitable for large raster files. Runs the segmentation
@@ -322,7 +322,7 @@ def doTiledShepherdSegmentation(infile, outfile, tileSize=DFLT_TILESIZE,
     The initial spectral clustering is performed on a sub-sample
     of the whole raster (using fitSpectralClustersWholeFile), 
     to create consistent clusters. These are then used as seeds 
-    for all individual tiles. Note that subsamplePcnt is used at 
+    for all individual tiles. Note that subSamplePcnt is used at 
     this stage, over the whole raster, and is not passed through to 
     shepseg.doShepherdSegmentation() for any further sub-sampling. 
     
@@ -353,11 +353,12 @@ def doTiledShepherdSegmentation(infile, outfile, tileSize=DFLT_TILESIZE,
         bandNumbers = range(1, inDs.RasterCount+1)
 
     t0 = time.time()
-    kmeansObj, subSamplePcnt, imgNullVal = fitSpectralClustersWholeFile(inDs, 
-            bandNumbers, numClusters, subsamplePcnt, imgNullVal, fixedKMeansInit)
-    if verbose:
-        print("KMeans of whole raster {:.2f} seconds".format(time.time()-t0))
-        print("Subsample Percentage={:.2f}".format(subSamplePcnt))
+    if kmeansObj is None:
+        kmeansObj, subSamplePcnt, imgNullVal = fitSpectralClustersWholeFile(inDs, 
+            bandNumbers, numClusters, subSamplePcnt, imgNullVal, fixedKMeansInit)
+        if verbose:
+            print("KMeans of whole raster {:.2f} seconds".format(time.time()-t0))
+            print("Subsample Percentage={:.2f}".format(subSamplePcnt))
     
     # create a temp directory for use in splitting out tiles, overlaps etc
     tempDir = tempfile.mkdtemp()
