@@ -218,24 +218,6 @@ def readSubsampledImageBand(bandObj, subsampleProp):
     imgSub = numpy.concatenate(tileRowList, axis=0)
     return imgSub
 
-
-def saveKMeansObj(kmeansObj, filename):
-    """
-    Saves the given KMeans object into the given filename. 
-    
-    Since the KMeans object is not pickle-able, use our own
-    simple JSON form to save the cluster centres. The 
-    corresponding function loadKMeansObj() can be used to
-    re-create the original object (at least functionally equivalent). 
-    """
-    # Check that it really is not pickle-able, I am just assuming....
-    
-
-def loadKMeansObj(filename):
-    """
-    Load a KMeans object from a file, as saved by saveKMeansObj(). 
-    """
-
 class TileInfo(object):
     """
     Class that holds the pixel coordinates of the tiles within 
