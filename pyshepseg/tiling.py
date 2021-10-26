@@ -87,7 +87,7 @@ class TiledSegmentationResult(object):
       maxSegId: Largest segment ID used in final segment image
       numTileRows: Number of rows of tiles used
       numTileCols: Number of columns of tiles used
-      subSamplePcnt: Percentage of image subsampled for clustering
+      subsamplePcnt: Percentage of image subsampled for clustering
       maxSpectralDiff: The value used to limit segment merging (in all tiles)
       kmeans: The sklearn KMeans object, after fitting
       
@@ -95,7 +95,7 @@ class TiledSegmentationResult(object):
     maxSegId = None
     numTileRows = None
     numTileCols = None
-    subSamplePcnt = None
+    subsamplePcnt = None
     maxSpectralDiff = None
     kmeans = None
 
@@ -291,7 +291,7 @@ def getTilesForFile(ds, tileSize, overlapSize):
 
 def doTiledShepherdSegmentation(infile, outfile, tileSize=DFLT_TILESIZE, 
         overlapSize=DFLT_OVERLAPSIZE, minSegmentSize=50, numClusters=60, 
-        bandNumbers=None, subSamplePcnt=None, maxSpectralDiff='auto', 
+        bandNumbers=None, subsamplePcnt=None, maxSpectralDiff='auto', 
         imgNullVal=None, fixedKMeansInit=False, fourConnected=True, 
         verbose=False, simpleTileRecode=False, outputDriver='KEA',
         creationOptions=[], spectDistPcntile=50, kmeansObj=None):
@@ -304,7 +304,7 @@ def doTiledShepherdSegmentation(infile, outfile, tileSize=DFLT_TILESIZE,
     The initial spectral clustering is performed on a sub-sample
     of the whole raster (using fitSpectralClustersWholeFile), 
     to create consistent clusters. These are then used as seeds 
-    for all individual tiles. Note that subSamplePcnt is used at 
+    for all individual tiles. Note that subsamplePcnt is used at 
     this stage, over the whole raster, and is not passed through to 
     shepseg.doShepherdSegmentation() for any further sub-sampling. 
     
@@ -336,11 +336,11 @@ def doTiledShepherdSegmentation(infile, outfile, tileSize=DFLT_TILESIZE,
 
     t0 = time.time()
     if kmeansObj is None:
-        kmeansObj, subSamplePcnt, imgNullVal = fitSpectralClustersWholeFile(inDs, 
-            bandNumbers, numClusters, subSamplePcnt, imgNullVal, fixedKMeansInit)
+        kmeansObj, subsamplePcnt, imgNullVal = fitSpectralClustersWholeFile(inDs, 
+            bandNumbers, numClusters, subsamplePcnt, imgNullVal, fixedKMeansInit)
         if verbose:
             print("KMeans of whole raster {:.2f} seconds".format(time.time()-t0))
-            print("Subsample Percentage={:.2f}".format(subSamplePcnt))
+            print("Subsample Percentage={:.2f}".format(subsamplePcnt))
     
     # create a temp directory for use in splitting out tiles, overlaps etc
     tempDir = tempfile.mkdtemp()
@@ -414,7 +414,7 @@ def doTiledShepherdSegmentation(infile, outfile, tileSize=DFLT_TILESIZE,
     tiledSegResult.maxSegId = maxSegId
     tiledSegResult.numTileRows = tileInfo.nrows
     tiledSegResult.numTileCols = tileInfo.ncols
-    tiledSegResult.subSamplePcnt = subSamplePcnt
+    tiledSegResult.subsamplePcnt = subsamplePcnt
     tiledSegResult.maxSpectralDiff = segResult.maxSpectralDiff
     tiledSegResult.kmeans = kmeansObj
     
