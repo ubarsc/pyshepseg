@@ -147,11 +147,7 @@ def fitSpectralClustersWholeFile(inDs, bandNumbers, numClusters=60,
         subsampleProp = numpy.sqrt(subsamplePcnt / 100.0)
     
     if imgNullVal is None:
-        nullValArr = numpy.array([inDs.GetRasterBand(i).GetNoDataValue() 
-            for i in bandNumbers])
-        if (nullValArr != nullValArr[0]).any():
-            raise PyShepSegTilingError("Different null values in some bands")
-        imgNullVal = nullValArr[0]
+        imgNullVal = getImgNullValue(inDS)
     
     bandList = []
     for bandNum in bandNumbers:
@@ -165,7 +161,18 @@ def fitSpectralClustersWholeFile(inDs, bandNumbers, numClusters=60,
         fixedKMeansInit=fixedKMeansInit)
     
     return (kmeansObj, subsamplePcnt, imgNullVal)
-
+    
+def getImgNullValue(inDs):
+    """
+    Return the null value for the given dataset. Raises an error if
+    not all bands have the same null value. 
+    """
+    nullValArr = numpy.array([inDs.GetRasterBand(i).GetNoDataValue() 
+        for i in bandNumbers])
+    if (nullValArr != nullValArr[0]).any():
+        raise PyShepSegTilingError("Different null values in some bands")
+    imgNullVal = nullValArr[0]
+    return imgNullVal
 
 def readSubsampledImageBand(bandObj, subsampleProp):
     """
@@ -341,6 +348,10 @@ def doTiledShepherdSegmentation(infile, outfile, tileSize=DFLT_TILESIZE,
         if verbose:
             print("KMeans of whole raster {:.2f} seconds".format(time.time()-t0))
             print("Subsample Percentage={:.2f}".format(subsamplePcnt))
+            
+    elif imgNullVal is None:
+        # make sure we have the null value, even if they have supplied the kMeans
+        imgNullVal = getImgNullValue(inDS)
     
     # create a temp directory for use in splitting out tiles, overlaps etc
     tempDir = tempfile.mkdtemp()
