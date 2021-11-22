@@ -1470,10 +1470,6 @@ def subsetImage(inname, outname, tlx, tly, newXsize, newYsize, outformat,
     # make the output file has the same columns as the input
     numIntCols, numFloatCols = copyColumns(inRAT, outRAT)
             
-    # keep a track of the output RAT in a paged manner like the 
-    # tiling code above
-    outPagedRat = createPagedRat()
-    
     # If a maskImage was specified then open it
     maskds = None
     maskBand = None
@@ -1490,7 +1486,9 @@ def subsetImage(inname, outname, tlx, tly, newXsize, newYsize, outformat,
     numXtiles = int(numpy.ceil(newXsize / tileSize))
     numYtiles = int(numpy.ceil(newYsize / tileSize))
     
-    maxSegId = None # keep a track of the maximum row so we can resize the last page
+    minInVal = None
+    maxInVal = None
+    
     for tileRow in range(numYtiles):
         for tileCol in range(numXtiles):
             leftPix = tlx + tileCol * tileSize
@@ -1501,10 +1499,13 @@ def subsetImage(inname, outname, tlx, tly, newXsize, newYsize, outformat,
             # extract the image data for this tile from the input file
             inData = inband.ReadAsArray(leftPix, topLine, xsize, ysize)
 
-            # work out the range of data and read this part of the RAT into a page            
+            # work out the range of data for accessing the whole RAT (below)   
             minVal = inData.min()
             maxVal = inData.max()
-            page = readRATIntoPage(inRAT, numIntCols, numFloatCols, minVal, maxVal)
+            if minVal != shepseg.SEGNULLVAL and (minInVal is None or minVal < minInVal):
+                minInVal = minVal
+            if maxVal != shepseg.SEGNULLVAL and (maxInVal is None or maxVal > maxInVal):
+                maxInVal = maxVal
             
             if maskBand is not None:
                 # if a mask file was specified read the corresoponding data
@@ -1512,29 +1513,42 @@ def subsetImage(inname, outname, tlx, tly, newXsize, newYsize, outformat,
                                 tileRow * tileSize, xsize, ysize)
 
             # process this tile, obtaining the image of the 'new' segment ids
-            outData = processSubsetTile(inData, page, outPagedRat, minVal, numIntCols, 
-                            numFloatCols, recodeDict, histogramDict, maskData)
+            outData = processSubsetTile(inData, recodeDict, 
+                        histogramDict, maskData)
                             
-            # update the new maximum number
-            maxOutData = outData.max()
-            if maxSegId is None or maxOutData > maxSegId:
-                maxSegId = maxOutData
-
             # write out the new segment ids to the output
             outband.WriteArray(outData, tileCol * tileSize, tileRow * tileSize)
             
-            # write any complete output RAT pages we have
-            writeCompletedPagesForSubset(inRAT, outRAT, outPagedRat)
+            
+    # process the recodeDict, one page of the input at a time
+    maxSegId = len(recodeDict)
+    print(minInVal, maxInVal, maxSegId)
+    outPagedRat = createPagedRat()
+    for startSegId in range(minInVal, maxInVal, RAT_PAGE_SIZE):
+        endSegId = min(startSegId + RAT_PAGE_SIZE - 1, maxInVal)
+        numSeg = endSegId - startSegId + 1
+        print(startSegId, endSegId, numSeg)
+        
+        inPage = readRATIntoPage(inRAT, numIntCols, numFloatCols, 
+                    startSegId, endSegId)
+
+        copySubsettedSegmentsToNew(inPage, outPagedRat, recodeDict)
+        
+        writeCompletedPagesForSubset(inRAT, outRAT, outPagedRat)
 
     # should only be the last (incomplete) page left - or none if we are very lucky
     assert(len(outPagedRat) < 2)
     for pageId in outPagedRat:
         # resize the last RAT page
         ratPage = outPagedRat[pageId]
+        print('resizeing', maxSegId - pageId + 1)
         ratPage.resize(maxSegId - pageId + 1)
+        ratPage.complete.fill(True)
 
     # write this out
     writeCompletedPagesForSubset(inRAT, outRAT, outPagedRat)
+    
+    raise SystemExit()
     
     # write out the histogram we've been updating
     histArray = numpy.empty(outRAT.GetRowCount(), dtype=numpy.float64)
@@ -1564,6 +1578,39 @@ def subsetImage(inname, outname, tlx, tly, newXsize, newYsize, outformat,
         origSegIdArray = numpy.empty(outRAT.GetRowCount(), dtype=numpy.int32)
         setSubsetRecodeFromDictionary(recodeDict, origSegIdArray)
         outRAT.WriteArray(origSegIdArray, colNum)
+        
+@njit
+def copySubsettedSegmentsToNew(inPage, outPagedRat, recodeDict):
+    """
+    Using the recodeDict, copy across the rows inPage to outPage.
+    
+    The key of recodeDict is used to obtain the row value to read
+    (taking into account inPage.startSegId) and the value of recodeDict
+    is used to obtain the row to write (taking into account 
+    outPage.startSegId)
+    """
+    numIntCols = inPage.intcols.shape[0]
+    numFloatCols = inPage.floatcols.shape[0]
+    for inRowInPage in range(inPage.intcols.shape[1]):
+        inRow = segIdNumbaType(inPage.startSegId + inRowInPage)
+        if inRow not in recodeDict:
+            continue
+        outRow = recodeDict[inRow]
+        
+        outPageId = getRatPageId(outRow)
+        outRowInPage = outRow - outPageId
+        if outPageId not in outPagedRat:
+            outPagedRat[outPageId] = RatPage(numIntCols, numFloatCols, 
+                            outPageId, RAT_PAGE_SIZE)
+            if outPageId == 0:
+                outPagedRat[outPageId].setSegmentComplete(0)
+                            
+        outPage = outPagedRat[outPageId]
+        for n in range(numIntCols):
+            outPage.intcols[n, outRowInPage] = inPage.intcols[n, inRowInPage]
+        for n in range(numFloatCols):
+            outPage.floatcols[n, outRowInPage] = inPage.floatcols[n, inRowInPage]
+        outPage.setSegmentComplete(outRow)
     
 @njit
 def setHistogramFromDictionary(dictn, histArray):
@@ -1646,11 +1693,10 @@ def copyColumns(inRat, outRat):
     return numIntCols, numFloatCols
 
 @njit
-def processSubsetTile(tile, page, outPagedRat, minVal, 
-        numIntCols, numFloatCols, recodeDict, histogramDict, maskData):
+def processSubsetTile(tile, recodeDict, histogramDict, maskData):
     """
     Process a tile of the subset area. Returns a new tile with the new codes.
-    Fills in the outPagedRat and the recodeDict as it goes.
+    Fills in the recodeDict as it goes.
     Also updates histogramDict.
     
     if maskData is not None then only pixels != 0 are considered. Assumed 
@@ -1677,31 +1723,6 @@ def processSubsetTile(tile, page, outPagedRat, minVal,
                 # haven't encountered this pixel before, generate the new id for it
                 outSegId = len(recodeDict) + 1
             
-                # page for the output rat
-                outRatPageId = getRatPageId(outSegId)
-                if outRatPageId not in outPagedRat:
-                    # we don't have one - create
-                    outPagedRat[outRatPageId] = RatPage(numIntCols, numFloatCols, 
-                        outRatPageId, RAT_PAGE_SIZE)
-            
-                outPage = outPagedRat[outRatPageId]
-                if not outPage.getSegmentComplete(outSegId):
-                    # copy the row accross
-                    inIdx = page.getIndexInPage(segId)
-                    for n in range(numIntCols):
-                        val = page.getRatVal(segId, STAT_DTYPE_INT, n)
-                        outPage.setRatVal(outSegId, 
-                                STAT_DTYPE_INT, n, val)
-                    for n in range(numFloatCols):
-                        val = page.getRatVal(segId, STAT_DTYPE_FLOAT, n)
-                        outPage.setRatVal(outSegId, 
-                                STAT_DTYPE_FLOAT, n, val)
-                                
-                    # note that we flag the segment as complete when we have
-                    # set the RAT values on the new file - not when we've seen all the
-                    # pixels for it (and we may never see them all as we are doing a subset)
-                    outPage.setSegmentComplete(outSegId)
-                
                 # add this new value to our recode dictionary
                 recodeDict[segId] = segIdNumbaType(outSegId)
             
@@ -1742,10 +1763,9 @@ def writeCompletedPagesForSubset(inRAT, outRAT, outPagedRat):
                     floatColIdx += 1
 
                 outRAT.WriteArray(data, col, start=ratPage.startSegId)
-                
+
             # this one is done
             outPagedRat.pop(pageId)
-
-
+            
 class PyShepSegTilingError(Exception): pass
 class PyShepSegSubsetError(PyShepSegTilingError): pass
