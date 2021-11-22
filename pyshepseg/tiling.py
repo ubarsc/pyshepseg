@@ -88,7 +88,7 @@ class TiledSegmentationResult(object):
       maxSegId: Largest segment ID used in final segment image
       numTileRows: Number of rows of tiles used
       numTileCols: Number of columns of tiles used
-      subSamplePcnt: Percentage of image subsampled for clustering
+      subsamplePcnt: Percentage of image subsampled for clustering
       maxSpectralDiff: The value used to limit segment merging (in all tiles)
       kmeans: The sklearn KMeans object, after fitting
       
@@ -96,7 +96,7 @@ class TiledSegmentationResult(object):
     maxSegId = None
     numTileRows = None
     numTileCols = None
-    subSamplePcnt = None
+    subsamplePcnt = None
     maxSpectralDiff = None
     kmeans = None
 
@@ -148,11 +148,7 @@ def fitSpectralClustersWholeFile(inDs, bandNumbers, numClusters=60,
         subsampleProp = numpy.sqrt(subsamplePcnt / 100.0)
     
     if imgNullVal is None:
-        nullValArr = numpy.array([inDs.GetRasterBand(i).GetNoDataValue() 
-            for i in bandNumbers])
-        if (nullValArr != nullValArr[0]).any():
-            raise PyShepSegTilingError("Different null values in some bands")
-        imgNullVal = nullValArr[0]
+        imgNullVal = getImgNullValue(inDS)
     
     bandList = []
     for bandNum in bandNumbers:
@@ -166,7 +162,18 @@ def fitSpectralClustersWholeFile(inDs, bandNumbers, numClusters=60,
         fixedKMeansInit=fixedKMeansInit)
     
     return (kmeansObj, subsamplePcnt, imgNullVal)
-
+    
+def getImgNullValue(inDs):
+    """
+    Return the null value for the given dataset. Raises an error if
+    not all bands have the same null value. 
+    """
+    nullValArr = numpy.array([inDs.GetRasterBand(i).GetNoDataValue() 
+        for i in bandNumbers])
+    if (nullValArr != nullValArr[0]).any():
+        raise PyShepSegTilingError("Different null values in some bands")
+    imgNullVal = nullValArr[0]
+    return imgNullVal
 
 def readSubsampledImageBand(bandObj, subsampleProp):
     """
@@ -218,24 +225,6 @@ def readSubsampledImageBand(bandObj, subsampleProp):
     
     imgSub = numpy.concatenate(tileRowList, axis=0)
     return imgSub
-
-
-def saveKMeansObj(kmeansObj, filename):
-    """
-    Saves the given KMeans object into the given filename. 
-    
-    Since the KMeans object is not pickle-able, use our own
-    simple JSON form to save the cluster centres. The 
-    corresponding function loadKMeansObj() can be used to
-    re-create the original object (at least functionally equivalent). 
-    """
-    # Check that it really is not pickle-able, I am just assuming....
-    
-
-def loadKMeansObj(filename):
-    """
-    Load a KMeans object from a file, as saved by saveKMeansObj(). 
-    """
 
 class TileInfo(object):
     """
@@ -313,7 +302,7 @@ def doTiledShepherdSegmentation(infile, outfile, tileSize=DFLT_TILESIZE,
         bandNumbers=None, subsamplePcnt=None, maxSpectralDiff='auto', 
         imgNullVal=None, fixedKMeansInit=False, fourConnected=True, 
         verbose=False, simpleTileRecode=False, outputDriver='KEA',
-        creationOptions=[], spectDistPcntile=50):
+        creationOptions=[], spectDistPcntile=50, kmeansObj=None):
     """
     Run the Shepherd segmentation algorithm in a memory-efficient
     manner, suitable for large raster files. Runs the segmentation
@@ -354,11 +343,16 @@ def doTiledShepherdSegmentation(infile, outfile, tileSize=DFLT_TILESIZE,
         bandNumbers = range(1, inDs.RasterCount+1)
 
     t0 = time.time()
-    kmeansObj, subSamplePcnt, imgNullVal = fitSpectralClustersWholeFile(inDs, 
+    if kmeansObj is None:
+        kmeansObj, subsamplePcnt, imgNullVal = fitSpectralClustersWholeFile(inDs, 
             bandNumbers, numClusters, subsamplePcnt, imgNullVal, fixedKMeansInit)
-    if verbose:
-        print("KMeans of whole raster {:.2f} seconds".format(time.time()-t0))
-        print("Subsample Percentage={:.2f}".format(subSamplePcnt))
+        if verbose:
+            print("KMeans of whole raster {:.2f} seconds".format(time.time()-t0))
+            print("Subsample Percentage={:.2f}".format(subsamplePcnt))
+            
+    elif imgNullVal is None:
+        # make sure we have the null value, even if they have supplied the kMeans
+        imgNullVal = getImgNullValue(inDS)
     
     # create a temp directory for use in splitting out tiles, overlaps etc
     tempDir = tempfile.mkdtemp()
@@ -432,7 +426,7 @@ def doTiledShepherdSegmentation(infile, outfile, tileSize=DFLT_TILESIZE,
     tiledSegResult.maxSegId = maxSegId
     tiledSegResult.numTileRows = tileInfo.nrows
     tiledSegResult.numTileCols = tileInfo.ncols
-    tiledSegResult.subSamplePcnt = subSamplePcnt
+    tiledSegResult.subsamplePcnt = subsamplePcnt
     tiledSegResult.maxSpectralDiff = segResult.maxSpectralDiff
     tiledSegResult.kmeans = kmeansObj
     
@@ -854,6 +848,10 @@ def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile,
                 segSize, numIntCols, numFloatCols)
             
             writeCompletePages(pagedRat, attrTbl, statsSelection_fast)
+
+    # all pages should now be written. Raise an error if this not the case.
+    if len(pagedRat) > 0:
+        raise PyShepSegTilingError('Not all pixels found during processing')
 
 
 # This type is used for all numba jit-ed data which is supposed to 

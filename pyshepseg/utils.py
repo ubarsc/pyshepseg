@@ -114,8 +114,10 @@ def writeRandomColourTable(outBand, nRows):
         
     alpha = numpy.full((nRows,), 255, dtype=numpy.uint8)
     alpha[shepseg.SEGNULLVAL] = 0
-    attrTbl.CreateColumn('Alpha', gdal.GFT_Integer, gdal.GFU_Alpha)
-    colNum = attrTbl.GetColumnCount() - 1
+    colNum = attrTbl.GetColOfUsage(gdal.GFU_Alpha)
+    if colNum == -1:
+        attrTbl.CreateColumn('Alpha', gdal.GFT_Integer, gdal.GFU_Alpha)
+        colNum = attrTbl.GetColumnCount() - 1
     attrTbl.WriteArray(alpha, colNum)
 
 
