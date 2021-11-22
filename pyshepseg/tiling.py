@@ -1098,7 +1098,7 @@ class RatPage(object):
 
     def setRatVal(self, segId, colType, colArrayNdx, val):
         """
-        Set the RAT entry for the given stat selection, for the given segment,
+        Set the RAT entry for the given segment,
         to be the given value. 
         """
         ndxInPage = self.getIndexInPage(segId)
@@ -1705,7 +1705,7 @@ def processSubsetTile(tile, page, outPagedRat, minVal,
                     outPage.setSegmentComplete(outSegId)
                 
                 # add this new value to our recode dictionary
-                recodeDict[segId] = types.uint32(outSegId)
+                recodeDict[segId] = segIdNumbaType(outSegId)
             
             # write this new value to the output image    
             newval = recodeDict[segId]
