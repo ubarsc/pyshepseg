@@ -1530,7 +1530,6 @@ def subsetImage(inname, outname, tlx, tly, newXsize, newYsize, outformat,
         raise PyShepSegSubsetError('No valid data found in subset')
             
     # process the recodeDict, one page of the input at a time
-    maxSegId = len(recodeDict)
     
     # fill this in as we go and write out each page when complete.
     outPagedRat = createPagedRat()
@@ -1548,16 +1547,6 @@ def subsetImage(inname, outname, tlx, tly, newXsize, newYsize, outformat,
         
         writeCompletedPagesForSubset(inRAT, outRAT, outPagedRat)
 
-    # should only be the last (incomplete) page left - or none if we are very lucky
-    assert(len(outPagedRat) < 2)
-    for pageId in outPagedRat:
-        # resize the last RAT page
-        ratPage = outPagedRat[pageId]
-        ratPage.resize(maxSegId - pageId + 1)
-
-    # write this out
-    writeCompletedPagesForSubset(inRAT, outRAT, outPagedRat)
-    
     # write out the histogram we've been updating
     histArray = numpy.empty(outRAT.GetRowCount(), dtype=numpy.float64)
     setHistogramFromDictionary(histogramDict, histArray)
@@ -1600,18 +1589,20 @@ def copySubsettedSegmentsToNew(inPage, outPagedRat, recodeDict):
     """
     numIntCols = inPage.intcols.shape[0]
     numFloatCols = inPage.floatcols.shape[0]
+    maxSegId = len(recodeDict)
     for inRowInPage in range(inPage.intcols.shape[1]):
         inRow = segIdNumbaType(inPage.startSegId + inRowInPage)
         if inRow not in recodeDict:
-            # this one is not in this page, skip
+            # this one is not in this subset, skip
             continue
         outRow = recodeDict[inRow]
         
         outPageId = getRatPageId(outRow)
         outRowInPage = outRow - outPageId
         if outPageId not in outPagedRat:
+            numSegThisPage = min(RAT_PAGE_SIZE, (maxSegId - outPageId + 1))
             outPagedRat[outPageId] = RatPage(numIntCols, numFloatCols, 
-                            outPageId, RAT_PAGE_SIZE)
+                            outPageId, numSegThisPage)
             if outPageId == shepseg.SEGNULLVAL:
                 # nothing will get written to this one, but needs to be
                 # marked as complete so whole page will be written
