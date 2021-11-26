@@ -147,7 +147,7 @@ def fitSpectralClustersWholeFile(inDs, bandNumbers, numClusters=60,
         subsampleProp = numpy.sqrt(subsamplePcnt / 100.0)
     
     if imgNullVal is None:
-        imgNullVal = getImgNullValue(inDs)
+        imgNullVal = getImgNullValue(inDs, bandNumbers)
     
     bandList = []
     for bandNum in bandNumbers:
@@ -162,7 +162,7 @@ def fitSpectralClustersWholeFile(inDs, bandNumbers, numClusters=60,
     
     return (kmeansObj, subsamplePcnt, imgNullVal)
     
-def getImgNullValue(inDs):
+def getImgNullValue(inDs, bandNumbers):
     """
     Return the null value for the given dataset. Raises an error if
     not all bands have the same null value. 
@@ -351,7 +351,7 @@ def doTiledShepherdSegmentation(infile, outfile, tileSize=DFLT_TILESIZE,
             
     elif imgNullVal is None:
         # make sure we have the null value, even if they have supplied the kMeans
-        imgNullVal = getImgNullValue(inDs)
+        imgNullVal = getImgNullValue(inDs, bandNumbers)
     
     # create a temp directory for use in splitting out tiles, overlaps etc
     tempDir = tempfile.mkdtemp()
