@@ -796,7 +796,7 @@ def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile,
 
     imgds = imgfile
     if not isinstance(imgds, gdal.Dataset):
-        imgds = gdal.Open(imgfile, gdal.GA_Update)
+        imgds = gdal.Open(imgfile, gdal.GA_ReadOnly)
     imgband = imgds.GetRasterBand(imgbandnum)
     if (imgband.DataType == gdal.GDT_Float32 or 
             imgband.DataType == gdal.GDT_Float64):
