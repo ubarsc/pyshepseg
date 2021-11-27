@@ -53,6 +53,7 @@ whole area.
 # Just in case anyone is trying to use this with Python-2
 from __future__ import print_function, division
 
+import sys
 import os
 import time
 import shutil
@@ -74,7 +75,7 @@ TEMPFILES_DRIVER = 'KEA'
 TEMPFILES_EXT = 'kea'
 
 DFLT_TILESIZE = 4096
-DFLT_OVERLAPSIZE = 200
+DFLT_OVERLAPSIZE = 1024
 
 DFLT_CHUNKSIZE = 100000
 
@@ -90,6 +91,7 @@ class TiledSegmentationResult(object):
       subsamplePcnt: Percentage of image subsampled for clustering
       maxSpectralDiff: The value used to limit segment merging (in all tiles)
       kmeans: The sklearn KMeans object, after fitting
+      hasEmptySegments: Boolean flag, this is an error condition
       
     """
     maxSegId = None
@@ -98,6 +100,7 @@ class TiledSegmentationResult(object):
     subsamplePcnt = None
     maxSpectralDiff = None
     kmeans = None
+    hasEmptySegments = None
 
 
 def fitSpectralClustersWholeFile(inDs, bandNumbers, numClusters=60, 
@@ -421,6 +424,8 @@ def doTiledShepherdSegmentation(infile, outfile, tileSize=DFLT_TILESIZE,
         
     shutil.rmtree(tempDir)
 
+    hasEmptySegments = checkForEmptySegments(outfile, maxSegId, overlapSize)
+
     tiledSegResult = TiledSegmentationResult()
     tiledSegResult.maxSegId = maxSegId
     tiledSegResult.numTileRows = tileInfo.nrows
@@ -428,8 +433,34 @@ def doTiledShepherdSegmentation(infile, outfile, tileSize=DFLT_TILESIZE,
     tiledSegResult.subsamplePcnt = subsamplePcnt
     tiledSegResult.maxSpectralDiff = segResult.maxSpectralDiff
     tiledSegResult.kmeans = kmeansObj
+    tiledSegResult.hasEmptySegments = hasEmptySegments
     
     return tiledSegResult
+
+
+def checkForEmptySegments(outfile, maxSegId, overlapSize):
+    """
+    Check the final segmentation for any empty segments. These
+    can be problematic later, and should be avoided.
+    """
+    hist = calcHistogramTiled(outfile, maxSegId, writeToRat=False)
+    emptySegIds = numpy.where(hist[1:] == 0)[0]
+    numEmptySeg = len(emptySegIds)
+    hasEmptySegments = (numEmptySeg > 0)
+    if hasEmptySegments:
+        msg = [
+            "",
+            "WARNING: Found {} segments with zero pixels".format(numEmptySeg),
+            "    Segment IDs: {}".format(emptySegIds),
+            "    This is caused by inconsistent joining of segmentation",
+            "    tiles, and will probably cause trouble later on.",
+            "    It is highly recommended to re-run with a larger overlap",
+            "    size (currently {}), and if necessary a larger tile size".format(overlapSize),
+            ""
+        ]
+        print('\n'.join(msg), file=sys.stderr)
+
+    return hasEmptySegments
 
 
 def stitchTiles(inDs, outfile, tileFilenames, tileInfo, overlapSize,
