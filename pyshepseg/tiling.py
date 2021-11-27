@@ -576,8 +576,8 @@ def recodeTile(tileData, maxSegId, tileRow, tileCol, overlapSize, tempDir,
     
     """
     # The A overlaps are from the current tile. The B overlaps 
-    # are the same regions from the adjacent tiles, and we load 
-    # them here from the saved .npy files. 
+    # are the same regions from the earlier adjacent tiles, and
+    # we load them here from the saved .npy files. 
     topOverlapA = tileData[:overlapSize, :]
     leftOverlapA = tileData[:, :overlapSize]
     
@@ -622,8 +622,8 @@ def recodeSharedSegments(tileData, overlapA, overlapB, orientation,
     
     overlapA and overlapB are numpy arrays of the overlap region
     in question, giving the segment ID numbers is the two tiles. 
-    The values in overlapA are from the earlier tile, and those in 
-    overlapB are from the current tile. 
+    The values in overlapB are from the earlier tile, and those in 
+    overlapA are from the current tile. 
     
     It is critically important that the overlapping region is either
     at the top or the left of the current tile, as this means that 
