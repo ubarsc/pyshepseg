@@ -53,6 +53,7 @@ whole area.
 # Just in case anyone is trying to use this with Python-2
 from __future__ import print_function, division
 
+import sys
 import os
 import time
 import shutil
@@ -74,7 +75,7 @@ TEMPFILES_DRIVER = 'KEA'
 TEMPFILES_EXT = 'kea'
 
 DFLT_TILESIZE = 4096
-DFLT_OVERLAPSIZE = 200
+DFLT_OVERLAPSIZE = 1024
 
 DFLT_CHUNKSIZE = 100000
 
@@ -91,6 +92,7 @@ class TiledSegmentationResult(object):
       subsamplePcnt: Percentage of image subsampled for clustering
       maxSpectralDiff: The value used to limit segment merging (in all tiles)
       kmeans: The sklearn KMeans object, after fitting
+      hasEmptySegments: Boolean flag, this is an error condition
       
     """
     maxSegId = None
@@ -99,6 +101,7 @@ class TiledSegmentationResult(object):
     subsamplePcnt = None
     maxSpectralDiff = None
     kmeans = None
+    hasEmptySegments = None
 
 
 def fitSpectralClustersWholeFile(inDs, bandNumbers, numClusters=60, 
@@ -148,7 +151,7 @@ def fitSpectralClustersWholeFile(inDs, bandNumbers, numClusters=60,
         subsampleProp = numpy.sqrt(subsamplePcnt / 100.0)
     
     if imgNullVal is None:
-        imgNullVal = getImgNullValue(inDS)
+        imgNullVal = getImgNullValue(inDs, bandNumbers)
     
     bandList = []
     for bandNum in bandNumbers:
@@ -163,7 +166,7 @@ def fitSpectralClustersWholeFile(inDs, bandNumbers, numClusters=60,
     
     return (kmeansObj, subsamplePcnt, imgNullVal)
     
-def getImgNullValue(inDs):
+def getImgNullValue(inDs, bandNumbers):
     """
     Return the null value for the given dataset. Raises an error if
     not all bands have the same null value. 
@@ -352,7 +355,7 @@ def doTiledShepherdSegmentation(infile, outfile, tileSize=DFLT_TILESIZE,
             
     elif imgNullVal is None:
         # make sure we have the null value, even if they have supplied the kMeans
-        imgNullVal = getImgNullValue(inDS)
+        imgNullVal = getImgNullValue(inDs, bandNumbers)
     
     # create a temp directory for use in splitting out tiles, overlaps etc
     tempDir = tempfile.mkdtemp()
@@ -422,6 +425,8 @@ def doTiledShepherdSegmentation(infile, outfile, tileSize=DFLT_TILESIZE,
         
     shutil.rmtree(tempDir)
 
+    hasEmptySegments = checkForEmptySegments(outfile, maxSegId, overlapSize)
+
     tiledSegResult = TiledSegmentationResult()
     tiledSegResult.maxSegId = maxSegId
     tiledSegResult.numTileRows = tileInfo.nrows
@@ -429,8 +434,34 @@ def doTiledShepherdSegmentation(infile, outfile, tileSize=DFLT_TILESIZE,
     tiledSegResult.subsamplePcnt = subsamplePcnt
     tiledSegResult.maxSpectralDiff = segResult.maxSpectralDiff
     tiledSegResult.kmeans = kmeansObj
+    tiledSegResult.hasEmptySegments = hasEmptySegments
     
     return tiledSegResult
+
+
+def checkForEmptySegments(outfile, maxSegId, overlapSize):
+    """
+    Check the final segmentation for any empty segments. These
+    can be problematic later, and should be avoided.
+    """
+    hist = calcHistogramTiled(outfile, maxSegId, writeToRat=False)
+    emptySegIds = numpy.where(hist[1:] == 0)[0]
+    numEmptySeg = len(emptySegIds)
+    hasEmptySegments = (numEmptySeg > 0)
+    if hasEmptySegments:
+        msg = [
+            "",
+            "WARNING: Found {} segments with zero pixels".format(numEmptySeg),
+            "    Segment IDs: {}".format(emptySegIds),
+            "    This is caused by inconsistent joining of segmentation",
+            "    tiles, and will probably cause trouble later on.",
+            "    It is highly recommended to re-run with a larger overlap",
+            "    size (currently {}), and if necessary a larger tile size".format(overlapSize),
+            ""
+        ]
+        print('\n'.join(msg), file=sys.stderr)
+
+    return hasEmptySegments
 
 
 def stitchTiles(inDs, outfile, tileFilenames, tileInfo, overlapSize,
@@ -577,8 +608,8 @@ def recodeTile(tileData, maxSegId, tileRow, tileCol, overlapSize, tempDir,
     
     """
     # The A overlaps are from the current tile. The B overlaps 
-    # are the same regions from the adjacent tiles, and we load 
-    # them here from the saved .npy files. 
+    # are the same regions from the earlier adjacent tiles, and
+    # we load them here from the saved .npy files. 
     topOverlapA = tileData[:overlapSize, :]
     leftOverlapA = tileData[:, :overlapSize]
     
@@ -623,8 +654,8 @@ def recodeSharedSegments(tileData, overlapA, overlapB, orientation,
     
     overlapA and overlapB are numpy arrays of the overlap region
     in question, giving the segment ID numbers is the two tiles. 
-    The values in overlapA are from the earlier tile, and those in 
-    overlapB are from the current tile. 
+    The values in overlapB are from the earlier tile, and those in 
+    overlapA are from the current tile. 
     
     It is critically important that the overlapping region is either
     at the top or the left of the current tile, as this means that 
@@ -797,7 +828,7 @@ def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile,
 
     imgds = imgfile
     if not isinstance(imgds, gdal.Dataset):
-        imgds = gdal.Open(imgfile, gdal.GA_Update)
+        imgds = gdal.Open(imgfile, gdal.GA_ReadOnly)
     imgband = imgds.GetRasterBand(imgbandnum)
     if (imgband.DataType == gdal.GDT_Float32 or 
             imgband.DataType == gdal.GDT_Float64):
