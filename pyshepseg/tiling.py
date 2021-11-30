@@ -1167,16 +1167,6 @@ class RatPage(object):
         """
         return self.complete.all()
         
-    def resize(self, numSeg):
-        """
-        Resize this page to be the given size. Currently only supports
-        making the page smaller as resize not implemented in Numba.
-        Note that any data written beyond numSeg will be lost.
-        """
-        self.intcols = self.intcols[:,:numSeg]
-        self.floatcols = self.floatcols[:,:numSeg]
-        self.complete = self.complete[:numSeg]
-
 # Translate statistic name strings into integer ID values
 STATID_MIN = 0
 STATID_MAX = 1
@@ -1567,7 +1557,6 @@ def subsetImage(inname, outname, tlx, tly, newXsize, newYsize, outformat,
     for startSegId in range(minInVal, maxInVal, RAT_PAGE_SIZE):
         # looping through in RAT_PAGE_SIZE pages
         endSegId = min(startSegId + RAT_PAGE_SIZE - 1, maxInVal)
-        numSeg = endSegId - startSegId + 1
         
         # get this page in
         inPage = readRATIntoPage(inRAT, numIntCols, numFloatCols, 
