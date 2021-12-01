@@ -81,6 +81,9 @@ DFLT_CHUNKSIZE = 100000
 
 TILESIZE = 1024
 
+# for when there are no valid pixels for a segment
+DFLT_STATS_VALUE = 0
+
 class TiledSegmentationResult(object):
     """
     Result of tiled segmentation
@@ -847,6 +850,13 @@ def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile,
     existingColNames = [attrTbl.GetNameOfCol(i) 
         for i in range(attrTbl.GetColumnCount())]
         
+    # Note: may be None if no value set
+    imgNullVal = imgband.GetNoDataValue()
+    if imgNullVal is not None:
+        # cast to the same type we are using for imagery
+        # (GDAL records this value as double)
+        imgNullVal = numbaTypeForImageType(imgNullVal)
+        
     histColNdx = checkHistColumn(existingColNames)
     segSize = attrTbl.ReadAsArray(histColNdx).astype(numpy.uint32)
     
@@ -863,6 +873,7 @@ def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile,
     
     segDict = createSegDict()
     pagedRat = createPagedRat()
+    noDataDict = createNoDataDict()
     
     for tileRow in range(numYtiles):
         for tileCol in range(numXtiles):
@@ -874,9 +885,10 @@ def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile,
             tileSegments = segband.ReadAsArray(leftPix, topLine, xsize, ysize)
             tileImageData = imgband.ReadAsArray(leftPix, topLine, xsize, ysize)
             
-            accumulateSegDict(segDict, tileSegments, tileImageData)
-            calcStatsForCompletedSegs(segDict, pagedRat, statsSelection_fast, 
-                segSize, numIntCols, numFloatCols)
+            accumulateSegDict(segDict, noDataDict, imgNullVal, tileSegments, 
+                tileImageData)
+            calcStatsForCompletedSegs(segDict, noDataDict, pagedRat, 
+                statsSelection_fast, segSize, numIntCols, numFloatCols)
             
             writeCompletePages(pagedRat, attrTbl, statsSelection_fast)
 
@@ -893,7 +905,7 @@ numbaTypeForImageType = types.int64
 segIdNumbaType = types.uint32
 
 @njit
-def accumulateSegDict(segDict, tileSegments, tileImageData):
+def accumulateSegDict(segDict, noDataDict, imgNullVal, tileSegments, tileImageData):
     """
     Accumulate per-segment histogram counts for all 
     pixels in the given tile. Updates segDict entries in-place. 
@@ -904,37 +916,52 @@ def accumulateSegDict(segDict, tileSegments, tileImageData):
         for x in range(xsize):
             segId = tileSegments[y, x]
             if segId != shepseg.SEGNULLVAL:
-                if segId not in segDict:
-                    segDict[segId] = Dict.empty(key_type=numbaTypeForImageType, 
-                        value_type=types.uint32)
                 
                 imgVal = tileImageData[y, x]
-
-                d = segDict[segId]
                 imgVal_typed = numbaTypeForImageType(imgVal)
-                if imgVal_typed not in d:
-                    d[imgVal_typed] = types.uint32(0)
+                if imgNullVal is not None and imgVal_typed == imgNullVal:
+                    # this is the null value for the tileImageData
+                    if segId not in noDataDict:
+                        noDataDict[segId] = types.uint32(0)
+                        
+                    noDataDict[segId] = types.uint32(noDataDict[segId] + 1)
 
-                d[imgVal_typed] = types.uint32(d[imgVal_typed] + 1)
+                else:
+                    # else populate histogram (note: not done if all nodata for this segment)
+                    if segId not in segDict:
+                        segDict[segId] = Dict.empty(key_type=numbaTypeForImageType, 
+                            value_type=types.uint32)
+                    d = segDict[segId]
+                    if imgVal_typed not in d:
+                        d[imgVal_typed] = types.uint32(0)
+
+                    d[imgVal_typed] = types.uint32(d[imgVal_typed] + 1)
 
 
 @njit
-def checkSegComplete(segDict, segSize, segId):
+def checkSegComplete(segDict, noDataDict, segSize, segId):
     """
     Return True if the given segment has a complete entry
     in the segDict, meaning that the pixel count is equal to
     the segment size
     """
-    d = segDict[segIdNumbaType(segId)]
     count = 0
-    for pixVal in d:
-        count += d[pixVal]
+    # add up the counts of the histogram (handle all being nodata)
+    if segId in segDict:
+        d = segDict[segId]
+        for pixVal in d:
+            count += d[pixVal]
+        
+    # now add up any nodata in this segment
+    if segId in noDataDict:
+        count += noDataDict[segId]
+        
     return (count == segSize[segId])
 
 
 @njit
-def calcStatsForCompletedSegs(segDict, pagedRat, statsSelection_fast, segSize,
-        numIntCols, numFloatCols):
+def calcStatsForCompletedSegs(segDict, noDataDict, pagedRat, statsSelection_fast, 
+        segSize, numIntCols, numFloatCols):
     """
     Calculate statistics for all complete segments in the segDict.
     Update the pagedRat with the resulting entries. Completed segments
@@ -948,7 +975,7 @@ def calcStatsForCompletedSegs(segDict, pagedRat, statsSelection_fast, segSize,
         segDictKeys[i] = segId
         i += 1
     for segId in segDictKeys:
-        segComplete = checkSegComplete(segDict, segSize, segId)
+        segComplete = checkSegComplete(segDict, noDataDict, segSize, segId)
         if segComplete:
             segStats = SegmentStats(segDict[segId])
             ratPageId = getRatPageId(segId)
@@ -969,7 +996,12 @@ def calcStatsForCompletedSegs(segDict, pagedRat, statsSelection_fast, segSize,
             ratPage.setSegmentComplete(segId)
             
             # Stats now done for this segment, so remove its histogram
-            segDict.pop(segIdNumbaType(segId))
+            # (if there was one)
+            if segId in segDict:
+                segDict.pop(segId)
+            # same for nodata
+            if segId in noDataDict:
+                noDataDict.pop(segId)
 
 
 def createSegDict():
@@ -985,6 +1017,14 @@ def createSegDict():
     segDict = Dict.empty(key_type=segIdNumbaType, value_type=histDict._dict_type)
     return segDict
 
+def createNoDataDict():
+    """
+    Create the dictionary that holds counts of nodata seen for each 
+    segment. The key is the segId, value is the count of nodata seen 
+    for that segment in the image data.
+    """
+    noDataDict = Dict.empty(key_type=segIdNumbaType, value_type=types.uint32)
+    return noDataDict
 
 def createPagedRat():
     """
@@ -1293,25 +1333,35 @@ class SegmentStats(object):
         in the segment
         """
         self.pixVals, self.counts = getSortedKeysAndValuesForDict(segmentHistDict)
+        
         # Total number of pixels in segment
         self.pixCount = self.counts.sum()
-
-        # Min and max pixel values
-        self.min = self.pixVals[0]
-        self.max = self.pixVals[-1]
-
-        # Mean value
-        self.mean = (self.pixVals * self.counts).sum() / self.pixCount
-
-        # Standard deviation
-        variance = (self.counts * (self.pixVals - self.mean)**2).sum() / self.pixCount
-        self.stddev = numpy.sqrt(variance)
-
-        # Mode
-        self.mode = self.pixVals[numpy.argmax(self.counts)]
         
-        # Median
-        self.median = self.getPercentile(50)
+        if self.pixCount == 0:
+            # all nodata
+            self.min = DFLT_STATS_VALUE
+            self.max = DFLT_STATS_VALUE
+            self.mean = DFLT_STATS_VALUE
+            self.stddev = DFLT_STATS_VALUE
+            self.mode = DFLT_STATS_VALUE
+            self.median = DFLT_STATS_VALUE
+        else:
+            # Min and max pixel values
+            self.min = self.pixVals[0]
+            self.max = self.pixVals[-1]
+
+            # Mean value
+            self.mean = (self.pixVals * self.counts).sum() / self.pixCount
+
+            # Standard deviation
+            variance = (self.counts * (self.pixVals - self.mean)**2).sum() / self.pixCount
+            self.stddev = numpy.sqrt(variance)
+
+            # Mode
+            self.mode = self.pixVals[numpy.argmax(self.counts)]
+
+            # Median
+            self.median = self.getPercentile(50)
         
     def getPercentile(self, percentile):
         """
@@ -1319,14 +1369,18 @@ class SegmentStats(object):
         e.g. getPercentile(50) would return the median value of 
         the segment
         """
-        countAtPcntile = self.pixCount * (percentile / 100)
-        cumCount = 0
-        i = 0
-        while cumCount < countAtPcntile:
-            cumCount += self.counts[i]
-            i += 1
-        pcntileVal = self.pixVals[i-1]
-        return pcntileVal
+        if self.pixCount == 0:
+            # all nodata
+            return DFLT_STATS_VALUE
+        else:
+            countAtPcntile = self.pixCount * (percentile / 100)
+            cumCount = 0
+            i = 0
+            while cumCount < countAtPcntile:
+                cumCount += self.counts[i]
+                i += 1
+            pcntileVal = self.pixVals[i-1]
+            return pcntileVal
     
     def getStat(self, statID, param):
         """
