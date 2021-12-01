@@ -916,6 +916,13 @@ def accumulateSegDict(segDict, noDataDict, imgNullVal, tileSegments, tileImageDa
         for x in range(xsize):
             segId = tileSegments[y, x]
             if segId != shepseg.SEGNULLVAL:
+            
+                # always create a empty dictionary for this segId
+                # even if we haven't got any non-nodata pixels yet
+                # because we loop through values in segDict when calculating dtats
+                if segId not in segDict:
+                    segDict[segId] = Dict.empty(key_type=numbaTypeForImageType, 
+                        value_type=types.uint32)
                 
                 imgVal = tileImageData[y, x]
                 imgVal_typed = numbaTypeForImageType(imgVal)
@@ -928,9 +935,6 @@ def accumulateSegDict(segDict, noDataDict, imgNullVal, tileSegments, tileImageDa
 
                 else:
                     # else populate histogram (note: not done if all nodata for this segment)
-                    if segId not in segDict:
-                        segDict[segId] = Dict.empty(key_type=numbaTypeForImageType, 
-                            value_type=types.uint32)
                     d = segDict[segId]
                     if imgVal_typed not in d:
                         d[imgVal_typed] = types.uint32(0)
@@ -996,10 +1000,8 @@ def calcStatsForCompletedSegs(segDict, noDataDict, pagedRat, statsSelection_fast
             ratPage.setSegmentComplete(segId)
             
             # Stats now done for this segment, so remove its histogram
-            # (if there was one)
-            if segId in segDict:
-                segDict.pop(segId)
-            # same for nodata
+            segDict.pop(segId)
+            # same for nodata (if there is one)
             if segId in noDataDict:
                 noDataDict.pop(segId)
 
