@@ -919,7 +919,7 @@ def accumulateSegDict(segDict, noDataDict, imgNullVal, tileSegments, tileImageDa
             
                 # always create a empty dictionary for this segId
                 # even if we haven't got any non-nodata pixels yet
-                # because we loop through values in segDict when calculating dtats
+                # because we loop through keys of segDict when calculating stats
                 if segId not in segDict:
                     segDict[segId] = Dict.empty(key_type=numbaTypeForImageType, 
                         value_type=types.uint32)
@@ -950,7 +950,7 @@ def checkSegComplete(segDict, noDataDict, segSize, segId):
     the segment size
     """
     count = 0
-    # add up the counts of the histogram (handle all being nodata)
+    # add up the counts of the histogram
     if segId in segDict:
         d = segDict[segId]
         for pixVal in d:
