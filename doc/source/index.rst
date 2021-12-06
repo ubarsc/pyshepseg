@@ -39,7 +39,7 @@ Installation
 The package can be installed directly from the source, using the 
 setup.py script. 
 
-1. Clone the github pyshepseg repository
+1. Clone the pyshepseg repository `<https://github.com/ubarsc/pyshepseg>`_
 2. Run the setup.py script, e.g.
 
 ::
