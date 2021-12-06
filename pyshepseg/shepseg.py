@@ -13,7 +13,8 @@ numba compiled code for the other main components.
 
 Main entry point is the doShepherdSegmentation() function. 
 
-Basic usage:
+**Basic usage** ::
+
     from pyshepseg import shepseg
     
     # Read in a multi-band image as a single array, img,
@@ -30,11 +31,13 @@ of segment ID numbers, of shape (nRows, nCols).
 Resulting segment ID numbers start from 1, and null pixels 
 are set to zero. 
 
-Efficient segment location:
+**Efficient segment location**
+
     After segmentation, the location of individual segments can be
     found efficiently using the object returned by makeSegmentLocations(). 
     
-    E.g. 
+    E.g. ::
+
       segSize = shepseg.makeSegSize(segimg)
       segLoc = shepseg.makeSegmentLocations(segimg, segSize)
     
@@ -43,7 +46,8 @@ Efficient segment location:
     about the pixels which are in that segment. This information 
     can be returned as a slicing object suitable to index the image array
     
-    E.g. 
+    E.g. ::
+
       segNdx = segLoc[segId].getSegmentIndices()
       vals = img[0][segNdx]
     
@@ -392,15 +396,17 @@ def autoMaxSpectralDiff(km, maxSpectralDiff, distPcntile):
 @njit
 def clump(img, ignoreVal, fourConnected=True, clumpId=1):
     """
-    Implementation of clumping using Numba
-    Uses the 4 connected algorithm if fourConnected is True,
-    Otherwise 8 connected
-    img should be an integer 2d array containing the data to be clumped.
-    ignoreVal should be the no data value for the input
-    clumpId is the start clump id to use    
+    Implementation of clumping using Numba. 
 
-    returns a 2d uint32 array containing the clump ids
-    and the highest clumpid used + 1
+    Args:
+      img: should be an integer 2d array containing the data to be clumped.
+      ignoreVal: should be the no data value for the input
+      fourConnected: If True, use 4-way connected, otherwise 8-way
+      clumpId: is the start clump id to use
+
+    Returns:
+      a 2d uint32 array containing the clump ids
+      and the highest clumpid used + 1
     
     """
     
@@ -477,6 +483,7 @@ def makeSegSize(seg):
     Return an array of segment sizes, from the given seg image. The
     returned array is indexed by segment ID. Each element is the 
     number of pixels in that segment. 
+
     """
     maxSegId = seg.max()
     segSize = numpy.zeros(maxSegId+1, dtype=numpy.uint32)
@@ -497,9 +504,15 @@ def eliminateSinglePixels(img, seg, segSize, minSegId, maxSegId, fourConnected):
     neighbouring segment with the spectrally-nearest neighouring
     pixel. 
     
-    img is the original spectral image, of shape (nBands, nRows, nCols)
-    seg is the image of segments, of shape (nRows, nCols)
-    Segment ID numbers start at 1, and the largest is maxSegId. 
+    Args:
+      img: the original spectral image, of shape (nBands, nRows, nCols)
+      seg: the image of segments, of shape (nRows, nCols)
+      segSize: Array of pixel counts for every segment
+      minSegId: Smallest segment ID
+      maxSegId: Largest segment ID
+      fourConnected: If True use 4-way connectedness, otherwise 8-way
+
+    Segment ID numbers start at 1 (i.e. 0 is not valid)
     
     Modifies seg array in place. 
     
@@ -767,6 +780,7 @@ def findMergeSegment(segId, segLoc, seg, segSize, spectSum, maxSpectralDiff,
     should be merged with. The chosen merge segment is the one
     which is spectrally most similar to the given one, as
     measured by minimum Euclidean distance in spectral space. 
+
     """
     bestNbrSeg = SEGNULLVAL
     bestDistSqr = 0.0    # This value is never used
@@ -805,6 +819,7 @@ def doMerge(segId, nbrSegId, seg, segSize, segLoc, spectSum):
     Carry out a single merge. The segId segment is merged to the
     neighbouring nbrSegId. 
     Modifies seg, segSize, segLoc and spectSum in place. 
+
     """
     segRowcols = segLoc[segId].rowcols
     numPix = len(segRowcols)
