@@ -806,7 +806,8 @@ def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile,
     output RAT. 
     The statName is a string used to identify which statistic 
     is to be calculated. Available options are:
-        'min', 'max', 'mean', 'stddev', 'median', 'mode', 'percentile'.
+        'min', 'max', 'mean', 'stddev', 'median', 'mode', 
+        'percentile', 'pixcount'.
     The 'percentile' statistic requires the 3-element form, with 
     the 3rd element being the percentile to be calculated. 
     
@@ -825,6 +826,9 @@ def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile,
     that aren't the nodata value then the value passed in as
     missingStatsValue is put into the RAT for the requested
     statistics.
+    
+    The 'pixcount' statName can be used to find the number of
+    valid pixels (not nodata) that were used to calculate the statistics.
 
     """
     segds = segfile
@@ -1220,6 +1224,7 @@ STATID_STDDEV = 3
 STATID_MEDIAN = 4
 STATID_MODE = 5
 STATID_PERCENTILE = 6
+STATID_PIXCOUNT = 7
 statIDdict = {
     'min':STATID_MIN,
     'max':STATID_MAX,
@@ -1227,7 +1232,8 @@ statIDdict = {
     'stddev':STATID_STDDEV,
     'median':STATID_MEDIAN,
     'mode':STATID_MODE,
-    'percentile':STATID_PERCENTILE
+    'percentile':STATID_PERCENTILE,
+    'pixcount':STATID_PIXCOUNT
 }
 NOPARAM = -1
 
@@ -1413,6 +1419,8 @@ class SegmentStats(object):
             val = self.mode
         elif statID == STATID_PERCENTILE:
             val = self.getPercentile(param)
+        elif statID == STATID_PIXCOUNT:
+            val = self.pixCount
         return val
 
 
