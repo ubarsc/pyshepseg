@@ -81,9 +81,6 @@ DFLT_CHUNKSIZE = 100000
 
 TILESIZE = 1024
 
-# for when there are no valid pixels for a segment
-DFLT_STATS_VALUE = 0
-
 class TiledSegmentationResult(object):
     """
     Result of tiled segmentation
@@ -788,7 +785,7 @@ def equalProjection(proj1, proj2):
     return bool(srSelf.IsSame(srOther))
     
 def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile, 
-            statsSelection):
+            statsSelection, missingStatsValue=-9999):
     """
     Calculate selected per-segment statistics for the given band 
     of the imgfile, against the given segment raster file. 
@@ -822,6 +819,12 @@ def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile,
     would create 4 columns, for the per-segment mean and 
     standard deviation of the given band, and the lower and upper 
     quartiles, with corresponding column names. 
+    
+    Any pixels that are set to the nodata value of imgfile (if set)
+    are ignored in the stats calculations. If there are no pixels
+    that aren't the nodata value then the value passed in as
+    missingStatsValue is put into the RAT for the requested
+    statistics.
 
     """
     segds = segfile
@@ -887,8 +890,8 @@ def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile,
             
             accumulateSegDict(segDict, noDataDict, imgNullVal, tileSegments, 
                 tileImageData)
-            calcStatsForCompletedSegs(segDict, noDataDict, pagedRat, 
-                statsSelection_fast, segSize, numIntCols, numFloatCols)
+            calcStatsForCompletedSegs(segDict, noDataDict, missingStatsValue, 
+                pagedRat, statsSelection_fast, segSize, numIntCols, numFloatCols)
             
             writeCompletePages(pagedRat, attrTbl, statsSelection_fast)
 
@@ -964,8 +967,8 @@ def checkSegComplete(segDict, noDataDict, segSize, segId):
 
 
 @njit
-def calcStatsForCompletedSegs(segDict, noDataDict, pagedRat, statsSelection_fast, 
-        segSize, numIntCols, numFloatCols):
+def calcStatsForCompletedSegs(segDict, noDataDict, missingStatsValue, pagedRat, 
+        statsSelection_fast,  segSize, numIntCols, numFloatCols):
     """
     Calculate statistics for all complete segments in the segDict.
     Update the pagedRat with the resulting entries. Completed segments
@@ -981,7 +984,7 @@ def calcStatsForCompletedSegs(segDict, noDataDict, pagedRat, statsSelection_fast
     for segId in segDictKeys:
         segComplete = checkSegComplete(segDict, noDataDict, segSize, segId)
         if segComplete:
-            segStats = SegmentStats(segDict[segId])
+            segStats = SegmentStats(segDict[segId], missingStatsValue)
             ratPageId = getRatPageId(segId)
             if ratPageId not in pagedRat:
                 numSegThisPage = min(RAT_PAGE_SIZE, (maxSegId - ratPageId + 1))
@@ -1323,30 +1326,38 @@ segStatsSpec = [('pixVals', numbaTypeForImageType[:]),
                 ('mean', types.float32),
                 ('stddev', types.float32),
                 ('median', numbaTypeForImageType),
-                ('mode', numbaTypeForImageType)
+                ('mode', numbaTypeForImageType),
+                ('missingStatsValue', numbaTypeForImageType)
                ]
 @jitclass(segStatsSpec)
 class SegmentStats(object):
     "Manage statistics for a single segment"
-    def __init__(self, segmentHistDict):
+    def __init__(self, segmentHistDict, missingStatsValue):
         """
         Construct with generic statistics, given a typed 
         dictionary of the histogram counts of all values
-        in the segment
+        in the segment.
+        
+        If there are no valid pixels then the value passed
+        in as missingStatsValue is returned for the requested
+        stats.
+        
         """
         self.pixVals, self.counts = getSortedKeysAndValuesForDict(segmentHistDict)
         
         # Total number of pixels in segment
         self.pixCount = self.counts.sum()
         
+        self.missingStatsValue = missingStatsValue
+        
         if self.pixCount == 0:
             # all nodata
-            self.min = DFLT_STATS_VALUE
-            self.max = DFLT_STATS_VALUE
-            self.mean = DFLT_STATS_VALUE
-            self.stddev = DFLT_STATS_VALUE
-            self.mode = DFLT_STATS_VALUE
-            self.median = DFLT_STATS_VALUE
+            self.min = missingStatsValue
+            self.max = missingStatsValue
+            self.mean = missingStatsValue
+            self.stddev = missingStatsValue
+            self.mode = missingStatsValue
+            self.median = missingStatsValue
         else:
             # Min and max pixel values
             self.min = self.pixVals[0]
@@ -1373,7 +1384,7 @@ class SegmentStats(object):
         """
         if self.pixCount == 0:
             # all nodata
-            return DFLT_STATS_VALUE
+            return self.missingStatsValue
         else:
             countAtPcntile = self.pixCount * (percentile / 100)
             cumCount = 0
