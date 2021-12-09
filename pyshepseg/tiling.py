@@ -785,7 +785,7 @@ def equalProjection(proj1, proj2):
     return bool(srSelf.IsSame(srOther))
     
 def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile, 
-            statsSelection):
+            statsSelection, missingStatsValue=-9999):
     """
     Calculate selected per-segment statistics for the given band 
     of the imgfile, against the given segment raster file. 
@@ -806,7 +806,8 @@ def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile,
     output RAT. 
     The statName is a string used to identify which statistic 
     is to be calculated. Available options are:
-        'min', 'max', 'mean', 'stddev', 'median', 'mode', 'percentile'.
+        'min', 'max', 'mean', 'stddev', 'median', 'mode', 
+        'percentile', 'pixcount'.
     The 'percentile' statistic requires the 3-element form, with 
     the 3rd element being the percentile to be calculated. 
     
@@ -819,6 +820,15 @@ def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile,
     would create 4 columns, for the per-segment mean and 
     standard deviation of the given band, and the lower and upper 
     quartiles, with corresponding column names. 
+    
+    Any pixels that are set to the nodata value of imgfile (if set)
+    are ignored in the stats calculations. If there are no pixels
+    that aren't the nodata value then the value passed in as
+    missingStatsValue is put into the RAT for the requested
+    statistics.
+    
+    The 'pixcount' statName can be used to find the number of
+    valid pixels (not nodata) that were used to calculate the statistics.
 
     """
     segds = segfile
@@ -847,6 +857,13 @@ def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile,
     existingColNames = [attrTbl.GetNameOfCol(i) 
         for i in range(attrTbl.GetColumnCount())]
         
+    # Note: may be None if no value set
+    imgNullVal = imgband.GetNoDataValue()
+    if imgNullVal is not None:
+        # cast to the same type we are using for imagery
+        # (GDAL records this value as double)
+        imgNullVal = numbaTypeForImageType(imgNullVal)
+        
     histColNdx = checkHistColumn(existingColNames)
     segSize = attrTbl.ReadAsArray(histColNdx).astype(numpy.uint32)
     
@@ -863,6 +880,7 @@ def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile,
     
     segDict = createSegDict()
     pagedRat = createPagedRat()
+    noDataDict = createNoDataDict()
     
     for tileRow in range(numYtiles):
         for tileCol in range(numXtiles):
@@ -874,9 +892,10 @@ def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile,
             tileSegments = segband.ReadAsArray(leftPix, topLine, xsize, ysize)
             tileImageData = imgband.ReadAsArray(leftPix, topLine, xsize, ysize)
             
-            accumulateSegDict(segDict, tileSegments, tileImageData)
-            calcStatsForCompletedSegs(segDict, pagedRat, statsSelection_fast, 
-                segSize, numIntCols, numFloatCols)
+            accumulateSegDict(segDict, noDataDict, imgNullVal, tileSegments, 
+                tileImageData)
+            calcStatsForCompletedSegs(segDict, noDataDict, missingStatsValue, 
+                pagedRat, statsSelection_fast, segSize, numIntCols, numFloatCols)
             
             writeCompletePages(pagedRat, attrTbl, statsSelection_fast)
 
@@ -893,7 +912,7 @@ numbaTypeForImageType = types.int64
 segIdNumbaType = types.uint32
 
 @njit
-def accumulateSegDict(segDict, tileSegments, tileImageData):
+def accumulateSegDict(segDict, noDataDict, imgNullVal, tileSegments, tileImageData):
     """
     Accumulate per-segment histogram counts for all 
     pixels in the given tile. Updates segDict entries in-place. 
@@ -904,37 +923,56 @@ def accumulateSegDict(segDict, tileSegments, tileImageData):
         for x in range(xsize):
             segId = tileSegments[y, x]
             if segId != shepseg.SEGNULLVAL:
+            
+                # always create a empty dictionary for this segId
+                # even if we haven't got any non-nodata pixels yet
+                # because we loop through keys of segDict when calculating stats
                 if segId not in segDict:
                     segDict[segId] = Dict.empty(key_type=numbaTypeForImageType, 
                         value_type=types.uint32)
                 
                 imgVal = tileImageData[y, x]
-
-                d = segDict[segId]
                 imgVal_typed = numbaTypeForImageType(imgVal)
-                if imgVal_typed not in d:
-                    d[imgVal_typed] = types.uint32(0)
+                if imgNullVal is not None and imgVal_typed == imgNullVal:
+                    # this is the null value for the tileImageData
+                    if segId not in noDataDict:
+                        noDataDict[segId] = types.uint32(0)
+                        
+                    noDataDict[segId] = types.uint32(noDataDict[segId] + 1)
 
-                d[imgVal_typed] = types.uint32(d[imgVal_typed] + 1)
+                else:
+                    # else populate histogram (note: not done if all nodata for this segment)
+                    d = segDict[segId]
+                    if imgVal_typed not in d:
+                        d[imgVal_typed] = types.uint32(0)
+
+                    d[imgVal_typed] = types.uint32(d[imgVal_typed] + 1)
 
 
 @njit
-def checkSegComplete(segDict, segSize, segId):
+def checkSegComplete(segDict, noDataDict, segSize, segId):
     """
     Return True if the given segment has a complete entry
     in the segDict, meaning that the pixel count is equal to
     the segment size
     """
-    d = segDict[segIdNumbaType(segId)]
     count = 0
-    for pixVal in d:
-        count += d[pixVal]
+    # add up the counts of the histogram
+    if segId in segDict:
+        d = segDict[segId]
+        for pixVal in d:
+            count += d[pixVal]
+        
+    # now add up any nodata in this segment
+    if segId in noDataDict:
+        count += noDataDict[segId]
+        
     return (count == segSize[segId])
 
 
 @njit
-def calcStatsForCompletedSegs(segDict, pagedRat, statsSelection_fast, segSize,
-        numIntCols, numFloatCols):
+def calcStatsForCompletedSegs(segDict, noDataDict, missingStatsValue, pagedRat, 
+        statsSelection_fast,  segSize, numIntCols, numFloatCols):
     """
     Calculate statistics for all complete segments in the segDict.
     Update the pagedRat with the resulting entries. Completed segments
@@ -948,9 +986,9 @@ def calcStatsForCompletedSegs(segDict, pagedRat, statsSelection_fast, segSize,
         segDictKeys[i] = segId
         i += 1
     for segId in segDictKeys:
-        segComplete = checkSegComplete(segDict, segSize, segId)
+        segComplete = checkSegComplete(segDict, noDataDict, segSize, segId)
         if segComplete:
-            segStats = SegmentStats(segDict[segId])
+            segStats = SegmentStats(segDict[segId], missingStatsValue)
             ratPageId = getRatPageId(segId)
             if ratPageId not in pagedRat:
                 numSegThisPage = min(RAT_PAGE_SIZE, (maxSegId - ratPageId + 1))
@@ -969,7 +1007,10 @@ def calcStatsForCompletedSegs(segDict, pagedRat, statsSelection_fast, segSize,
             ratPage.setSegmentComplete(segId)
             
             # Stats now done for this segment, so remove its histogram
-            segDict.pop(segIdNumbaType(segId))
+            segDict.pop(segId)
+            # same for nodata (if there is one)
+            if segId in noDataDict:
+                noDataDict.pop(segId)
 
 
 def createSegDict():
@@ -985,6 +1026,14 @@ def createSegDict():
     segDict = Dict.empty(key_type=segIdNumbaType, value_type=histDict._dict_type)
     return segDict
 
+def createNoDataDict():
+    """
+    Create the dictionary that holds counts of nodata seen for each 
+    segment. The key is the segId, value is the count of nodata seen 
+    for that segment in the image data.
+    """
+    noDataDict = Dict.empty(key_type=segIdNumbaType, value_type=types.uint32)
+    return noDataDict
 
 def createPagedRat():
     """
@@ -1175,6 +1224,7 @@ STATID_STDDEV = 3
 STATID_MEDIAN = 4
 STATID_MODE = 5
 STATID_PERCENTILE = 6
+STATID_PIXCOUNT = 7
 statIDdict = {
     'min':STATID_MIN,
     'max':STATID_MAX,
@@ -1182,7 +1232,8 @@ statIDdict = {
     'stddev':STATID_STDDEV,
     'median':STATID_MEDIAN,
     'mode':STATID_MODE,
-    'percentile':STATID_PERCENTILE
+    'percentile':STATID_PERCENTILE,
+    'pixcount':STATID_PIXCOUNT
 }
 NOPARAM = -1
 
@@ -1281,37 +1332,55 @@ segStatsSpec = [('pixVals', numbaTypeForImageType[:]),
                 ('mean', types.float32),
                 ('stddev', types.float32),
                 ('median', numbaTypeForImageType),
-                ('mode', numbaTypeForImageType)
+                ('mode', numbaTypeForImageType),
+                ('missingStatsValue', numbaTypeForImageType)
                ]
 @jitclass(segStatsSpec)
 class SegmentStats(object):
     "Manage statistics for a single segment"
-    def __init__(self, segmentHistDict):
+    def __init__(self, segmentHistDict, missingStatsValue):
         """
         Construct with generic statistics, given a typed 
         dictionary of the histogram counts of all values
-        in the segment
+        in the segment.
+        
+        If there are no valid pixels then the value passed
+        in as missingStatsValue is returned for the requested
+        stats.
+        
         """
         self.pixVals, self.counts = getSortedKeysAndValuesForDict(segmentHistDict)
+        
         # Total number of pixels in segment
         self.pixCount = self.counts.sum()
-
-        # Min and max pixel values
-        self.min = self.pixVals[0]
-        self.max = self.pixVals[-1]
-
-        # Mean value
-        self.mean = (self.pixVals * self.counts).sum() / self.pixCount
-
-        # Standard deviation
-        variance = (self.counts * (self.pixVals - self.mean)**2).sum() / self.pixCount
-        self.stddev = numpy.sqrt(variance)
-
-        # Mode
-        self.mode = self.pixVals[numpy.argmax(self.counts)]
         
-        # Median
-        self.median = self.getPercentile(50)
+        self.missingStatsValue = missingStatsValue
+        
+        if self.pixCount == 0:
+            # all nodata
+            self.min = missingStatsValue
+            self.max = missingStatsValue
+            self.mean = missingStatsValue
+            self.stddev = missingStatsValue
+            self.mode = missingStatsValue
+            self.median = missingStatsValue
+        else:
+            # Min and max pixel values
+            self.min = self.pixVals[0]
+            self.max = self.pixVals[-1]
+
+            # Mean value
+            self.mean = (self.pixVals * self.counts).sum() / self.pixCount
+
+            # Standard deviation
+            variance = (self.counts * (self.pixVals - self.mean)**2).sum() / self.pixCount
+            self.stddev = numpy.sqrt(variance)
+
+            # Mode
+            self.mode = self.pixVals[numpy.argmax(self.counts)]
+
+            # Median
+            self.median = self.getPercentile(50)
         
     def getPercentile(self, percentile):
         """
@@ -1319,14 +1388,18 @@ class SegmentStats(object):
         e.g. getPercentile(50) would return the median value of 
         the segment
         """
-        countAtPcntile = self.pixCount * (percentile / 100)
-        cumCount = 0
-        i = 0
-        while cumCount < countAtPcntile:
-            cumCount += self.counts[i]
-            i += 1
-        pcntileVal = self.pixVals[i-1]
-        return pcntileVal
+        if self.pixCount == 0:
+            # all nodata
+            return self.missingStatsValue
+        else:
+            countAtPcntile = self.pixCount * (percentile / 100)
+            cumCount = 0
+            i = 0
+            while cumCount < countAtPcntile:
+                cumCount += self.counts[i]
+                i += 1
+            pcntileVal = self.pixVals[i-1]
+            return pcntileVal
     
     def getStat(self, statID, param):
         """
@@ -1346,6 +1419,8 @@ class SegmentStats(object):
             val = self.mode
         elif statID == STATID_PERCENTILE:
             val = self.getPercentile(param)
+        elif statID == STATID_PIXCOUNT:
+            val = self.pixCount
         return val
 
 
