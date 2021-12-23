@@ -1,7 +1,7 @@
 Pyshepseg Release Notes
 =======================
 
-Version 1.1.0 (2021-12-25)
+Version 1.1.0 (2021-12-24)
 --------------------------
 
 Bug Fixes:
