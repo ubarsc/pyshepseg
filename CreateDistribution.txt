@@ -3,7 +3,7 @@ How to create a distribution of pyshepseg.
 1. Ensure that you have fetched and committed everything which needs to go in.
 2. Change the version number in the pyshepseg/__init__.py. Version number
    is of the form a.b.c, as discussed below. 
-3. Update the release notes page ReleaseNotes.rst, by going through the 
+3. Update the release notes page doc/source/ReleaseNotes.rst, by going through the 
    change logs since the last release, and noting what has been done. 
    DON'T FORGET TO COMMIT THIS, BEFORE THE NEXT STEP!!!!
 4. Push the changes to github with "git push". 
