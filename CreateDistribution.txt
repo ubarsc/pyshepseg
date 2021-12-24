@@ -12,12 +12,14 @@ How to create a distribution of pyshepseg.
 6. Create the distribution tarball, using
     python setup.py sdist --formats=zip
    This creates a zip file, under a subdirectory called dist
-7. Go to the https://github.com/ubarsc/pyshepseg/releases page, and create a 
+7. Create a checksums this, e.g.
+       sha256sum pyshepseg-1.2.3.zip > pyshepseg-1.2.3.zip.sha256
+8. Go to the https://github.com/ubarsc/pyshepseg/releases page, and create a 
    new release by pressing "Draft a new release". 
    You should fill in the following:
        Tag version: pyshepseg-A.B.C
        Release Title: Version A.B.C
-       Upload files: Add the zip file.
+       Upload files: Add the zip file and the checksum.
        Click "Publish release"
        
 
