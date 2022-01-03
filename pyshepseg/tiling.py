@@ -335,6 +335,59 @@ def doTiledShepherdSegmentation(infile, outfile, tileSize=DFLT_TILESIZE,
     Return an instance of TiledSegmentationResult class. 
     
     """
+    
+    inDS, bandNumbers, kmeansObj, subsamplePcnt, imgNullVal, tileInfo = (
+        doTiledShepherdSegmentation_prepare(infile, outfile, tileSize, 
+        overlapSize, bandNumbers, imgNullVal, verbose, numClusters, 
+        subsamplePcnt, fixedKMeansInit))
+        
+    # create a temp directory for use in splitting out tiles, overlaps etc
+    tempDir = tempfile.mkdtemp()
+    
+    tileFilenames = {}
+
+    colRowList = sorted(tileInfo.tiles.keys(), key=lambda x:(x[1], x[0]))
+    tileNum = 1
+    for col, row in colRowList:
+        if verbose:
+            print("\nDoing tile {} of {}: row={}, col={}".format(
+                tileNum, len(colRowList), row, col))
+
+        filename = 'tile_{}_{}.{}'.format(col, row, TEMPFILES_EXT)
+        filename = os.path.join(tempDir, filename)
+
+        segResult = doTiledShepherdSegmentation_doOne(inDs, filename, tileInfo, 
+            col, row, bandNumbers, minSegmentSize, maxSpectralDiff, imgNullVal, 
+            fourConnected, kmeansObj, verbose, spectDistPcntile)
+        tileFilenames[(col, row)] = filename
+
+        tileNum += 1
+        
+    maxSegId, hasEmptySegments = doTiledShepherdSegmentation_finalize(inDs, 
+        outfile, tileFilenames, tileInfo, overlapSize, tempDir, simpleTileRecode, 
+        outputDriver, creationOptions, verbose)
+
+    shutil.rmtree(tempDir)
+    
+    tiledSegResult = TiledSegmentationResult()
+    tiledSegResult.maxSegId = maxSegId
+    tiledSegResult.numTileRows = tileInfo.nrows
+    tiledSegResult.numTileCols = tileInfo.ncols
+    tiledSegResult.subsamplePcnt = subsamplePcnt
+    tiledSegResult.maxSpectralDiff = segResult.maxSpectralDiff
+    tiledSegResult.kmeans = kmeansObj
+    tiledSegResult.hasEmptySegments = hasEmptySegments
+    
+    return tiledSegResult
+    
+def doTiledShepherdSegmentation_prepare(infile, outfile, tileSize=DFLT_TILESIZE, 
+        overlapSize=DFLT_OVERLAPSIZE, bandNumbers=None, imgNullVal=None, 
+        kmeansObj=None, verbose=False, numClusters=60, subsamplePcnt=None, 
+        fixedKMeansInit=False):
+    """
+    Do all the preparation for the tiled segmentation.
+    """
+        
     if verbose:
         print("Starting tiled segmentation")
     if (overlapSize % 2) != 0:
@@ -357,16 +410,23 @@ def doTiledShepherdSegmentation(infile, outfile, tileSize=DFLT_TILESIZE,
         # make sure we have the null value, even if they have supplied the kMeans
         imgNullVal = getImgNullValue(inDs, bandNumbers)
     
-    # create a temp directory for use in splitting out tiles, overlaps etc
-    tempDir = tempfile.mkdtemp()
-    
     tileInfo = getTilesForFile(inDs, tileSize, overlapSize)
     if verbose:
         print("Found {} tiles, with {} rows and {} cols".format(
             tileInfo.getNumTiles(), tileInfo.nrows, tileInfo.ncols))
-        
-    transform = inDs.GetGeoTransform()
-    tileFilenames = {}
+            
+    return inDS, bandNumbers, kmeansObj, subsamplePcnt, imgNullVal, tileInfo
+    
+    
+def doTiledShepherdSegmentation_doOne(inDs, filename, tileInfo, col, row, 
+        bandNumbers, imgNullVal, kmeansObj, minSegmentSize=50, 
+        maxSpectralDiff='auto', verbose=False, spectDistPcntile=50, 
+        fourConnected=True):
+    """
+    Called from doTiledShepherdSegmentation(). Does a single tile and split
+    out here as a seperate function so it can be called from in parallel 
+    with other tiles if desired.
+    """
 
     outDrvr = gdal.GetDriverByName(TEMPFILES_DRIVER)
 
@@ -374,70 +434,58 @@ def doTiledShepherdSegmentation(infile, outfile, tileSize=DFLT_TILESIZE,
         msg = 'This GDAL does not support driver {}'.format(TEMPFILES_DRIVER)
         raise SystemExit(msg)
     
-    colRowList = sorted(tileInfo.tiles.keys(), key=lambda x:(x[1], x[0]))
-    tileNum = 1
-    for col, row in colRowList:
-        if verbose:
-            print("\nDoing tile {} of {}: row={}, col={}".format(
-                tileNum, len(colRowList), row, col))
+    xpos, ypos, xsize, ysize = tileInfo.getTile(col, row)
+    lyrDataList = []
+    for bandNum in bandNumbers:
+        lyr = inDs.GetRasterBand(bandNum)
+        lyrData = lyr.ReadAsArray(xpos, ypos, xsize, ysize)
+        lyrDataList.append(lyrData)
 
-        xpos, ypos, xsize, ysize = tileInfo.getTile(col, row)
-        lyrDataList = []
-        for bandNum in bandNumbers:
-            lyr = inDs.GetRasterBand(bandNum)
-            lyrData = lyr.ReadAsArray(xpos, ypos, xsize, ysize)
-            lyrDataList.append(lyrData)
-            
-        img = numpy.array(lyrDataList)
+    img = numpy.array(lyrDataList)
+
+    segResult = shepseg.doShepherdSegmentation(img, 
+                minSegmentSize=minSegmentSize,
+                maxSpectralDiff=maxSpectralDiff, imgNullVal=imgNullVal, 
+                fourConnected=fourConnected, kmeansObj=kmeansObj, 
+                verbose=verbose, spectDistPcntile=spectDistPcntile)
+
+    if os.path.exists(filename):
+        outDrvr.Delete(filename)
+
+    outType = gdal.GDT_UInt32
+
+    outDs = outDrvr.Create(filename, xsize, ysize, 1, outType, 
+                options=creationOptions)
+    outDs.SetProjection(inDs.GetProjection())
+    transform = inDs.GetGeoTransform()
+    subsetTransform = list(transform)
+    subsetTransform[0] = transform[0] + xpos * transform[1]
+    subsetTransform[3] = transform[3] + ypos * transform[5]
+    outDs.SetGeoTransform(tuple(subsetTransform))
+    b = outDs.GetRasterBand(1)
+    b.WriteArray(segResult.segimg)
+    b.SetMetadataItem('LAYER_TYPE', 'thematic')
+    b.SetNoDataValue(shepseg.SEGNULLVAL)
+
+    del outDs
     
-        segResult = shepseg.doShepherdSegmentation(img, 
-                    minSegmentSize=minSegmentSize,
-                    maxSpectralDiff=maxSpectralDiff, imgNullVal=imgNullVal, 
-                    fourConnected=fourConnected, kmeansObj=kmeansObj, 
-                    verbose=verbose, spectDistPcntile=spectDistPcntile)
-        
-        filename = 'tile_{}_{}.{}'.format(col, row, TEMPFILES_EXT)
-        filename = os.path.join(tempDir, filename)
-        tileFilenames[(col, row)] = filename
-        
-        if os.path.exists(filename):
-            outDrvr.Delete(filename)
-
-        outType = gdal.GDT_UInt32
-
-        outDs = outDrvr.Create(filename, xsize, ysize, 1, outType, 
-                    options=creationOptions)
-        outDs.SetProjection(inDs.GetProjection())
-        subsetTransform = list(transform)
-        subsetTransform[0] = transform[0] + xpos * transform[1]
-        subsetTransform[3] = transform[3] + ypos * transform[5]
-        outDs.SetGeoTransform(tuple(subsetTransform))
-        b = outDs.GetRasterBand(1)
-        b.WriteArray(segResult.segimg)
-        b.SetMetadataItem('LAYER_TYPE', 'thematic')
-        b.SetNoDataValue(shepseg.SEGNULLVAL)
-        
-        del outDs
-        tileNum += 1
+    return segResult
+    
+def doTiledShepherdSegmentation_finalize(inDs, outfile, tileFilenames, tileInfo, 
+        overlapSize, tempDir, simpleTileRecode=False, outputDriver='KEA', 
+        creationOptions[], verbose=False):
+    """
+    Do the stitching of tiles and check for empty segments. Call after every 
+    doTiledShepherdSegmentation_doOne() has completed.
+    
+    """
         
     maxSegId = stitchTiles(inDs, outfile, tileFilenames, tileInfo, overlapSize,
         tempDir, simpleTileRecode, outputDriver, creationOptions, verbose)
-        
-    shutil.rmtree(tempDir)
 
     hasEmptySegments = checkForEmptySegments(outfile, maxSegId, overlapSize)
-
-    tiledSegResult = TiledSegmentationResult()
-    tiledSegResult.maxSegId = maxSegId
-    tiledSegResult.numTileRows = tileInfo.nrows
-    tiledSegResult.numTileCols = tileInfo.ncols
-    tiledSegResult.subsamplePcnt = subsamplePcnt
-    tiledSegResult.maxSpectralDiff = segResult.maxSpectralDiff
-    tiledSegResult.kmeans = kmeansObj
-    tiledSegResult.hasEmptySegments = hasEmptySegments
     
-    return tiledSegResult
-
+    return maxSegId, hasEmptySegments
 
 def checkForEmptySegments(outfile, maxSegId, overlapSize):
     """
