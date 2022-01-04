@@ -71,8 +71,8 @@ from numba.experimental import jitclass
 
 from . import shepseg
 
-TEMPFILES_DRIVER = 'KEA'
-TEMPFILES_EXT = 'kea'
+DFLT_TEMPFILES_DRIVER = 'KEA'
+DFLT_TEMPFILES_EXT = 'kea'
 
 DFLT_TILESIZE = 4096
 DFLT_OVERLAPSIZE = 1024
@@ -305,7 +305,9 @@ def doTiledShepherdSegmentation(infile, outfile, tileSize=DFLT_TILESIZE,
         bandNumbers=None, subsamplePcnt=None, maxSpectralDiff='auto', 
         imgNullVal=None, fixedKMeansInit=False, fourConnected=True, 
         verbose=False, simpleTileRecode=False, outputDriver='KEA',
-        creationOptions=[], spectDistPcntile=50, kmeansObj=None):
+        creationOptions=[], spectDistPcntile=50, kmeansObj=None,
+        tempfilesDriver=DFLT_TEMPFILES_DRIVER, tempfilesExt=DFLT_TEMPFILES_EXT,
+        tempfilesCreationOptions=[]):
     """
     Run the Shepherd segmentation algorithm in a memory-efficient
     manner, suitable for large raster files. Runs the segmentation
@@ -326,7 +328,13 @@ def doTiledShepherdSegmentation(infile, outfile, tileSize=DFLT_TILESIZE,
     slightly larger than tileSize to ensure there are no small tiles.
 
     outputDriver is a string of the name of the GDAL driver to use
-    for the output file. 
+    for the output file. creationOptions is the list of creation options
+    to use for this driver.
+    
+    tempfilesDriver is a string of the name of the GDAL driver to use
+    for temporary files. tempfilesExt the the extension to use and
+    tempfilesCreationOptions is the list of creation options to use for 
+    this driver.
     
     Most of the arguments are passed through to 
     shepseg.doShepherdSegmentation, and are described in the docstring 
@@ -335,10 +343,10 @@ def doTiledShepherdSegmentation(infile, outfile, tileSize=DFLT_TILESIZE,
     Return an instance of TiledSegmentationResult class. 
     
     """
-    
-    inDS, bandNumbers, kmeansObj, subsamplePcnt, imgNullVal, tileInfo = (
+ 
+    inDs, bandNumbers, kmeansObj, subsamplePcnt, imgNullVal, tileInfo = (
         doTiledShepherdSegmentation_prepare(infile, outfile, tileSize, 
-        overlapSize, bandNumbers, imgNullVal, verbose, numClusters, 
+        overlapSize, bandNumbers, imgNullVal, kmeansObj, verbose, numClusters, 
         subsamplePcnt, fixedKMeansInit))
         
     # create a temp directory for use in splitting out tiles, overlaps etc
@@ -353,12 +361,13 @@ def doTiledShepherdSegmentation(infile, outfile, tileSize=DFLT_TILESIZE,
             print("\nDoing tile {} of {}: row={}, col={}".format(
                 tileNum, len(colRowList), row, col))
 
-        filename = 'tile_{}_{}.{}'.format(col, row, TEMPFILES_EXT)
+        filename = 'tile_{}_{}.{}'.format(col, row, tempfilesExt)
         filename = os.path.join(tempDir, filename)
 
         segResult = doTiledShepherdSegmentation_doOne(inDs, filename, tileInfo, 
-            col, row, bandNumbers, minSegmentSize, maxSpectralDiff, imgNullVal, 
-            fourConnected, kmeansObj, verbose, spectDistPcntile)
+            col, row, bandNumbers, imgNullVal, kmeansObj, minSegmentSize, 
+            maxSpectralDiff, verbose, spectDistPcntile, fourConnected,
+            tempfilesDriver, tempfilesCreationOptions)
         tileFilenames[(col, row)] = filename
 
         tileNum += 1
@@ -385,7 +394,13 @@ def doTiledShepherdSegmentation_prepare(infile, outfile, tileSize=DFLT_TILESIZE,
         kmeansObj=None, verbose=False, numClusters=60, subsamplePcnt=None, 
         fixedKMeansInit=False):
     """
-    Do all the preparation for the tiled segmentation.
+    Do all the preparation for the tiled segmentation. Call this first if 
+    creating a parallel implementation, then call 
+    doTiledShepherdSegmentation_doOne() for each tile in the returned TileInfo
+    object.
+    
+    Returns a tuple with: (datasetObj, bandNumbers, kmeansObj, subsamplePcnt, 
+    imgNullVal, tileInfo)
     """
         
     if verbose:
@@ -415,23 +430,30 @@ def doTiledShepherdSegmentation_prepare(infile, outfile, tileSize=DFLT_TILESIZE,
         print("Found {} tiles, with {} rows and {} cols".format(
             tileInfo.getNumTiles(), tileInfo.nrows, tileInfo.ncols))
             
-    return inDS, bandNumbers, kmeansObj, subsamplePcnt, imgNullVal, tileInfo
+    return inDs, bandNumbers, kmeansObj, subsamplePcnt, imgNullVal, tileInfo
     
     
 def doTiledShepherdSegmentation_doOne(inDs, filename, tileInfo, col, row, 
         bandNumbers, imgNullVal, kmeansObj, minSegmentSize=50, 
         maxSpectralDiff='auto', verbose=False, spectDistPcntile=50, 
-        fourConnected=True):
+        fourConnected=True, tempfilesDriver=DFLT_TEMPFILES_DRIVER,
+        tempfilesCreationOptions=[]):
     """
     Called from doTiledShepherdSegmentation(). Does a single tile and split
     out here as a seperate function so it can be called from in parallel 
     with other tiles if desired.
+    
+    tileInfo is object returned from doTiledShepherdSegmentation_prepare()
+    and col, row describe the tile that this call will process.
+    
+    Return value is that from shepseg.doShepherdSegmentation().
+    
     """
 
-    outDrvr = gdal.GetDriverByName(TEMPFILES_DRIVER)
+    outDrvr = gdal.GetDriverByName(tempfilesDriver)
 
     if outDrvr is None:
-        msg = 'This GDAL does not support driver {}'.format(TEMPFILES_DRIVER)
+        msg = 'This GDAL does not support driver {}'.format(tempfilesDriver)
         raise SystemExit(msg)
     
     xpos, ypos, xsize, ysize = tileInfo.getTile(col, row)
@@ -455,7 +477,7 @@ def doTiledShepherdSegmentation_doOne(inDs, filename, tileInfo, col, row,
     outType = gdal.GDT_UInt32
 
     outDs = outDrvr.Create(filename, xsize, ysize, 1, outType, 
-                options=creationOptions)
+                options=tempfilesCreationOptions)
     outDs.SetProjection(inDs.GetProjection())
     transform = inDs.GetGeoTransform()
     subsetTransform = list(transform)
@@ -473,10 +495,13 @@ def doTiledShepherdSegmentation_doOne(inDs, filename, tileInfo, col, row,
     
 def doTiledShepherdSegmentation_finalize(inDs, outfile, tileFilenames, tileInfo, 
         overlapSize, tempDir, simpleTileRecode=False, outputDriver='KEA', 
-        creationOptions[], verbose=False):
+        creationOptions=[], verbose=False):
     """
     Do the stitching of tiles and check for empty segments. Call after every 
-    doTiledShepherdSegmentation_doOne() has completed.
+    doTiledShepherdSegmentation_doOne() has completed for a given tiled
+    segmentation.
+    
+    Returns a tuple with (axSegId, hasEmptySegments).
     
     """
         
