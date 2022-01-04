@@ -345,7 +345,7 @@ def doTiledShepherdSegmentation(infile, outfile, tileSize=DFLT_TILESIZE,
     """
  
     inDs, bandNumbers, kmeansObj, subsamplePcnt, imgNullVal, tileInfo = (
-        doTiledShepherdSegmentation_prepare(infile, outfile, tileSize, 
+        doTiledShepherdSegmentation_prepare(infile, tileSize, 
         overlapSize, bandNumbers, imgNullVal, kmeansObj, verbose, numClusters, 
         subsamplePcnt, fixedKMeansInit))
         
@@ -389,7 +389,7 @@ def doTiledShepherdSegmentation(infile, outfile, tileSize=DFLT_TILESIZE,
     
     return tiledSegResult
     
-def doTiledShepherdSegmentation_prepare(infile, outfile, tileSize=DFLT_TILESIZE, 
+def doTiledShepherdSegmentation_prepare(infile, tileSize=DFLT_TILESIZE, 
         overlapSize=DFLT_OVERLAPSIZE, bandNumbers=None, imgNullVal=None, 
         kmeansObj=None, verbose=False, numClusters=60, subsamplePcnt=None, 
         fixedKMeansInit=False):
