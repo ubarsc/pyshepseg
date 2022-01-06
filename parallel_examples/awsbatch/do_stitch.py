@@ -52,16 +52,16 @@ def main():
     localOutfile = os.path.join(tempDir, os.path.basename(cmdargs.outfile))
 
     maxSegId, hasEmptySegments = tiling.doTiledShepherdSegmentation_finalize(
-            inDs, tempDir, tileFilenames, dataFromPickle['tileInfo'], 
+            inDs, localOutfile, tileFilenames, dataFromPickle['tileInfo'], 
             cmdargs.overlapsize, tempDir)
 
     s3.upload_file(localOutfile, cmdargs.bucket, cmdargs.outfile)
 
     objs = [{'Key': cmdargs.pickle}]
     for col, row in tileFilenames:
-        obj.append({'Key': tileFilenames[(col, row)]})
+        objs.append({'Key': tileFilenames[(col, row)]})
 
-    s3.delete_objects(cmdargs.bucket, {'Objects': objs})
+    s3.delete_objects(Bucket=cmdargs.bucket, Delete={'Objects': objs})
 
     shutil.rmtree(tempDir)
 
