@@ -1,5 +1,14 @@
 #!/usr/bin/env python3
 
+"""
+Is the first script that runs for a job submitted by submit-job.py.
+
+Runs tiling.doTiledShepherdSegmentation_prepare() then submits the
+other jobs required to do the tiled segmentation.
+
+
+"""
+
 import io
 import pickle
 import argparse
@@ -7,6 +16,9 @@ import boto3
 from pyshepseg import tiling
 
 def getCmdargs():
+    """
+    Process the command line arguments.
+    """
     p = argparse.ArgumentParser()
     p.add_argument("--bucket", required=True,
         help="S3 Bucket to use")
@@ -38,11 +50,19 @@ def getCmdargs():
     return cmdargs
 
 def main():
+    """
+    Main routine
+    """
     cmdargs = getCmdargs()
 
+    # connect to Batch for submitting other jobs
     batch = boto3.client('batch', region_name=cmdargs.region)
+    # connect to S3 for saving the pickled data file
     s3 = boto3.client('s3')
 
+    # work out the path that will work for GDAL.
+    # Note: input file is assumed to be a format that works with /vsi filesystems
+    # ie: GTiff.
     inPath = '/vsis3/' + cmdargs.bucket + '/' + cmdargs.infile
 
     # run the initial part of the tiled segmentation
@@ -56,12 +76,14 @@ def main():
     dataToPickle = {'tileInfo': tileInfo, 'colRowList': colRowList, 
         'bandNumbers': bandNumbers, 'imgNullVal': imgNullVal, 
         'kmeansObj': kmeansObj}
+    # pickle and upload to S3
     with io.BytesIO() as fileobj:
         pickle.dump(dataToPickle, fileobj)
         fileobj.seek(0)
         s3.upload_fileobj(fileobj, cmdargs.bucket, cmdargs.pickle)
 
     # now submit an array job with all the tiles
+    # (can't do this before now because we don't know how many tiles)
     response = batch.submit_job(jobName="pyshepseg_tiles",
             jobQueue=cmdargs.jobqueue,
             jobDefinition=cmdargs.jobdefntile,
@@ -74,6 +96,7 @@ def main():
     print('Tiles Job Id', tilesJobId)
 
     # now submit a dependent job with the stitching
+    # this one only runs when the array jobs are all done
     response = batch.submit_job(jobName="pyshepseg_stitch",
             jobQueue=cmdargs.jobqueue,
             jobDefinition=cmdargs.jobdefnstitch,
