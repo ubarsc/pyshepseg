@@ -2,14 +2,17 @@
 
 
 import io
+import os
 import pickle
 import argparse
 import tempfile
 import shutil
 import boto3
 from pyshepseg import tiling
+from osgeo import gdal
 
 def getCmdargs():
+    p = argparse.ArgumentParser()
     p.add_argument("--bucket", required=True,
         help="S3 Bucket to use")
     p.add_argument("--infile", required=True,
@@ -25,7 +28,7 @@ def getCmdargs():
 
     return cmdargs
 
-def main()
+def main():
     cmdargs = getCmdargs()
 
     s3 = boto3.client('s3')
@@ -53,6 +56,12 @@ def main()
             cmdargs.overlapsize, tempDir)
 
     s3.upload_file(localOutfile, cmdargs.bucket, cmdargs.outfile)
+
+    objs = [{'Key': cmdargs.pickle}]
+    for col, row in tileFilenames:
+        obj.append({'Key': tileFilenames[(col, row)]})
+
+    s3.delete_objects(cmdargs.bucket, {'Objects': objs})
 
     shutil.rmtree(tempDir)
 

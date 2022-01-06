@@ -54,7 +54,9 @@ def main():
     segResult = tiling.doTiledShepherdSegmentation_doOne(inDs, filename,
             dataFromPickle['tileInfo'], col, row, dataFromPickle['bandNumbers'],
             dataFromPickle['imgNullVal'], dataFromPickle['kmeansObj'], 
-            tempfilesDriver='COG', tempfilesCreationOptions=['COMPRESS=DEFLATE'])
+            tempfilesDriver='GTiff', tempfilesCreationOptions=['COMPRESS=DEFLATE',
+                'ZLEVEL=1', 'PREDICTOR=2', 'TILED=YES', 'INTERLEAVE=BAND', 
+                'BIGTIFF=NO', 'BLOCKXSIZE=512', 'BLOCKYSIZE=512'])
 
     s3.upload_file(filename, cmdargs.bucket, os.path.basename(filename))
 

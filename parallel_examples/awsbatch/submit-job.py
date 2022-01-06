@@ -56,7 +56,7 @@ def main():
             containerOverrides={
                 "command": ['/usr/bin/python3', '/ubarscsw/bin/do_prepare.py',
                     '--bucket', cmdargs.bucket, '--pickle', PICKLE_NAME,
-                    '--infile', cmdargs.infile, 
+                    '--infile', cmdargs.infile, '--outfile', cmdargs.outfile,
                     '--bands', cmdargs.bands, '--tilesize', str(cmdargs.tilesize), 
                     '--overlapsize', str(cmdargs.overlapsize),
                     '--jobqueue', cmdargs.jobqueue, 

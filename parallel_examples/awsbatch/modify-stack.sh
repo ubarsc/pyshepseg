@@ -1,0 +1,5 @@
+#!/bin/bash
+
+aws cloudformation update-stack --stack-name ubarsc-parallel-seg \
+    --template-body file://template/template.yaml \
+    --capabilities CAPABILITY_NAMED_IAM --region eu-central-1

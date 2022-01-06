@@ -12,6 +12,8 @@ def getCmdargs():
         help="S3 Bucket to use")
     p.add_argument("--infile", required=True,
         help="Path in --bucket to use as input file")
+    p.add_argument("--outfile", required=True,
+        help="Path in --bucket to use as output file (.kea)")
     p.add_argument("-b", "--bands", default="3,4,5", 
         help="Comma seperated list of bands to use. 1-based. (default=%(default)s)")
     p.add_argument("--tilesize", required=True, type=int,
@@ -72,20 +74,16 @@ def main():
     print('Tiles Job Id', tilesJobId)
 
     # now submit a dependent job with the stitching
-    """
     response = batch.submit_job(jobName="pyshepseg_stitch",
             jobQueue=cmdargs.jobqueue,
             jobDefinition=cmdargs.jobdefnstitch,
-
             dependsOn=[{'jobId': tilesJobId}],
             containerOverrides={
                 "command": ['/usr/bin/python3', '/ubarscsw/bin/do_stitch.py',
                     '--bucket', cmdargs.bucket, '--outfile', cmdargs.outfile,
                     '--infile', cmdargs.infile, '--pickle', cmdargs.pickle,
-                    '--tilesize', str(cmdargs.tilesize), 
                     '--overlapsize', str(cmdargs.overlapsize)]})
     print('Stitching Job Id', response['jobId'])
-    """
 
 if __name__ == '__main__':
     main()
