@@ -59,7 +59,8 @@ def main():
 
     objs = [{'Key': cmdargs.pickle}]
     for col, row in tileFilenames:
-        objs.append({'Key': tileFilenames[(col, row)]})
+        filename = 'tile_{}_{}.{}'.format(col, row, 'tif')
+        objs.append({'Key': filename})
 
     s3.delete_objects(Bucket=cmdargs.bucket, Delete={'Objects': objs})
 
