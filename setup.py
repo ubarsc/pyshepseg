@@ -27,7 +27,7 @@ setup(name='pyshepseg',
       description='Python implementation of the image segmentation algorithm described by Shepherd et al',
       author='Neil Flood and Sam Gillingham',
       scripts=['bin/test_pyshepseg.py', 'bin/test_pyshepseg_tiling.py', 
-                'bin/test_pyshepseg_subset.py'],
+                'bin/test_pyshepseg_subset.py', 'bin/pyshepseg_runtests.py'],
       packages=['pyshepseg'],
       license='LICENSE.txt', 
       url='https://github.com/ubarsc/pyshepseg'
