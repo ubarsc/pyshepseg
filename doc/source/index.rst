@@ -98,12 +98,12 @@ Their main purpose is as test scripts during development, but they also serve
 as examples of how to write scripts which use the package. In addition, 
 they can also be used directly for simple segmentation tasks. 
 
-The ``test_pyshepseg.py`` script is a wrapper around the basic in-memory usage. 
+The ``pyshepseg_run_seg.py`` script is a wrapper around the basic in-memory usage. 
 
-The ``test_pyshepseg_tiling.py`` script is a wrapper around the tiled 
+The ``pyshepseg_tiling.py`` script is a wrapper around the tiled 
 segmentation for large rasters. 
 
-The ``test_pyshepseg_subset.py`` script uses the ``tiling.subsetImage`` 
+The ``pyshepseg_subset.py`` script uses the ``tiling.subsetImage`` 
 function to subset a segmentation image, re-labelling the segments
 to contiguous segment ID numbers. 
 
