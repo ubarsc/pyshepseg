@@ -24,14 +24,15 @@ jobs:
       run: |
         conda install pyflakes numba scikit-learn gdal
     - name: Lint with pyflakes
+      shell: bash -l {0}
       run: |
         conda info
         conda list
         conda config --show-sources
         conda config --show
-        conda activate test
         pyflakes pyshepseg
     - name: Test with pyshepseg_runtests.py
+      shell: bash -l {0}
       run: |
         python3 setup.py install
         pyshepseg_runtests.py
