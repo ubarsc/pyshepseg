@@ -21,8 +21,8 @@ jobs:
         miniforge-version: latest
         miniforge-variant: Mambaforge
     - name: Install dependencies
+      shell: bash -l {0}
       run: |
-        shell: bash -l {0}
         conda install pyflakes numba scikit-learn gdal
     - name: Lint with pyflakes
       shell: bash -l {0}
