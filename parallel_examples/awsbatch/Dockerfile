@@ -34,12 +34,12 @@ RUN cd /tmp \
     && rm -rf kealib-${KEALIB_VERSION} kealib-${KEALIB_VERSION}.tar.gz
 
 RUN cd /tmp \
-    && wget https://github.com/gillins/pyshepseg/archive/refs/heads/parallel_friendly.zip \
-    && unzip parallel_friendly.zip \
-    && cd pyshepseg-parallel_friendly \
+    && wget https://github.com/ubarsc/pyshepseg/archive/refs/heads/master.zip \
+    && unzip master.zip \
+    && cd pyshepseg-master \
     && python3 setup.py install --prefix=${SW_VOLUME} \
     && cd .. \
-    && rm -rf parallel_friendly.zip pyshepseg-parallel_friendly
+    && rm -rf master.zip pyshepseg-master
 
 ENV PYTHONPATH=${SW_VOLUME}/lib/python3.9/site-packages
 ENV LD_LIBRARY_PATH=${SW_VOLUME}/lib
