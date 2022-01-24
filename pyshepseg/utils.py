@@ -4,26 +4,26 @@ Utility functions for working with segmented data.
 
 """
 
-#Copyright 2021 Neil Flood and Sam Gillingham. All rights reserved.
+# Copyright 2021 Neil Flood and Sam Gillingham. All rights reserved.
 #
-#Permission is hereby granted, free of charge, to any person 
-#obtaining a copy of this software and associated documentation 
-#files (the "Software"), to deal in the Software without restriction, 
-#including without limitation the rights to use, copy, modify, 
-#merge, publish, distribute, sublicense, and/or sell copies of the 
-#Software, and to permit persons to whom the Software is furnished 
-#to do so, subject to the following conditions:
+# Permission is hereby granted, free of charge, to any person 
+# obtaining a copy of this software and associated documentation 
+# files (the "Software"), to deal in the Software without restriction, 
+# including without limitation the rights to use, copy, modify, 
+# merge, publish, distribute, sublicense, and/or sell copies of the 
+# Software, and to permit persons to whom the Software is furnished 
+# to do so, subject to the following conditions:
 #
-#The above copyright notice and this permission notice shall be 
-#included in all copies or substantial portions of the Software.
+# The above copyright notice and this permission notice shall be 
+# included in all copies or substantial portions of the Software.
 #
-#THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, 
-#EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES 
-#OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. 
-#IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR 
-#ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF 
-#CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION 
-#WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, 
+# EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES 
+# OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. 
+# IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR 
+# ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF 
+# CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION 
+# WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 # Just in case anyone is trying to use this with Python-2
 from __future__ import print_function, division
@@ -34,7 +34,8 @@ from . import shepseg
 from osgeo import gdal
 
 DEFAULT_MINOVERVIEWDIM = 100
-DEFAULT_OVERVIEWLEVELS = [ 4, 8, 16, 32, 64, 128, 256, 512 ]
+DEFAULT_OVERVIEWLEVELS = [4, 8, 16, 32, 64, 128, 256, 512]
+
 
 def estimateStatsFromHisto(bandObj, hist):
     """
@@ -70,7 +71,8 @@ def estimateStatsFromHisto(bandObj, hist):
     bandObj.SetMetadataItem("STATISTICS_SKIPFACTORX", "1")
     bandObj.SetMetadataItem("STATISTICS_SKIPFACTORY", "1")
     bandObj.SetMetadataItem("STATISTICS_HISTOBINFUNCTION", "direct")
-    
+
+
 def addOverviews(ds):
     """
     Mimic rios.calcstats behaviour
@@ -83,7 +85,7 @@ def addOverviews(ds):
     
     nOverviews = 0
     for i in DEFAULT_OVERVIEWLEVELS:
-        if (mindim // i ) > DEFAULT_MINOVERVIEWDIM:
+        if (mindim // i) > DEFAULT_MINOVERVIEWDIM:
             nOverviews = nOverviews + 1
             
     ds.BuildOverviews("NEAREST", DEFAULT_OVERVIEWLEVELS[:nOverviews])
