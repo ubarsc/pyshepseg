@@ -15,6 +15,7 @@ import boto3
 # name of pickle to save to S3 with the info needed for each tile
 PICKLE_NAME = 'pyshepseg_tiling.pkl'
 
+
 def getCmdargs():
     p = argparse.ArgumentParser()
     p.add_argument("--bucket", required=True,
@@ -43,6 +44,7 @@ def getCmdargs():
     cmdargs = p.parse_args()
 
     return cmdargs
+
 
 def main():
     cmdargs = getCmdargs()

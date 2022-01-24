@@ -8,26 +8,26 @@ script and handle things like scaling the data in an appripriate
 manner for their application.
 
 """
-#Copyright 2021 Neil Flood and Sam Gillingham. All rights reserved.
+# Copyright 2021 Neil Flood and Sam Gillingham. All rights reserved.
 #
-#Permission is hereby granted, free of charge, to any person 
-#obtaining a copy of this software and associated documentation 
-#files (the "Software"), to deal in the Software without restriction, 
-#including without limitation the rights to use, copy, modify, 
-#merge, publish, distribute, sublicense, and/or sell copies of the 
-#Software, and to permit persons to whom the Software is furnished 
-#to do so, subject to the following conditions:
+# Permission is hereby granted, free of charge, to any person 
+# obtaining a copy of this software and associated documentation 
+# files (the "Software"), to deal in the Software without restriction, 
+# including without limitation the rights to use, copy, modify, 
+# merge, publish, distribute, sublicense, and/or sell copies of the 
+# Software, and to permit persons to whom the Software is furnished 
+# to do so, subject to the following conditions:
 #
-#The above copyright notice and this permission notice shall be 
-#included in all copies or substantial portions of the Software.
+# The above copyright notice and this permission notice shall be 
+# included in all copies or substantial portions of the Software.
 #
-#THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, 
-#EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES 
-#OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. 
-#IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR 
-#ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF 
-#CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION 
-#WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, 
+# EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES 
+# OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. 
+# IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR 
+# ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF 
+# CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION 
+# WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 from __future__ import print_function, division
 
@@ -41,11 +41,12 @@ from pyshepseg import tiling
 from pyshepseg import utils
 
 DFLT_OUTPUT_DRIVER = 'KEA'
-GDAL_DRIVER_CREATION_OPTIONS = {'KEA' : [], 'HFA' : ['COMPRESS=YES']}
+GDAL_DRIVER_CREATION_OPTIONS = {'KEA': [], 'HFA': ['COMPRESS=YES']}
 
 DFLT_MAX_SPECTRAL_DIFF = 'auto'
 
 CLUSTER_CNTRS_METADATA_NAME = 'pyshepseg_cluster_cntrs'
+
 
 def getCmdargs():
     """     
@@ -73,8 +74,8 @@ def getCmdargs():
         help="Use 8-way instead of 4-way")
     segGroup.add_argument("-m", "--maxspectraldiff", default=DFLT_MAX_SPECTRAL_DIFF,
         help=("Maximum Spectral Difference to use when merging " +
-                "segments Either 'auto', 'none' or a value to use " +
-                "(default=%(default)s)"))
+             "segments Either 'auto', 'none' or a value to use " +
+             "(default=%(default)s)"))
     segGroup.add_argument("-s", "--minsegmentsize", default=100, type=int,
         help="Minimum segment size in pixels (default=%(default)s)")
     segGroup.add_argument("-b", "--bands", default="3,4,5", 
@@ -186,24 +187,24 @@ def main():
     t0 = time.time()
     hist = tiling.calcHistogramTiled(outDs, tiledSegResult.maxSegId, writeToRat=True)
     if cmdargs.verbose:
-        print('Done histogram: {:.2f} seconds'.format(time.time()-t0))
+        print('Done histogram: {:.2f} seconds'.format(time.time() - t0))
 
     band = outDs.GetRasterBand(1)
 
     t0 = time.time()
     utils.estimateStatsFromHisto(band, hist)
     if cmdargs.verbose:
-        print('Done global stats: {:.2f} seconds'.format(time.time()-t0))
+        print('Done global stats: {:.2f} seconds'.format(time.time() - t0))
 
     if cmdargs.colortablebands is None:
-        utils.writeRandomColourTable(band, tiledSegResult.maxSegId+1)
+        utils.writeRandomColourTable(band, tiledSegResult.maxSegId + 1)
     
     del outDs
 
     t0 = time.time()
     doPerSegmentStats(cmdargs)
     if cmdargs.verbose:
-        print('Done per-segment statistics: {:.2f} seconds'.format(time.time()-t0))
+        print('Done per-segment statistics: {:.2f} seconds'.format(time.time() - t0))
 
     if cmdargs.colortablebands is not None:
         colorTableNames = ['Band_{}_mean'.format(i) for i in cmdargs.colortablebands]

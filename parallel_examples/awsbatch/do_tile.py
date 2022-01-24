@@ -25,6 +25,7 @@ if ARRAY_INDEX is None:
 
 ARRAY_INDEX = int(ARRAY_INDEX)
 
+
 def getCmdargs():
     """
     Process the command line arguments.
@@ -40,6 +41,7 @@ def getCmdargs():
     cmdargs = p.parse_args()
 
     return cmdargs
+
 
 def main():
     """
@@ -77,18 +79,19 @@ def main():
     # directly from S3.
     # Note: COG didn't seem to be available on this Ubuntu GDAL so faking
     # with the GTiff driver.
-    segResult = tiling.doTiledShepherdSegmentation_doOne(inDs, filename,
-            dataFromPickle['tileInfo'], col, row, dataFromPickle['bandNumbers'],
-            dataFromPickle['imgNullVal'], dataFromPickle['kmeansObj'], 
-            tempfilesDriver='GTiff', tempfilesCreationOptions=['COMPRESS=DEFLATE',
-                'ZLEVEL=1', 'PREDICTOR=2', 'TILED=YES', 'INTERLEAVE=BAND', 
-                'BIGTIFF=NO', 'BLOCKXSIZE=512', 'BLOCKYSIZE=512'])
+    tiling.doTiledShepherdSegmentation_doOne(inDs, filename,
+        dataFromPickle['tileInfo'], col, row, dataFromPickle['bandNumbers'],
+        dataFromPickle['imgNullVal'], dataFromPickle['kmeansObj'], 
+        tempfilesDriver='GTiff', tempfilesCreationOptions=['COMPRESS=DEFLATE',
+        'ZLEVEL=1', 'PREDICTOR=2', 'TILED=YES', 'INTERLEAVE=BAND', 
+        'BIGTIFF=NO', 'BLOCKXSIZE=512', 'BLOCKYSIZE=512'])
 
     # upload the tile to S3.
     s3.upload_file(filename, cmdargs.bucket, os.path.basename(filename))
 
     # cleanup
     shutil.rmtree(tempDir)
-    
+
+
 if __name__ == '__main__':
     main()

@@ -17,6 +17,7 @@ import boto3
 from pyshepseg import tiling
 from osgeo import gdal
 
+
 def getCmdargs():
     """
     Process the command line arguments.
@@ -36,6 +37,7 @@ def getCmdargs():
     cmdargs = p.parse_args()
 
     return cmdargs
+
 
 def main():
     """
@@ -69,9 +71,9 @@ def main():
 
     # do the stitching. Note maxSegId and hasEmptySegments not used here
     # but ideally they would be saved somewhere also.
-    maxSegId, hasEmptySegments = tiling.doTiledShepherdSegmentation_finalize(
-            inDs, localOutfile, tileFilenames, dataFromPickle['tileInfo'], 
-            cmdargs.overlapsize, tempDir)
+    (maxSegId, hasEmptySegments) = tiling.doTiledShepherdSegmentation_finalize(
+        inDs, localOutfile, tileFilenames, dataFromPickle['tileInfo'], 
+        cmdargs.overlapsize, tempDir)
 
     # upload the KEA file
     s3.upload_file(localOutfile, cmdargs.bucket, cmdargs.outfile)
@@ -86,6 +88,7 @@ def main():
 
     # cleanup
     shutil.rmtree(tempDir)
+
 
 if __name__ == '__main__':
     main()

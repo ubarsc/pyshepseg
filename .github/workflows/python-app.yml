@@ -23,11 +23,11 @@ jobs:
     - name: Install dependencies
       shell: bash -l {0}
       run: |
-        conda install pyflakes numba scikit-learn gdal
-    - name: Lint with pyflakes
+        conda install flake8 numba scikit-learn gdal
+    - name: Lint with flake8
       shell: bash -l {0}
       run: |
-        pyflakes pyshepseg
+        flake8
     - name: Test with pyshepseg_runtests.py
       shell: bash -l {0}
       run: |

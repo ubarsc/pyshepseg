@@ -4,37 +4,38 @@
 Test harness for subsetting a segmented image
 """
 
-#Copyright 2021 Neil Flood and Sam Gillingham. All rights reserved.
+# Copyright 2021 Neil Flood and Sam Gillingham. All rights reserved.
 #
-#Permission is hereby granted, free of charge, to any person 
-#obtaining a copy of this software and associated documentation 
-#files (the "Software"), to deal in the Software without restriction, 
-#including without limitation the rights to use, copy, modify, 
-#merge, publish, distribute, sublicense, and/or sell copies of the 
-#Software, and to permit persons to whom the Software is furnished 
-#to do so, subject to the following conditions:
+# Permission is hereby granted, free of charge, to any person 
+# obtaining a copy of this software and associated documentation 
+# files (the "Software"), to deal in the Software without restriction, 
+# including without limitation the rights to use, copy, modify, 
+# merge, publish, distribute, sublicense, and/or sell copies of the 
+# Software, and to permit persons to whom the Software is furnished 
+# to do so, subject to the following conditions:
 #
-#The above copyright notice and this permission notice shall be 
-#included in all copies or substantial portions of the Software.
+# The above copyright notice and this permission notice shall be 
+# included in all copies or substantial portions of the Software.
 #
-#THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, 
-#EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES 
-#OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. 
-#IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR 
-#ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF 
-#CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION 
-#WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, 
+# EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES 
+# OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. 
+# IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR 
+# ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF 
+# CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION 
+# WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 from __future__ import print_function, division
 
 import math
 import argparse
 from osgeo import gdal
-gdal.UseExceptions()
 from pyshepseg import tiling
+gdal.UseExceptions()
 
 DFLT_OUTPUT_DRIVER = 'KEA'
-GDAL_DRIVER_CREATION_OPTIONS = {'KEA' : [], 'HFA' : ['COMPRESS=YES']}
+GDAL_DRIVER_CREATION_OPTIONS = {'KEA': [], 'HFA': ['COMPRESS=YES']}
+
 
 def getCmdargs():
     """     
@@ -61,7 +62,8 @@ def getCmdargs():
         help="Name of output GDAL format that supports RATs (default=%(default)s)")
     cmdargs = p.parse_args()
     return cmdargs
-    
+
+
 def getPixelCoords(fname, coords):
     """
     Open the supplied file and work out what coords (ulx, uly, lrx, lry)
@@ -87,7 +89,8 @@ def getPixelCoords(fname, coords):
     xsize = pix_brx - pix_tlx
     ysize = pix_bry - pix_tly
     return pix_tlx, pix_tly, xsize, ysize
-    
+
+
 def getExtentOfMaskForInfile(infile, maskfile):
     """
     Get the extent of maskfile in the pixel coordinates of infile.
@@ -132,6 +135,7 @@ def getExtentOfMaskForInfile(infile, maskfile):
     # note - check that coords are within infile is made in subsetImage()
     return tlx, tly, xsize, ysize
 
+
 def main():
     cmdargs = getCmdargs()
     
@@ -155,6 +159,7 @@ def main():
     tiling.subsetImage(cmdargs.infile, cmdargs.outfile, tlx, tly, 
         xsize, ysize, cmdargs.format, creationOptions=creationOptions, 
         origSegIdColName=cmdargs.origsegidcol, maskImage=cmdargs.mask)
-    
+
+
 if __name__ == "__main__":
     main()
