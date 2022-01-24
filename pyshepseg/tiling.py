@@ -81,6 +81,7 @@ DFLT_CHUNKSIZE = 100000
 
 TILESIZE = 1024
 
+
 class TiledSegmentationResult(object):
     """
     Result of tiled segmentation
@@ -165,7 +166,8 @@ def fitSpectralClustersWholeFile(inDs, bandNumbers, numClusters=60,
         fixedKMeansInit=fixedKMeansInit)
     
     return (kmeansObj, subsamplePcnt, imgNullVal)
-    
+
+
 def getImgNullValue(inDs, bandNumbers):
     """
     Return the null value for the given dataset. Raises an error if
@@ -177,6 +179,7 @@ def getImgNullValue(inDs, bandNumbers):
         raise PyShepSegTilingError("Different null values in some bands")
     imgNullVal = nullValArr[0]
     return imgNullVal
+
 
 def readSubsampledImageBand(bandObj, subsampleProp):
     """
@@ -200,7 +203,7 @@ def readSubsampledImageBand(bandObj, subsampleProp):
     
     """
     # A skip factor, applied to rows and column
-    skip = int(round(1./subsampleProp))
+    skip = int(round(1. / subsampleProp))
     
     tileSize = TILESIZE
     (nlines, npix) = (bandObj.YSize, bandObj.XSize)
@@ -229,6 +232,7 @@ def readSubsampledImageBand(bandObj, subsampleProp):
     imgSub = numpy.concatenate(tileRowList, axis=0)
     return imgSub
 
+
 class TileInfo(object):
     """
     Class that holds the pixel coordinates of the tiles within 
@@ -247,7 +251,8 @@ class TileInfo(object):
         
     def getTile(self, col, row):
         return self.tiles[(col, row)]
-        
+
+
 def getTilesForFile(ds, tileSize, overlapSize):
     """
     Return a TileInfo object for a given file and input
@@ -271,7 +276,7 @@ def getTilesForFile(ds, tileSize, overlapSize):
         ysize = tileSize
         # ensure that we can fit another whole tile before the edge
         # - grow this tile if needed so we don't end up with slivers
-        if (ypos + ysize*2) > ds.RasterYSize:
+        if (ypos + ysize * 2) > ds.RasterYSize:
             ysize = ds.RasterYSize - ypos
             yDone = True
             if ysize == 0:
@@ -281,7 +286,7 @@ def getTilesForFile(ds, tileSize, overlapSize):
             xsize = tileSize
             # ensure that we can fit another whole tile before the edge
             # - grow this tile if needed so we don't end up with slivers
-            if (xpos + xsize*2) > ds.RasterXSize:
+            if (xpos + xsize * 2) > ds.RasterXSize:
                 xsize = ds.RasterXSize - xpos
                 xDone = True
                 if xsize == 0:
@@ -354,7 +359,7 @@ def doTiledShepherdSegmentation(infile, outfile, tileSize=DFLT_TILESIZE,
     
     tileFilenames = {}
 
-    colRowList = sorted(tileInfo.tiles.keys(), key=lambda x:(x[1], x[0]))
+    colRowList = sorted(tileInfo.tiles.keys(), key=lambda x: (x[1], x[0]))
     tileNum = 1
     for col, row in colRowList:
         if verbose:
@@ -388,7 +393,8 @@ def doTiledShepherdSegmentation(infile, outfile, tileSize=DFLT_TILESIZE,
     tiledSegResult.hasEmptySegments = hasEmptySegments
     
     return tiledSegResult
-    
+
+
 def doTiledShepherdSegmentation_prepare(infile, tileSize=DFLT_TILESIZE, 
         overlapSize=DFLT_OVERLAPSIZE, bandNumbers=None, imgNullVal=None, 
         kmeansObj=None, verbose=False, numClusters=60, subsamplePcnt=None, 
@@ -411,14 +417,14 @@ def doTiledShepherdSegmentation_prepare(infile, tileSize=DFLT_TILESIZE,
     inDs = gdal.Open(infile)
 
     if bandNumbers is None:
-        bandNumbers = range(1, inDs.RasterCount+1)
+        bandNumbers = range(1, inDs.RasterCount + 1)
 
     t0 = time.time()
     if kmeansObj is None:
         kmeansObj, subsamplePcnt, imgNullVal = fitSpectralClustersWholeFile(inDs, 
             bandNumbers, numClusters, subsamplePcnt, imgNullVal, fixedKMeansInit)
         if verbose:
-            print("KMeans of whole raster {:.2f} seconds".format(time.time()-t0))
+            print("KMeans of whole raster {:.2f} seconds".format(time.time() - t0))
             print("Subsample Percentage={:.2f}".format(subsamplePcnt))
             
     elif imgNullVal is None:
@@ -492,7 +498,8 @@ def doTiledShepherdSegmentation_doOne(inDs, filename, tileInfo, col, row,
     del outDs
     
     return segResult
-    
+
+
 def doTiledShepherdSegmentation_finalize(inDs, outfile, tileFilenames, tileInfo, 
         overlapSize, tempDir, simpleTileRecode=False, outputDriver='KEA', 
         creationOptions=[], verbose=False):
@@ -511,6 +518,7 @@ def doTiledShepherdSegmentation_finalize(inDs, outfile, tileFilenames, tileInfo,
     hasEmptySegments = checkForEmptySegments(outfile, maxSegId, overlapSize)
     
     return maxSegId, hasEmptySegments
+
 
 def checkForEmptySegments(outfile, maxSegId, overlapSize):
     """
@@ -580,7 +588,7 @@ def stitchTiles(inDs, outfile, tileFilenames, tileInfo, overlapSize,
     outBand.SetMetadataItem('LAYER_TYPE', 'thematic')
     outBand.SetNoDataValue(shepseg.SEGNULLVAL)
     
-    colRows = sorted(tileInfo.tiles.keys(), key=lambda x:(x[1], x[0]))
+    colRows = sorted(tileInfo.tiles.keys(), key=lambda x: (x[1], x[0]))
     maxSegId = 0
     
     if verbose:
@@ -611,7 +619,7 @@ def stitchTiles(inDs, outfile, tileFilenames, tileInfo, overlapSize,
             top = 0
             yout = ypos
 
-        if row == (tileInfo.nrows-1):
+        if row == (tileInfo.nrows - 1):
             bottom = ysize
             bottomName = None
             
@@ -619,7 +627,7 @@ def stitchTiles(inDs, outfile, tileFilenames, tileInfo, overlapSize,
             left = 0
             xout = xpos
             
-        if col == (tileInfo.ncols-1):
+        if col == (tileInfo.ncols - 1):
             right = xsize
             rightName = None
         
@@ -647,6 +655,8 @@ def stitchTiles(inDs, outfile, tileFilenames, tileInfo, overlapSize,
 
 RIGHT_OVERLAP = 'right'
 BOTTOM_OVERLAP = 'bottom'
+
+
 def overlapFilename(col, row, edge, tempDir):
     """
     Return the filename used for the overlap array
@@ -658,6 +668,7 @@ def overlapFilename(col, row, edge, tempDir):
 # The two orientations of the overlap region
 HORIZONTAL = 0
 VERTICAL = 1
+
 
 def recodeTile(tileData, maxSegId, tileRow, tileCol, overlapSize, tempDir,
         top, bottom, left, right):
@@ -690,7 +701,7 @@ def recodeTile(tileData, maxSegId, tileRow, tileCol, overlapSize, tempDir,
 
     # Read in the bottom and right regions of the adjacent tiles
     if tileRow > 0:
-        topOverlapFilename = overlapFilename(tileCol, tileRow-1, 
+        topOverlapFilename = overlapFilename(tileCol, tileRow - 1, 
                                 BOTTOM_OVERLAP, tempDir)
         topOverlapB = numpy.load(topOverlapFilename)
 
@@ -698,7 +709,7 @@ def recodeTile(tileData, maxSegId, tileRow, tileCol, overlapSize, tempDir,
             HORIZONTAL, recodeDict)
 
     if tileCol > 0:
-        leftOverlapFilename = overlapFilename(tileCol-1, tileRow, 
+        leftOverlapFilename = overlapFilename(tileCol - 1, tileRow, 
                                 RIGHT_OVERLAP, tempDir)
         leftOverlapB = numpy.load(leftOverlapFilename)
 
@@ -844,6 +855,7 @@ def crossesMidline(overlap, segLoc, orientation):
     
     return ((minN < mid) & (maxN >= mid))
 
+
 def equalProjection(proj1, proj2):
     """
     Returns True if the proj1 is the same as proj2
@@ -856,7 +868,8 @@ def equalProjection(proj1, proj2):
     srSelf = osr.SpatialReference(wkt=selfProj)
     srOther = osr.SpatialReference(wkt=otherProj)
     return bool(srSelf.IsSame(srOther))
-    
+
+
 def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile, 
             statsSelection, missingStatsValue=-9999):
     """
@@ -959,8 +972,8 @@ def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile,
         for tileCol in range(numXtiles):
             topLine = tileRow * tileSize
             leftPix = tileCol * tileSize
-            xsize = min(tileSize, npix-leftPix)
-            ysize = min(tileSize, nlines-topLine)
+            xsize = min(tileSize, npix - leftPix)
+            ysize = min(tileSize, nlines - topLine)
             
             tileSegments = segband.ReadAsArray(leftPix, topLine, xsize, ysize)
             tileImageData = imgband.ReadAsArray(leftPix, topLine, xsize, ysize)
@@ -983,6 +996,7 @@ def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile,
 numbaTypeForImageType = types.int64
 # This is the numba equivalent type of shepseg.SegIdType
 segIdNumbaType = types.uint32
+
 
 @njit
 def accumulateSegDict(segDict, noDataDict, imgNullVal, tileSegments, tileImageData):
@@ -1045,7 +1059,7 @@ def checkSegComplete(segDict, noDataDict, segSize, segId):
 
 @njit
 def calcStatsForCompletedSegs(segDict, noDataDict, missingStatsValue, pagedRat, 
-        statsSelection_fast,  segSize, numIntCols, numFloatCols):
+        statsSelection_fast, segSize, numIntCols, numFloatCols):
     """
     Calculate statistics for all complete segments in the segDict.
     Update the pagedRat with the resulting entries. Completed segments
@@ -1099,6 +1113,7 @@ def createSegDict():
     segDict = Dict.empty(key_type=segIdNumbaType, value_type=histDict._dict_type)
     return segDict
 
+
 def createNoDataDict():
     """
     Create the dictionary that holds counts of nodata seen for each 
@@ -1107,6 +1122,7 @@ def createNoDataDict():
     """
     noDataDict = Dict.empty(key_type=segIdNumbaType, value_type=types.uint32)
     return noDataDict
+
 
 def createPagedRat():
     """
@@ -1208,10 +1224,11 @@ def writeCompletePages(pagedRat, attrTbl, statsSelection_fast):
 RAT_PAGE_SIZE = 100000
 ratPageSpec = [
     ('startSegId', segIdNumbaType),
-    ('intcols', numbaTypeForImageType[:,:]),
-    ('floatcols', types.float32[:,:]),
+    ('intcols', numbaTypeForImageType[:, :]),
+    ('floatcols', types.float32[:, :]),
     ('complete', types.boolean[:])
 ]
+
 
 @jitclass(ratPageSpec)
 class RatPage(object):
@@ -1288,7 +1305,8 @@ class RatPage(object):
         Return True if the current page has been completed
         """
         return self.complete.all()
-        
+
+
 # Translate statistic name strings into integer ID values
 STATID_MIN = 0
 STATID_MAX = 1
@@ -1299,14 +1317,14 @@ STATID_MODE = 5
 STATID_PERCENTILE = 6
 STATID_PIXCOUNT = 7
 statIDdict = {
-    'min':STATID_MIN,
-    'max':STATID_MAX,
-    'mean':STATID_MEAN,
-    'stddev':STATID_STDDEV,
-    'median':STATID_MEDIAN,
-    'mode':STATID_MODE,
-    'percentile':STATID_PERCENTILE,
-    'pixcount':STATID_PIXCOUNT
+    'min': STATID_MIN,
+    'max': STATID_MAX,
+    'mean': STATID_MEAN,
+    'stddev': STATID_STDDEV,
+    'median': STATID_MEDIAN,
+    'mode': STATID_MODE,
+    'percentile': STATID_PERCENTILE,
+    'pixcount': STATID_PIXCOUNT
 }
 NOPARAM = -1
 
@@ -1318,6 +1336,7 @@ STATSEL_COLARRAYINDEX = 3
 STATSEL_PARAM = 4
 STAT_DTYPE_INT = 0
 STAT_DTYPE_FLOAT = 1
+
 
 def makeFastStatsSelection(colIndexList, statsSelection):
     """
@@ -1393,7 +1412,8 @@ def getSortedKeysAndValuesForDict(d):
     valuesSorted = valuesArray[index]
     
     return keysSorted, valuesSorted
-    
+
+
 # Warning - currently using uint32 or float32 for all of the types
 # which should really be dependent on the imagery datatype. 
 # Not sure whether it is possible to do better. 
@@ -1407,7 +1427,9 @@ segStatsSpec = [('pixVals', numbaTypeForImageType[:]),
                 ('median', numbaTypeForImageType),
                 ('mode', numbaTypeForImageType),
                 ('missingStatsValue', numbaTypeForImageType)
-               ]
+                ]
+
+
 @jitclass(segStatsSpec)
 class SegmentStats(object):
     "Manage statistics for a single segment"
@@ -1471,7 +1493,7 @@ class SegmentStats(object):
             while cumCount < countAtPcntile:
                 cumCount += self.counts[i]
                 i += 1
-            pcntileVal = self.pixVals[i-1]
+            pcntileVal = self.pixVals[i - 1]
             return pcntileVal
     
     def getStat(self, statID, param):
@@ -1527,7 +1549,7 @@ def calcHistogramTiled(segfile, maxSegId, writeToRat=True):
     # This is the histogram array, indexed by segment ID. 
     # Currently just in memory, it could be quite large, 
     # depending on how many segments there are.
-    hist = numpy.zeros((maxSegId+1), dtype=numpy.uint32)
+    hist = numpy.zeros((maxSegId + 1), dtype=numpy.uint32)
     
     # Open the file
     if isinstance(segfile, gdal.Dataset):
@@ -1545,8 +1567,8 @@ def calcHistogramTiled(segfile, maxSegId, writeToRat=True):
         for tileCol in range(numXtiles):
             topLine = tileRow * tileSize
             leftPix = tileCol * tileSize
-            xsize = min(tileSize, npix-leftPix)
-            ysize = min(tileSize, nlines-topLine)
+            xsize = min(tileSize, npix - leftPix)
+            ysize = min(tileSize, nlines - topLine)
             
             tileData = segband.ReadAsArray(leftPix, topLine, xsize, ysize)
             updateCounts(tileData, hist)
@@ -1580,6 +1602,7 @@ def updateCounts(tileData, hist):
         for j in range(ncols):
             segid = tileData[i, j]
             hist[segid] += 1
+
 
 def subsetImage(inname, outname, tlx, tly, newXsize, newYsize, outformat, 
         creationOptions=[], origSegIdColName=None, maskImage=None):
@@ -1743,7 +1766,8 @@ def subsetImage(inname, outname, tlx, tly, newXsize, newYsize, outformat,
         origSegIdArray = numpy.empty(outRAT.GetRowCount(), dtype=numpy.int32)
         setSubsetRecodeFromDictionary(recodeDict, origSegIdArray)
         outRAT.WriteArray(origSegIdArray, colNum)
-        
+
+
 @njit
 def copySubsettedSegmentsToNew(inPage, outPagedRat, recodeDict):
     """
@@ -1784,7 +1808,8 @@ def copySubsettedSegmentsToNew(inPage, outPagedRat, recodeDict):
             
         # we mark this as complete as we have copied the row over.
         outPage.setSegmentComplete(outRow)
-    
+
+
 @njit
 def setHistogramFromDictionary(dictn, histArray):
     """
@@ -1794,7 +1819,8 @@ def setHistogramFromDictionary(dictn, histArray):
     for idx in dictn:
         histArray[idx] = dictn[idx]
     histArray[shepseg.SEGNULLVAL] = 0
-    
+
+
 @njit
 def setSubsetRecodeFromDictionary(dictn, array):
     """
@@ -1804,7 +1830,8 @@ def setSubsetRecodeFromDictionary(dictn, array):
     for idx in dictn:
         array[dictn[idx]] = idx
     array[shepseg.SEGNULLVAL] = 0
-            
+
+
 @njit
 def readColDataIntoPage(page, data, idx, colType, minVal):
     """
@@ -1841,6 +1868,7 @@ def readRATIntoPage(rat, numIntCols, numFloatCols, minVal, maxVal):
     
     return page 
 
+
 def copyColumns(inRat, outRat):
     """
     Copies columns between RATs. Note that empty
@@ -1864,6 +1892,7 @@ def copyColumns(inRat, outRat):
             raise TypeError("String columns not supported")
         
     return numIntCols, numFloatCols
+
 
 @njit
 def processSubsetTile(tile, recodeDict, histogramDict, maskData):
@@ -1908,6 +1937,7 @@ def processSubsetTile(tile, recodeDict, histogramDict, maskData):
             
     return outData
 
+
 def writeCompletedPagesForSubset(inRAT, outRAT, outPagedRat):
     """
     For the subset operation. Writes out any completed pages to outRAT
@@ -1938,6 +1968,11 @@ def writeCompletedPagesForSubset(inRAT, outRAT, outPagedRat):
 
             # this one is done
             outPagedRat.pop(pageId)
-            
-class PyShepSegTilingError(Exception): pass
-class PyShepSegSubsetError(PyShepSegTilingError): pass
+
+
+class PyShepSegTilingError(Exception):
+    pass
+
+
+class PyShepSegSubsetError(PyShepSegTilingError):
+    pass
