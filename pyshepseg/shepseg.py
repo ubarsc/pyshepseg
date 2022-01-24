@@ -187,7 +187,7 @@ def doShepherdSegmentation(img, numClusters=60, clusterSubsamplePcnt=1,
             clusterSubsamplePcnt, imgNullVal, fixedKMeansInit)
     clusters = applySpectralClusters(km, img, imgNullVal)
     if verbose:
-        print("Kmeans, in", round(time.time()-t0, 1), "seconds")
+        print("Kmeans, in", round(time.time() - t0, 1), "seconds")
     
     # Do clump
     t0 = time.time()
@@ -195,7 +195,7 @@ def doShepherdSegmentation(img, numClusters=60, clusterSubsamplePcnt=1,
         clumpId=MINSEGID)
     maxSegId = SegIdType(maxSegId - 1)
     if verbose:
-        print("Found", maxSegId, "clumps, in", round(time.time()-t0, 1), "seconds")
+        print("Found", maxSegId, "clumps, in", round(time.time() - t0, 1), "seconds")
     
     # Make segment size array
     segSize = makeSegSize(seg)
@@ -209,7 +209,7 @@ def doShepherdSegmentation(img, numClusters=60, clusterSubsamplePcnt=1,
     numElimSinglepix = oldMaxSegId - maxSegId
     if verbose:
         print("Eliminated", numElimSinglepix, "single pixels, in", 
-            round(time.time()-t0, 1), "seconds")
+            round(time.time() - t0, 1), "seconds")
 
     maxSpectralDiff = autoMaxSpectralDiff(km, maxSpectralDiff, spectDistPcntile)
 
@@ -217,7 +217,7 @@ def doShepherdSegmentation(img, numClusters=60, clusterSubsamplePcnt=1,
     numElimSmall = eliminateSmallSegments(seg, img, maxSegId, minSegmentSize, maxSpectralDiff,
         fourConnected, MINSEGID)
     if verbose:
-        print("Eliminated", numElimSmall, "segments, in", round(time.time()-t0, 1), "seconds")
+        print("Eliminated", numElimSmall, "segments, in", round(time.time() - t0, 1), "seconds")
     
     if verbose:
         print("Final result has", seg.max(), "segments")
@@ -232,7 +232,7 @@ def doShepherdSegmentation(img, numClusters=60, clusterSubsamplePcnt=1,
 
 
 def fitSpectralClusters(img, numClusters, subsamplePcnt, imgNullVal,
-    fixedKMeansInit):
+        fixedKMeansInit):
     """
     First step of Shepherd segmentation. Use K-means clustering
     to create a set of "seed" segments, labelled only with
@@ -261,7 +261,7 @@ def fitSpectralClusters(img, numClusters, subsamplePcnt, imgNullVal,
     # Re-organise the image data so it matches what sklearn
     # expects.
     xFull = numpy.transpose(img, axes=(1, 2, 0))
-    xFull = xFull.reshape((nRows*nCols, nBands))
+    xFull = xFull.reshape((nRows * nCols, nBands))
 
     if imgNullVal is not None:
         # Only use non-null values for fitting
@@ -270,7 +270,7 @@ def fitSpectralClusters(img, numClusters, subsamplePcnt, imgNullVal,
         del nonNull
     else:
         xNonNull = xFull
-    skip = int(round(100./subsamplePcnt))
+    skip = int(round(100. / subsamplePcnt))
     xSample = xNonNull[::skip]
     del xFull, xNonNull
 
@@ -317,7 +317,7 @@ def applySpectralClusters(kmeansObj, img, imgNullVal):
     # Re-organise the image data so it matches what sklearn
     # expects.
     xFull = numpy.transpose(img, axes=(1, 2, 0))
-    xFull = xFull.reshape((nRows*nCols, nBands))
+    xFull = xFull.reshape((nRows * nCols, nBands))
 
     clustersFull = kmeansObj.predict(xFull)
     del xFull
@@ -355,7 +355,7 @@ def diagonalClusterCentres(xSample, numClusters):
     
     step = (bandMax - bandMin) / (numClusters + 1)
     for i in range(numClusters):
-        centres[i] = bandMin + (i+1) * step
+        centres[i] = bandMin + (i + 1) * step
     
     return centres
 
@@ -380,8 +380,8 @@ def autoMaxSpectralDiff(km, maxSpectralDiff, distPcntile):
     numPairs = numClusters * (numClusters - 1) // 2
     clusterDist = numpy.full(numPairs, -1, dtype=numpy.float32)
     k = 0
-    for i in range(numClusters-1):
-        for j in range(i+1, numClusters):
+    for i in range(numClusters - 1):
+        for j in range(i + 1, numClusters):
             clusterDist[k] = numpy.sqrt(((centres[i] - centres[j])**2).sum())
             k += 1
 
@@ -456,8 +456,8 @@ def clump(img, ignoreVal, fourConnected=True, clumpId=1):
                         bry = ysize - 1
 
                     # do a '4 neighbour search'
-                    for cx in range(tlx, brx+1):
-                        for cy in range(tly, bry+1):
+                    for cx in range(tlx, brx + 1):
+                        for cy in range(tly, bry + 1):
                             connected = not fourConnected or (cy == sy or cx == sx)
                             # don't have to check we are the middle
                             # cell since output will be != 0
@@ -465,7 +465,7 @@ def clump(img, ignoreVal, fourConnected=True, clumpId=1):
                             if connected and (img[cy, cx] != ignoreVal and 
                                     output[cy, cx] == 0 and 
                                     img[cy, cx] == val):
-                                output[cy, cx] = clumpId # mark as visited
+                                output[cy, cx] = clumpId  # mark as visited
                                 clumpSize += 1
                                 # add this one to the ones to search the neighbours
                                 search_list[searchIdx, 0] = cy
@@ -486,7 +486,7 @@ def makeSegSize(seg):
 
     """
     maxSegId = seg.max()
-    segSize = numpy.zeros(maxSegId+1, dtype=numpy.uint32)
+    segSize = numpy.zeros(maxSegId + 1, dtype=numpy.uint32)
     (nRows, nCols) = seg.shape
     for i in range(nRows):
         for j in range(nCols):
@@ -587,11 +587,11 @@ def findNearestNeighbourPixel(img, seg, i, j, segSize, fourConnected):
     minDsqr = -1
     ii = jj = -1
     # Cope with image edges
-    (iiiStrt, iiiEnd) = (max(i-1, 0), min(i+1, nRows-1))
-    (jjjStrt, jjjEnd) = (max(j-1, 0), min(j+1, nCols-1))
+    (iiiStrt, iiiEnd) = (max(i - 1, 0), min(i + 1, nRows - 1))
+    (jjjStrt, jjjEnd) = (max(j - 1, 0), min(j + 1, nCols - 1))
     
-    for iii in range(iiiStrt, iiiEnd+1):
-        for jjj in range(jjjStrt, jjjEnd+1):
+    for iii in range(iiiStrt, iiiEnd + 1):
+        for jjj in range(jjjStrt, jjjEnd + 1):
             connected = ((not fourConnected) or ((iii == i) or (jjj == j)))
             if connected:
                 segNbr = seg[iii, jjj]
@@ -626,9 +626,9 @@ def relabelSegments(seg, segSize, minSegId):
     # For each segid with a count of zero (i.e. it is unused), we 
     # increase the amount by which segid numbers above this should 
     # be decremented
-    for k in range(minSegId+1, oldNumSeg):
-        subtract[k] = subtract[k-1]
-        if segSize[k-1] == 0:
+    for k in range(minSegId + 1, oldNumSeg):
+        subtract[k] = subtract[k - 1]
+        if segSize[k - 1] == 0:
             subtract[k] += 1
     
     # Now decrement the segid of every pixel
@@ -653,7 +653,7 @@ def buildSegmentSpectra(seg, img, maxSegId):
     
     """
     (nBands, nRows, nCols) = img.shape
-    spectSum = numpy.zeros((maxSegId+1, nBands), dtype=numpy.float32)
+    spectSum = numpy.zeros((maxSegId + 1, nBands), dtype=numpy.float32)
 
     for i in range(nRows):
         for j in range(nCols):
@@ -667,7 +667,7 @@ def buildSegmentSpectra(seg, img, maxSegId):
 # This data structure is used to store the locations of
 # every pixel, indexed by the segment ID. This means we can
 # quickly find all the pixels belonging to a particular segment.
-spec = [('idx', types.uint32), ('rowcols', types.uint32[:,:])]
+spec = [('idx', types.uint32), ('rowcols', types.uint32[:, :])]
 @jitclass(spec)
 class RowColArray(object):
     def __init__(self, length):
@@ -687,7 +687,9 @@ class RowColArray(object):
         """
         return (self.rowcols[:, 0], self.rowcols[:, 1])
 
+
 RowColArray_Type = RowColArray.class_type.instance_type
+
 
 @njit
 def makeSegmentLocations(seg, segSize):
@@ -729,11 +731,11 @@ def eliminateSmallSegments(seg, img, maxSegId, minSegSize, maxSpectralDiff,
 
     # A list of the segment ID numbers to merge with. The i-th
     # element is the segment ID to merge segment 'i' into
-    mergeSeg = numpy.empty(maxSegId+1, dtype=SegIdType)
+    mergeSeg = numpy.empty((maxSegId + 1), dtype=SegIdType)
     mergeSeg.fill(SEGNULLVAL)
 
     # Range of seg id numbers, as SegIdType, suitable as indexes into segloc
-    segIdRange = numpy.arange(minSegId, maxSegId+1, dtype=SegIdType)
+    segIdRange = numpy.arange(minSegId, (maxSegId + 1), dtype=SegIdType)
 
     # Start with smallest segments, move through to just 
     # smaller than minSegSize (i.e. minSegSize is smallest 
@@ -793,8 +795,8 @@ def findMergeSegment(segId, segLoc, seg, segSize, spectSum, maxSpectralDiff,
     
     for k in range(numPix):
         (i, j) = segRowcols[k]
-        for ii in range(max(i-1, 0), min(i+2, nRows)):
-            for jj in range(max(j-1, 0), min(j+2, nCols)):
+        for ii in range(max(i - 1, 0), min(i + 2, nRows)):
+            for jj in range(max(j - 1, 0), min(j + 2, nCols)):
                 connected = (not fourConnected) or (ii == i or jj == j)
                 nbrSegId = seg[ii, jj]
                 if (connected and (nbrSegId != segId) and 
