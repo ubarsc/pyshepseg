@@ -15,6 +15,7 @@ import argparse
 import boto3
 from pyshepseg import tiling
 
+
 def getCmdargs():
     """
     Process the command line arguments.
@@ -49,6 +50,7 @@ def getCmdargs():
 
     return cmdargs
 
+
 def main():
     """
     Main routine
@@ -72,7 +74,7 @@ def main():
         overlapSize=cmdargs.overlapsize))
 
     # pickle the required input data that each of the tiles will need
-    colRowList = sorted(tileInfo.tiles.keys(), key=lambda x:(x[1], x[0]))
+    colRowList = sorted(tileInfo.tiles.keys(), key=lambda x: (x[1], x[0]))
     dataToPickle = {'tileInfo': tileInfo, 'colRowList': colRowList, 
         'bandNumbers': bandNumbers, 'imgNullVal': imgNullVal, 
         'kmeansObj': kmeansObj}
@@ -84,29 +86,32 @@ def main():
 
     # now submit an array job with all the tiles
     # (can't do this before now because we don't know how many tiles)
+    containerOverrides = {
+        "command": ['/usr/bin/python3', '/ubarscsw/bin/do_tile.py',
+        '--bucket', cmdargs.bucket, '--pickle', cmdargs.pickle,
+        '--infile', cmdargs.infile]}
     response = batch.submit_job(jobName="pyshepseg_tiles",
-            jobQueue=cmdargs.jobqueue,
-            jobDefinition=cmdargs.jobdefntile,
-            arrayProperties={'size': len(colRowList)},
-            containerOverrides={
-                "command": ['/usr/bin/python3', '/ubarscsw/bin/do_tile.py',
-                    '--bucket', cmdargs.bucket, '--pickle', cmdargs.pickle,
-                    '--infile', cmdargs.infile]})
+        jobQueue=cmdargs.jobqueue,
+        jobDefinition=cmdargs.jobdefntile,
+        arrayProperties={'size': len(colRowList)},
+        containerOverrides=containerOverrides)
     tilesJobId = response['jobId']
     print('Tiles Job Id', tilesJobId)
 
     # now submit a dependent job with the stitching
     # this one only runs when the array jobs are all done
+    containerOverrides = {
+        "command": ['/usr/bin/python3', '/ubarscsw/bin/do_stitch.py',
+        '--bucket', cmdargs.bucket, '--outfile', cmdargs.outfile,
+        '--infile', cmdargs.infile, '--pickle', cmdargs.pickle,
+        '--overlapsize', str(cmdargs.overlapsize)]}
     response = batch.submit_job(jobName="pyshepseg_stitch",
-            jobQueue=cmdargs.jobqueue,
-            jobDefinition=cmdargs.jobdefnstitch,
-            dependsOn=[{'jobId': tilesJobId}],
-            containerOverrides={
-                "command": ['/usr/bin/python3', '/ubarscsw/bin/do_stitch.py',
-                    '--bucket', cmdargs.bucket, '--outfile', cmdargs.outfile,
-                    '--infile', cmdargs.infile, '--pickle', cmdargs.pickle,
-                    '--overlapsize', str(cmdargs.overlapsize)]})
+        jobQueue=cmdargs.jobqueue,
+        jobDefinition=cmdargs.jobdefnstitch,
+        dependsOn=[{'jobId': tilesJobId}],
+        containerOverrides=containerOverrides)
     print('Stitching Job Id', response['jobId'])
+
 
 if __name__ == '__main__':
     main()
