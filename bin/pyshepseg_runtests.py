@@ -7,6 +7,7 @@ algorithm, but merely whether this implementation of the algorithm is
 coded to behave sensibly. 
 
 """
+import sys
 import os
 import argparse
 
@@ -65,6 +66,8 @@ def main():
     """
     cmdargs = getCmdargs()
     
+    errorStatus = 0
+    
     truesegfile = "tmp_trueseg.kea"
     if cmdargs.knownseg is not None:
         truesegfile = cmdargs.knownseg
@@ -97,9 +100,12 @@ def main():
 
     pcntMatch = checkSegmentation(imagefile, outsegfile, meanColNames,
         stdColNames)
-    
-    print("Perfect match on {}% of pixels".format(pcntMatch))
-    
+
+    print("Segment match on {}% of pixels".format(pcntMatch))
+    if pcntMatch < 100:
+        print("Matching on less than 100% suggests that the segmentation went wrong")
+        errorStatus = 1
+
     print("Adding colour table to {}".format(outsegfile))
     utils.writeColorTableFromRatColumns(outsegfile, meanColNames[0], 
         meanColNames[1], meanColNames[2])
@@ -109,6 +115,10 @@ def main():
         for fn in tmpdatafiles:
             drvr = gdal.IdentifyDriver(fn)
             drvr.Delete(fn)
+
+    # Exit with an explicit status code, so that Github workflow
+    # can recognise if something went wrong. 
+    sys.exit(errorStatus)
 
 
 # The basis of the test data will be a set of "true" segments. From 
