@@ -133,7 +133,7 @@ def generateTrueSegments(outfile):
     minDist = numpy.zeros((nRows, nCols), dtype=numpy.float32)
     # Initial distance much bigger than whole array, so actual centres 
     # will all be closer
-    minDist.fill(10*nCols)
+    minDist.fill(10 * nCols)
     
     # For each pixel, its (x, y) position, to use in calculating distances
     (xGrid, yGrid) = numpy.mgrid[:nRows, :nCols]
@@ -195,7 +195,7 @@ def createPallete(numSeg):
         if i < mid:
             c[i, 2] = round(MINVAL + i * 2 * step)
         else:
-            c[i, 2] = round(MAXVAL - (i-mid) * 2 * step)
+            c[i, 2] = round(MAXVAL - (i - mid) * 2 * step)
     
     return c
 
@@ -228,10 +228,10 @@ def createMultispectral(truesegfile, outfile):
     for i in range(NBANDS):
         for segId in segLoc:
             segNdx = segLoc[shepseg.SegIdType(segId)].getSegmentIndices()
-            outBand[segNdx] = pallete[segId-1][i]
+            outBand[segNdx] = pallete[segId - 1][i]
         outBand[nullNdx] = outNull
 
-        b = ds.GetRasterBand(i+1)
+        b = ds.GetRasterBand(i + 1)
         b.SetNoDataValue(outNull)
         b.WriteArray(outBand)
         b.FlushCache()
@@ -261,12 +261,12 @@ def makeRATcolumns(segResults, outsegfile, imagefile):
     meanColNames = []
     stdColNames = []
     for i in range(NBANDS):
-        meanCol = "Band_{}_mean".format(i+1)
-        stdCol = "Band_{}_stddev".format(i+1)
+        meanCol = "Band_{}_mean".format(i + 1)
+        stdCol = "Band_{}_stddev".format(i + 1)
         meanColNames.append(meanCol)
         stdColNames.append(stdCol)
         statsSelection = [(meanCol, "mean"), (stdCol, "stddev")]
-        tiling.calcPerSegmentStatsTiled(imagefile, i+1, outsegfile, 
+        tiling.calcPerSegmentStatsTiled(imagefile, (i + 1), outsegfile, 
             statsSelection)
     
     return (meanColNames, stdColNames)
@@ -293,18 +293,16 @@ def checkSegmentation(imgfile, segfile, meanColNames, stdColNames):
     colourMatch = None
     ds = gdal.Open(imgfile)
     for i in range(NBANDS):
-        bandobj = ds.GetRasterBand(i+1)
+        bandobj = ds.GetRasterBand(i + 1)
         img = bandobj.ReadAsArray()
 
         segmeans = readColumn(segfile, meanColNames[i])
-        segstddev = readColumn(segfile, stdColNames[i])
 
         # An img of the segmean for this band, for each pixel. 
         segColour = segmeans[seg]
 
         diff = numpy.absolute(img - segColour)
         diff[~nonNull] = 0    # Do this properly!!!!!
-        ndx = numpy.where(diff>TOL)
         # Per-pixel, True when segment mean matches image colour for this band
         colourMatch_band = (diff < TOL)
 
