@@ -668,6 +668,8 @@ def buildSegmentSpectra(seg, img, maxSegId):
 # every pixel, indexed by the segment ID. This means we can
 # quickly find all the pixels belonging to a particular segment.
 spec = [('idx', types.uint32), ('rowcols', types.uint32[:, :])]
+
+
 @jitclass(spec)
 class RowColArray(object):
     def __init__(self, length):
