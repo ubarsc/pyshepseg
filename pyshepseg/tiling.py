@@ -65,6 +65,7 @@ from osgeo import osr
 import scipy.stats
 
 from numba import njit
+from numba import from_dtype
 from numba.core import types
 from numba.typed import Dict
 from numba.experimental import jitclass
@@ -976,7 +977,7 @@ def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile,
             
             if segDict is None:
                 # now we can create this because we know what type the image is
-                numbaImgType = numba.from_dtype(tileImageData)
+                numbaImgType = from_dtype(tileImageData)
                 segDict = createSegDict(numbaImgType)
  
                 # Note: may be None if no value set
@@ -1440,14 +1441,15 @@ def createSegmentStats(segmentHistDict, missingStatsValue, numbaImgType):
                 ('pixCount', types.uint32),
                 ('min', numbaImgType),
                 ('max', numbaImgType),
-                ('mean', types.float64), # note: could probably choose float32/64 based on sizeof(numbaImgType)?
+                ('mean', types.float64),  # note: could probably choose float32/64 based on sizeof(numbaImgType)?
                 ('stddev', types.float64),
                 ('median', numbaImgType),
                 ('mode', numbaImgType),
-                ('missingStatsValue', numbaImgType)
-                ]
+                ('missingStatsValue', numbaImgType)]
+                
     JitSegmentStats = jitclass(SegmentStats, segStatsSpec)
     return JitSegmentStats(segmentHistDict, missingStatsValue, numbaImgType)
+
 
 class SegmentStats(object):
     "Manage statistics for a single segment"
@@ -1463,7 +1465,7 @@ class SegmentStats(object):
         
         """
         self.pixVals, self.counts = getSortedKeysAndValuesForDict(
-                    segmentHistDict, numbaImgType)
+            segmentHistDict, numbaImgType)
         
         # Total number of pixels in segment
         self.pixCount = self.counts.sum()
