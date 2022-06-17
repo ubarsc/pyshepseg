@@ -943,13 +943,6 @@ def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile,
     existingColNames = [attrTbl.GetNameOfCol(i) 
         for i in range(attrTbl.GetColumnCount())]
         
-    # Note: may be None if no value set
-    imgNullVal = imgband.GetNoDataValue()
-    if imgNullVal is not None:
-        # cast to the same type we are using for imagery
-        # (GDAL records this value as double)
-        imgNullVal = numbaTypeForImageType(imgNullVal)
-        
     histColNdx = checkHistColumn(existingColNames)
     segSize = attrTbl.ReadAsArray(histColNdx).astype(numpy.uint32)
     
@@ -964,7 +957,10 @@ def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile,
     numXtiles = int(numpy.ceil(npix / tileSize))
     numYtiles = int(numpy.ceil(nlines / tileSize))
     
-    segDict = createSegDict()
+    segDict = None  # create on first block so we know what imagery type is
+    imgNullVal = None  # same with this one
+    numbaImgType = None
+    
     pagedRat = createPagedRat()
     noDataDict = createNoDataDict()
     
@@ -978,10 +974,23 @@ def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile,
             tileSegments = segband.ReadAsArray(leftPix, topLine, xsize, ysize)
             tileImageData = imgband.ReadAsArray(leftPix, topLine, xsize, ysize)
             
+            if segDict is None:
+                # now we can create this because we know what type the image is
+                numbaImgType = numba.from_dtype(tileImageData)
+                segDict = createSegDict(numbaImgType)
+ 
+                # Note: may be None if no value set
+                imgNullVal = imgband.GetNoDataValue()
+                if imgNullVal is not None:
+                    # cast to the same type we are using for imagery
+                    # (GDAL records this value as double)
+                    imgNullVal = numbaImgType(imgNullVal)
+           
             accumulateSegDict(segDict, noDataDict, imgNullVal, tileSegments, 
-                tileImageData)
+                numbaImgType)
             calcStatsForCompletedSegs(segDict, noDataDict, missingStatsValue, 
-                pagedRat, statsSelection_fast, segSize, numIntCols, numFloatCols)
+                pagedRat, statsSelection_fast, segSize, numIntCols, numFloatCols,
+                numbaImgType)
             
             writeCompletePages(pagedRat, attrTbl, statsSelection_fast)
 
@@ -990,16 +999,17 @@ def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile,
         raise PyShepSegTilingError('Not all pixels found during processing')
 
 
-# This type is used for all numba jit-ed data which is supposed to 
-# match the data type of the imagery pixels. Int64 should be enough
-# to hold any integer type, signed or unsigned, up to uint32. 
-numbaTypeForImageType = types.int64
+# type we store integer columns as. 
+# Note: this could be int32 as that is what GDAL returns for
+# int columns, but to handle future addition of 64bit int columns
+# we use int64 instead.
+numbaTypeForColType = types.int64
 # This is the numba equivalent type of shepseg.SegIdType
 segIdNumbaType = types.uint32
 
 
 @njit
-def accumulateSegDict(segDict, noDataDict, imgNullVal, tileSegments, tileImageData):
+def accumulateSegDict(segDict, noDataDict, imgNullVal, tileSegments, numbaImgType):
     """
     Accumulate per-segment histogram counts for all 
     pixels in the given tile. Updates segDict entries in-place. 
@@ -1015,11 +1025,11 @@ def accumulateSegDict(segDict, noDataDict, imgNullVal, tileSegments, tileImageDa
                 # even if we haven't got any non-nodata pixels yet
                 # because we loop through keys of segDict when calculating stats
                 if segId not in segDict:
-                    segDict[segId] = Dict.empty(key_type=numbaTypeForImageType, 
+                    segDict[segId] = Dict.empty(key_type=numbaImgType, 
                         value_type=types.uint32)
                 
                 imgVal = tileImageData[y, x]
-                imgVal_typed = numbaTypeForImageType(imgVal)
+                imgVal_typed = numbaImgType(imgVal)
                 if imgNullVal is not None and imgVal_typed == imgNullVal:
                     # this is the null value for the tileImageData
                     if segId not in noDataDict:
@@ -1059,7 +1069,7 @@ def checkSegComplete(segDict, noDataDict, segSize, segId):
 
 @njit
 def calcStatsForCompletedSegs(segDict, noDataDict, missingStatsValue, pagedRat, 
-        statsSelection_fast, segSize, numIntCols, numFloatCols):
+        statsSelection_fast, segSize, numIntCols, numFloatCols, numbaImgType):
     """
     Calculate statistics for all complete segments in the segDict.
     Update the pagedRat with the resulting entries. Completed segments
@@ -1075,7 +1085,8 @@ def calcStatsForCompletedSegs(segDict, noDataDict, missingStatsValue, pagedRat,
     for segId in segDictKeys:
         segComplete = checkSegComplete(segDict, noDataDict, segSize, segId)
         if segComplete:
-            segStats = SegmentStats(segDict[segId], missingStatsValue)
+            segStats = createSegmentStats(segDict[segId], missingStatsValue, 
+                                numbaImgType)
             ratPageId = getRatPageId(segId)
             if ratPageId not in pagedRat:
                 numSegThisPage = min(RAT_PAGE_SIZE, (maxSegId - ratPageId + 1))
@@ -1100,7 +1111,7 @@ def calcStatsForCompletedSegs(segDict, noDataDict, missingStatsValue, pagedRat,
                 noDataDict.pop(segId)
 
 
-def createSegDict():
+def createSegDict(numbaImgType):
     """
     Create the Dict of Dicts for handling per-segment histograms. 
     Each entry is a dictionary, and the key is a segment ID.
@@ -1108,8 +1119,11 @@ def createSegDict():
     a single segment. Each of its entries is for a single value from 
     the imagery, the key is the pixel value, and the dictionary value 
     is the number of times that pixel value appears in the segment. 
+    
+    The input image data type as a numba type is needed so we know what type
+    to use as the key for the histogram dictionary.
     """
-    histDict = Dict.empty(key_type=numbaTypeForImageType, value_type=types.uint32)
+    histDict = Dict.empty(key_type=numbaImgType, value_type=types.uint32)
     segDict = Dict.empty(key_type=segIdNumbaType, value_type=histDict._dict_type)
     return segDict
 
@@ -1224,7 +1238,7 @@ def writeCompletePages(pagedRat, attrTbl, statsSelection_fast):
 RAT_PAGE_SIZE = 100000
 ratPageSpec = [
     ('startSegId', segIdNumbaType),
-    ('intcols', numbaTypeForImageType[:, :]),
+    ('intcols', numbaTypeForColType[:, :]),
     ('floatcols', types.float32[:, :]),
     ('complete', types.boolean[:])
 ]
@@ -1248,7 +1262,7 @@ class RatPage(object):
         
         """
         self.startSegId = startSegId
-        self.intcols = numpy.empty((numIntCols, numSeg), dtype=numbaTypeForImageType)
+        self.intcols = numpy.empty((numIntCols, numSeg), dtype=numbaTypeForColType)
         self.floatcols = numpy.empty((numFloatCols, numSeg), dtype=numpy.float32)
         self.complete = numpy.zeros(numSeg, dtype=types.boolean)
         if startSegId == shepseg.SEGNULLVAL:
@@ -1388,7 +1402,7 @@ def makeFastStatsSelection(colIndexList, statsSelection):
 
 
 @njit
-def getSortedKeysAndValuesForDict(d):
+def getSortedKeysAndValuesForDict(d, imgNumbaType):
     """
     The given dictionary is keyed by pixel values from the imagery,
     and the values are counts of occurences of the corresponding pixel
@@ -1397,7 +1411,7 @@ def getSortedKeysAndValuesForDict(d):
     counts. The arrays are sorted in increasing order of pixel value.
     """
     size = len(d)
-    keysArray = numpy.empty(size, dtype=numbaTypeForImageType)
+    keysArray = numpy.empty(size, dtype=imgNumbaType)
     valuesArray = numpy.empty(size, dtype=numpy.uint32)
     
     dictKeys = d.keys()
@@ -1414,26 +1428,29 @@ def getSortedKeysAndValuesForDict(d):
     return keysSorted, valuesSorted
 
 
-# Warning - currently using uint32 or float32 for all of the types
-# which should really be dependent on the imagery datatype. 
-# Not sure whether it is possible to do better. 
-segStatsSpec = [('pixVals', numbaTypeForImageType[:]), 
+def createSegmentStats(segmentHistDict, missingStatsValue, numbaImgType):
+    """
+    Creates a new instance of SegmentStats compiled to so the fields
+    that handle imagery data types are correct for the numbaImgType 
+    passed in.
+    """
+    segStatsSpec = [('pixVals', numbaImgType[:]), 
                 ('counts', types.uint32[:]),
                 ('pixCount', types.uint32),
-                ('min', numbaTypeForImageType),
-                ('max', numbaTypeForImageType),
-                ('mean', types.float32),
-                ('stddev', types.float32),
-                ('median', numbaTypeForImageType),
-                ('mode', numbaTypeForImageType),
-                ('missingStatsValue', numbaTypeForImageType)
+                ('min', numbaImgType),
+                ('max', numbaImgType),
+                ('mean', types.float64), # note: could probably choose float32/64 based on sizeof(numbaImgType)?
+                ('stddev', types.float64),
+                ('median', numbaImgType),
+                ('mode', numbaImgType),
+                ('missingStatsValue', numbaImgType)
                 ]
+    JitSegmentStats = jitclass(SegmentStats, segStatsSpec)
+    return JitSegmentStats(segmentHistDict, missingStatsValue, numbaImgType)
 
-
-@jitclass(segStatsSpec)
 class SegmentStats(object):
     "Manage statistics for a single segment"
-    def __init__(self, segmentHistDict, missingStatsValue):
+    def __init__(self, segmentHistDict, missingStatsValue, numbaImgType):
         """
         Construct with generic statistics, given a typed 
         dictionary of the histogram counts of all values
@@ -1444,7 +1461,8 @@ class SegmentStats(object):
         stats.
         
         """
-        self.pixVals, self.counts = getSortedKeysAndValuesForDict(segmentHistDict)
+        self.pixVals, self.counts = getSortedKeysAndValuesForDict(
+                    segmentHistDict, numbaImgType)
         
         # Total number of pixels in segment
         self.pixCount = self.counts.sum()
