@@ -977,7 +977,7 @@ def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile,
             
             if segDict is None:
                 # now we can create this because we know what type the image is
-                numbaImgType = from_dtype(tileImageData)
+                numbaImgType = from_dtype(tileImageData.dtype)
                 segDict = createSegDict(numbaImgType)
  
                 # Note: may be None if no value set
