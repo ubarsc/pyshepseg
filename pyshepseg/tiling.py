@@ -961,6 +961,7 @@ def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile,
     segDict = None  # create on first block so we know what imagery type is
     imgNullVal = None  # same with this one
     numbaImgType = None
+    SegmentStatsClass = None
     
     pagedRat = createPagedRat()
     noDataDict = createNoDataDict()
@@ -986,12 +987,14 @@ def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile,
                     # cast to the same type we are using for imagery
                     # (GDAL records this value as double)
                     imgNullVal = numbaImgType(imgNullVal)
+                    
+                SegmentStatsClass = createSegmentStatsClass(numbaImgType)
            
             accumulateSegDict(segDict, noDataDict, imgNullVal, tileSegments, 
                 tileImageData, numbaImgType)
             calcStatsForCompletedSegs(segDict, noDataDict, missingStatsValue, 
                 pagedRat, statsSelection_fast, segSize, numIntCols, numFloatCols,
-                numbaImgType)
+                SegmentStatsClass, numbaImgType)
             
             writeCompletePages(pagedRat, attrTbl, statsSelection_fast)
 
@@ -1071,7 +1074,8 @@ def checkSegComplete(segDict, noDataDict, segSize, segId):
 
 @njit
 def calcStatsForCompletedSegs(segDict, noDataDict, missingStatsValue, pagedRat, 
-        statsSelection_fast, segSize, numIntCols, numFloatCols, numbaImgType):
+        statsSelection_fast, segSize, numIntCols, numFloatCols, SegmentStatsClass,
+        numbaImgType):
     """
     Calculate statistics for all complete segments in the segDict.
     Update the pagedRat with the resulting entries. Completed segments
@@ -1087,7 +1091,7 @@ def calcStatsForCompletedSegs(segDict, noDataDict, missingStatsValue, pagedRat,
     for segId in segDictKeys:
         segComplete = checkSegComplete(segDict, noDataDict, segSize, segId)
         if segComplete:
-            segStats = createSegmentStats(segDict[segId], missingStatsValue, 
+            segStats = SegmentStatsClass(segDict[segId], missingStatsValue, 
                                 numbaImgType)
             ratPageId = getRatPageId(segId)
             if ratPageId not in pagedRat:
@@ -1430,7 +1434,7 @@ def getSortedKeysAndValuesForDict(d, imgNumbaType):
     return keysSorted, valuesSorted
 
 
-def createSegmentStats(segmentHistDict, missingStatsValue, numbaImgType):
+def createSegmentStatsClass(numbaImgType):
     """
     Creates a new instance of SegmentStats compiled to so the fields
     that handle imagery data types are correct for the numbaImgType 
@@ -1447,8 +1451,7 @@ def createSegmentStats(segmentHistDict, missingStatsValue, numbaImgType):
                 ('mode', numbaImgType),
                 ('missingStatsValue', numbaImgType)]
                 
-    JitSegmentStats = jitclass(SegmentStats, segStatsSpec)
-    return JitSegmentStats(segmentHistDict, missingStatsValue, numbaImgType)
+    return jitclass(SegmentStats, segStatsSpec)
 
 
 class SegmentStats(object):
