@@ -987,7 +987,7 @@ def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile,
                     imgNullVal = numbaImgType(imgNullVal)
            
             accumulateSegDict(segDict, noDataDict, imgNullVal, tileSegments, 
-                numbaImgType)
+                tileImageData, numbaImgType)
             calcStatsForCompletedSegs(segDict, noDataDict, missingStatsValue, 
                 pagedRat, statsSelection_fast, segSize, numIntCols, numFloatCols,
                 numbaImgType)
@@ -1009,7 +1009,8 @@ segIdNumbaType = types.uint32
 
 
 @njit
-def accumulateSegDict(segDict, noDataDict, imgNullVal, tileSegments, numbaImgType):
+def accumulateSegDict(segDict, noDataDict, imgNullVal, tileSegments, 
+        tileImageData, numbaImgType):
     """
     Accumulate per-segment histogram counts for all 
     pixels in the given tile. Updates segDict entries in-place. 
