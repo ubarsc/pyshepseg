@@ -1085,11 +1085,15 @@ def calcStatsForCompletedSegs(segDict, noDataDict, missingStatsValue, pagedRat,
             for i in range(numStats):
                 statId = statsSelection_fast[i, STATSEL_STATID]
                 param = statsSelection_fast[i, STATSEL_PARAM]
-                val = segStats.getStat(statId, param)
-                
                 colType = statsSelection_fast[i, STATSEL_COLTYPE]
                 colArrayNdx = statsSelection_fast[i, STATSEL_COLARRAYINDEX]
-                ratPage.setRatVal(segId, colType, colArrayNdx, val)
+                
+                if colType == STAT_DTYPE_INT:
+                    ival = segStats.getStatInt(statId, param)
+                    ratPage.setRatValInt(segId, colArrayNdx, ival)
+                elif colType == STAT_DTYPE_FLOAT:
+                    fval = segStats.getStatFloat(statId, param)
+                    ratPage.setRatValFloat(segId, colArrayNdx, fval)
 
             ratPage.setSegmentComplete(segId)
             
@@ -1264,16 +1268,21 @@ class RatPage(object):
         """
         return segId - self.startSegId
 
-    def setRatVal(self, segId, colType, colArrayNdx, val):
+    def setRatValInt(self, segId, colArrayNdx, val):
         """
         Set the RAT entry for the given segment,
-        to be the given value. 
+        to be the given value. For ints.
         """
         ndxInPage = self.getIndexInPage(segId)
-        if colType == STAT_DTYPE_INT:
-            self.intcols[colArrayNdx, ndxInPage] = val
-        elif colType == STAT_DTYPE_FLOAT:
-            self.floatcols[colArrayNdx, ndxInPage] = val
+        self.intcols[colArrayNdx, ndxInPage] = val
+
+    def setRatValFloat(self, segId, colArrayNdx, val):
+        """
+        Set the RAT entry for the given segment,
+        to be the given value. For floats.
+        """
+        ndxInPage = self.getIndexInPage(segId)
+        self.floatcols[colArrayNdx, ndxInPage] = val
             
     def getRatVal(self, segId, colType, colArrayNdx):
         """
@@ -1496,26 +1505,36 @@ class SegmentStats(object):
             pcntileVal = self.pixVals[i - 1]
             return pcntileVal
     
-    def getStat(self, statID, param):
+    def getStatInt(self, statID, param):
         """
         Return the requested statistic
+        (only integer types)
         """
+        val = 0
         if statID == STATID_MIN:
             val = self.min
         elif statID == STATID_MAX:
             val = self.max
         elif statID == STATID_MEAN:
             val = self.mean
-        elif statID == STATID_STDDEV:
-            val = self.stddev
-        elif statID == STATID_MEDIAN:
-            val = self.median
         elif statID == STATID_MODE:
             val = self.mode
         elif statID == STATID_PERCENTILE:
             val = self.getPercentile(param)
         elif statID == STATID_PIXCOUNT:
             val = self.pixCount
+        return val
+
+    def getStatFloat(self, statID, param):
+        """
+        Return the requested statistic
+        (only Float types)
+        """
+        val = 0.0
+        if statID == STATID_STDDEV:
+            val = self.stddev
+        elif statID == STATID_MEDIAN:
+            val = self.median
         return val
 
 
@@ -1833,13 +1852,22 @@ def setSubsetRecodeFromDictionary(dictn, array):
 
 
 @njit
-def readColDataIntoPage(page, data, idx, colType, minVal):
+def readColDataIntoPageInt(page, data, idx, colType, minVal):
     """
     Numba function to quickly read a column returned by
-    rat.ReadAsArray() info a RatPage.
+    rat.ReadAsArray() info a RatPage. For ints.
     """
     for i in range(data.shape[0]):
-        page.setRatVal(i + minVal, colType, idx, data[i])
+        page.setRatValInt(i + minVal, idx, data[i])
+
+@njit
+def readColDataIntoPageFloat(page, data, idx, colType, minVal):
+    """
+    Numba function to quickly read a column returned by
+    rat.ReadAsArray() info a RatPage. For floats.
+    """
+    for i in range(data.shape[0]):
+        page.setRatValFloat(i + minVal, idx, data[i])
     
 
 def readRATIntoPage(rat, numIntCols, numFloatCols, minVal, maxVal):
@@ -1860,10 +1888,10 @@ def readRATIntoPage(rat, numIntCols, numFloatCols, minVal, maxVal):
         dtype = rat.GetTypeOfCol(col)
         data = rat.ReadAsArray(col, start=minVal, length=nrows)
         if dtype == gdal.GFT_Integer:
-            readColDataIntoPage(page, data, intColIdx, STAT_DTYPE_INT, minVal)
+            readColDataIntoPageInt(page, data, intColIdx, minVal)
             intColIdx += 1
         else:
-            readColDataIntoPage(page, data, floatColIdx, STAT_DTYPE_FLOAT, minVal)
+            readColDataIntoPageFloat(page, data, floatColIdx, minVal)
             floatColIdx += 1
     
     return page 
