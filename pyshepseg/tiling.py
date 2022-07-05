@@ -1284,15 +1284,20 @@ class RatPage(object):
         ndxInPage = self.getIndexInPage(segId)
         self.floatcols[colArrayNdx, ndxInPage] = val
             
-    def getRatVal(self, segId, colType, colArrayNdx):
+    def getRatValInt(self, segId, colArrayNdx):
         """
-        Get the RAT entry for the given segment.
+        Get the RAT entry for the given segment. For Ints.
         """
         ndxInPage = self.getIndexInPage(segId)
-        if colType == STAT_DTYPE_INT:
-            val = self.intcols[colArrayNdx, ndxInPage]
-        elif colType == STAT_DTYPE_FLOAT:
-            val = self.floatcols[colArrayNdx, ndxInPage]
+        val = self.intcols[colArrayNdx, ndxInPage]
+        return val
+
+    def getRatValFloat(self, segId, colArrayNdx):
+        """
+        Get the RAT entry for the given segment. For Floats.
+        """
+        ndxInPage = self.getIndexInPage(segId)
+        val = self.floatcols[colArrayNdx, ndxInPage]
         return val
     
     def setSegmentComplete(self, segId):
