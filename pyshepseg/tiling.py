@@ -1860,6 +1860,7 @@ def readColDataIntoPageInt(page, data, idx, colType, minVal):
     for i in range(data.shape[0]):
         page.setRatValInt(i + minVal, idx, data[i])
 
+
 @njit
 def readColDataIntoPageFloat(page, data, idx, colType, minVal):
     """
