@@ -1520,8 +1520,8 @@ class SegmentStats(object):
             val = self.min
         elif statID == STATID_MAX:
             val = self.max
-        elif statID == STATID_MEAN:
-            val = self.mean
+        elif statID == STATID_MEDIAN:
+            val = self.median
         elif statID == STATID_MODE:
             val = self.mode
         elif statID == STATID_PERCENTILE:
@@ -1538,8 +1538,8 @@ class SegmentStats(object):
         val = 0.0
         if statID == STATID_STDDEV:
             val = self.stddev
-        elif statID == STATID_MEDIAN:
-            val = self.median
+        elif statID == STATID_MEAN:
+            val = self.mean
         return val
 
 
