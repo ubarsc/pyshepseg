@@ -37,7 +37,7 @@ RUN cd /tmp \
     && wget https://github.com/ubarsc/pyshepseg/archive/refs/heads/master.zip \
     && unzip master.zip \
     && cd pyshepseg-master \
-    && python3 setup.py install --prefix=${SW_VOLUME} \
+    && pip install . --prefix=${SW_VOLUME} \
     && cd .. \
     && rm -rf master.zip pyshepseg-master
 
