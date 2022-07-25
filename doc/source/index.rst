@@ -49,11 +49,13 @@ setup.py script.
    Either unpack the latest release bundle from 
    `<https://github.com/ubarsc/pyshepseg/releases>`_, or clone the 
    repository. 
-2. Run the setup.py script, e.g.
+2. Run the setup.py script. This is best done by using pip as a wrapper
+   around it, as follows. Note that pip has a --prefix option to allow
+   installation in non-standard locations.
 
 ::
 
-   python setup.py install
+   pip install .
 
 
 Usage
