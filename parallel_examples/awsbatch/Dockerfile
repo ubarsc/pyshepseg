@@ -11,7 +11,7 @@ RUN sed -i 's/http:\/\/archive./http:\/\/eu.archive./g' /etc/apt/sources.list
 RUN apt-get update
 RUN apt-get upgrade -y
 RUN apt-get install -y python3-gdal python3-boto3 python3-setuptools python3-sklearn \
-		python3-numba wget g++ cmake libhdf5-dev libgdal-dev unzip
+		python3-numba wget g++ cmake libhdf5-dev libgdal-dev unzip python3-pip
 RUN apt-get autoremove -y && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 ENV SW_VOLUME=/ubarscsw
@@ -37,7 +37,7 @@ RUN cd /tmp \
     && wget https://github.com/ubarsc/pyshepseg/archive/refs/heads/master.zip \
     && unzip master.zip \
     && cd pyshepseg-master \
-    && python3 setup.py install --prefix=${SW_VOLUME} \
+    && pip install . --prefix=${SW_VOLUME} \
     && cd .. \
     && rm -rf master.zip pyshepseg-master
 

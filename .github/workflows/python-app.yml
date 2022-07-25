@@ -31,5 +31,5 @@ jobs:
     - name: Test with pyshepseg_runtests.py
       shell: bash -l {0}
       run: |
-        python3 setup.py install
+        pip install .
         pyshepseg_runtests.py
