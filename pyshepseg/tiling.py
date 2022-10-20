@@ -28,6 +28,10 @@ lot of spectral variation across an area like a whole continent,
 and it may be unwise to use all the same parameters for the
 whole area. 
 
+Also included in this module is functionality for subsetting a large
+segmented image into a smaller one for checking etc. See
+:func:`subsetImage`.
+
 """
 # Copyright 2021 Neil Flood and Sam Gillingham. All rights reserved.
 # 

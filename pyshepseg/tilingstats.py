@@ -8,14 +8,34 @@ These are optimised to work on one tile of the images at a
 time so should be efficient in terms of memory use.
 """
 
-import numpy
+# Copyright 2021 Neil Flood and Sam Gillingham. All rights reserved.
+#
+# Permission is hereby granted, free of charge, to any person 
+# obtaining a copy of this software and associated documentation 
+# files (the "Software"), to deal in the Software without restriction, 
+# including without limitation the rights to use, copy, modify, 
+# merge, publish, distribute, sublicense, and/or sell copies of the 
+# Software, and to permit persons to whom the Software is furnished 
+# to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be 
+# included in all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, 
+# EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES 
+# OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. 
+# IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR 
+# ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF 
+# CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION 
+# WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+import numpy
 from osgeo import gdal
 from osgeo import osr
 
-from numba import njit
+from numba import njit, typeof
 from numba.core import types
-from numba.typed import Dict
+from numba.typed import Dict, List
 from numba.experimental import jitclass
 
 from . import tiling
@@ -565,6 +585,473 @@ def equalProjection(proj1, proj2):
     srOther = osr.SpatialReference(wkt=otherProj)
     return bool(srSelf.IsSame(srOther))
 
+
+@njit
+def userFuncVariogram(tile, imgNullVal, intArr, floatArr, maxDist):
+    """
+    Calculates the variogram at the given distance for the segment
+    contained in the tile.     
+
+    Used by the userFuncVariogram* functions below for given fixed 
+    distances.
+    """
+
+    counts = numpy.zeros((maxDist,), dtype=numpy.uint32)
+    sumDifSqs = numpy.zeros((maxDist,), dtype=numpy.float64)
+    ysize, xsize = tile.shape
+    for y in range(ysize):
+        for x in range(xsize):
+            val = tile[y, x]
+            if val == imgNullVal:
+                continue
+                
+            for yoffset in range(1, maxDist + 1):
+                for xoffset in range(1, maxDist + 1):
+                    if (y + yoffset) < ysize and (x + xoffset) < xsize:
+                        val2 = tile[y + yoffset, x + xoffset]
+                        if val2 == imgNullVal:
+                            continue                       
+
+                        # note: 'bin' dist by converting to integer
+                        dist = int(numpy.sqrt(yoffset * yoffset + xoffset * xoffset))
+                        if dist <= maxDist and dist > 0:
+                            counts[dist - 1] += 1
+                            sumDifSqs[dist - 1] += (val - val2)**2
+                        
+    for n in range(maxDist):
+        if counts[n] == 0:
+            floatArr[n] = -9999  # TODO: pass in missingStatsValue?
+        else:
+            floatArr[n] = numpy.sqrt(sumDifSqs[n] / counts[n])
+
+
+@njit
+def userFuncVariogram1(tile, imgNullVal, intArr, floatArr):
+    """
+    Calculates distance=1 variogram and can be used as a parameter
+    to :func:`calcPerSegmentSpatialStatsTiled`.
+    """
+    userFuncVariogram(tile, imgNullVal, intArr, floatArr, 1)
+
+
+@njit
+def userFuncVariogram2(tile, imgNullVal, intArr, floatArr):
+    """
+    Calculates distance=1, 2 variograms and can be used as a parameter
+    to :func:`calcPerSegmentSpatialStatsTiled`.
+    """
+    userFuncVariogram(tile, imgNullVal, intArr, floatArr, 2)
+
+
+@njit
+def userFuncVariogram3(tile, imgNullVal, intArr, floatArr):
+    """
+    Calculates distance=1-3 variograms and can be used as a parameter
+    to :func:`calcPerSegmentSpatialStatsTiled`.
+    """
+    userFuncVariogram(tile, imgNullVal, intArr, floatArr, 3)
+
+
+@njit
+def userFuncVariogram4(tile, imgNullVal, intArr, floatArr):
+    """
+    Calculates distance=1-4 variograms and can be used as a parameter
+    to :func:`calcPerSegmentSpatialStatsTiled`.
+    """
+    userFuncVariogram(tile, imgNullVal, intArr, floatArr, 4)
+
+
+@njit
+def userFuncVariogram5(tile, imgNullVal, intArr, floatArr):
+    """
+    Calculates distance=1-5 variograms and can be used as a parameter
+    to :func:`calcPerSegmentSpatialStatsTiled`.
+    """
+    userFuncVariogram(tile, imgNullVal, intArr, floatArr, 5)
+
+
+@njit
+def userFuncVariogram6(tile, imgNullVal, intArr, floatArr):
+    """
+    Calculates distance=1-6 variograms and can be used as a parameter
+    to :func:`calcPerSegmentSpatialStatsTiled`.
+    """
+    userFuncVariogram(tile, imgNullVal, intArr, floatArr, 6)
+
+
+@njit
+def userFuncVariogram7(tile, imgNullVal, intArr, floatArr):
+    """
+    Calculates distance=1-7 variograms and can be used as a parameter
+    to :func:`calcPerSegmentSpatialStatsTiled`.
+    """
+    userFuncVariogram(tile, imgNullVal, intArr, floatArr, 7)
+
+
+@njit
+def userFuncVariogram8(tile, imgNullVal, intArr, floatArr):
+    """
+    Calculates distance=1-8 variograms and can be used as a parameter
+    to :func:`calcPerSegmentSpatialStatsTiled`.
+    """
+    userFuncVariogram(tile, imgNullVal, intArr, floatArr, 8)
+
+
+@njit
+def userFuncVariogram9(tile, imgNullVal, intArr, floatArr):
+    """
+    Calculates distance=1-9 variograms and can be used as a parameter
+    to :func:`calcPerSegmentSpatialStatsTiled`.
+    """
+    userFuncVariogram(tile, imgNullVal, intArr, floatArr, 9)
+
+
+SegPointSpec = [('x', types.uint32), 
+    ('y', types.uint32), 
+    ('val', tiling.numbaTypeForImageType)]
+    
+
+@jitclass(SegPointSpec)
+class SegPoint(object):
+    """
+    Class for handling a given data point and it's location
+    in pixel space (within the whole image, not a tile).
+    
+    Used so that all the data for a given segment can be collected
+    together even if the segment straddles a tile.
+    """
+    def __init__(self, x, y, val):
+        self.x = x
+        self.y = y
+        self.val = val
+
+        
+# for use in jitted functions - see https://github.com/numba/numba/issues/7291
+PTS_TYPE = typeof(SegPoint(0, 0, 0))
+
+
+def createSegSpatialDataDict():
+    """
+    Create a dictionary where the key is the segment ID and the 
+    value is a List of :class:`SegPoint`s. 
+    """
+    pointList = List.empty_list(SegPoint.class_type.instance_type)
+    segDict = Dict.empty(key_type=tiling.segIdNumbaType, 
+                value_type=pointList._list_type)
+    return segDict
+    
+
+def calcPerSegmentSpatialStatsTiled(imgfile, imgbandnum, segfile,
+        colNamesAndTypes, userFunc, missingStatsValue=-9999):
+    """
+    Similar to the :func:`calcPerSegmentSpatialStatsTiled` function 
+    but allows the user to calculate spatial statistics on the data
+    for each segment. This is done by recording the location and value
+    for each pixel within the segment. Once all the pixels are found
+    for a segment the ``userFunc`` is called with the following parameters:
+    
+    ::
+    
+        tile, imgNullVal, intArr, floatArr
+        
+    where ``tile`` is a 2D numpy array containing the data for the segment 
+    in the original shape of the segment. The tile is created just large
+    enough for the shape of the segment. Areas of the tile not within a
+    segment is given the value of ``imgNullVal``. ``intArray`` is a 1D numpy
+    array which all the integer output values are to be put (in the same order
+    given in ``colNamesAndTypes``). ``floatArr`` is a 1D numpy array which all
+    the floating point output values are to be put (in the same order
+    given in ``colNamesAndTypes``).
+    
+    ``userFunc`` needs to be a Numba function (ie decorated with @jit or @njit).
+    
+    ``colNamesAndTypes`` should be a list of ``(colName, colType)`` tuples that
+    define the names, types are order of the output RAT columns. 
+    ``colName`` should be a string containing the name of the RAT column to be
+    created and ``colType`` should be one of ``gdal.GFT_Integer`` or 
+    ``gdal.GFT_Real`` and this controls the type of the column to be created.
+    Note that the order of columns given in this parameter is important as
+    this dicates the order of the ``intArray`` and ``floatArr`` parameters to 
+    ``userFunc``.
+    
+    """
+    segds = segfile
+    if not isinstance(segds, gdal.Dataset):
+        segds = gdal.Open(segfile, gdal.GA_Update)
+    segband = segds.GetRasterBand(1)
+
+    imgds = imgfile
+    if not isinstance(imgds, gdal.Dataset):
+        imgds = gdal.Open(imgfile, gdal.GA_ReadOnly)
+    imgband = imgds.GetRasterBand(imgbandnum)
+    if (imgband.DataType == gdal.GDT_Float32 or 
+            imgband.DataType == gdal.GDT_Float64):
+        raise PyShepSegStatsError("Float image types not supported")
+        
+    if segband.XSize != imgband.XSize or segband.YSize != imgband.YSize:
+        raise PyShepSegStatsError("Images must be same size")
+        
+    if segds.GetGeoTransform() != imgds.GetGeoTransform():
+        raise PyShepSegStatsError("Images must have same spatial extent and pixel size")
+        
+    if not equalProjection(segds.GetProjection(), imgds.GetProjection()):
+        raise PyShepSegStatsError("Images must be in the same projection")
+    
+    attrTbl = segband.GetDefaultRAT()
+    existingColNames = [attrTbl.GetNameOfCol(i) 
+        for i in range(attrTbl.GetColumnCount())]
+        
+    # Note: may be None if no value set
+    imgNullVal = imgband.GetNoDataValue()
+    if imgNullVal is not None:
+        # cast to the same type we are using for imagery
+        # (GDAL records this value as double)
+        imgNullVal = tiling.numbaTypeForImageType(imgNullVal)
+    else:
+        # because we need to mask out parts of tiles not part of the
+        # segment we need the no data value set
+        raise PyShepSegStatsError("NoData value must be set on imgfile")
+        
+    if 'targetoptions' not in userFunc.__dict__:
+        raise PyShepSegStatsError("userFunc must be @jit or @njit decorated")
+        
+    if len(colNamesAndTypes) == 0:
+        raise PyShepSegStatsError("Must specify one or more columns")
+    
+    histColNdx = checkHistColumn(existingColNames)
+    segSize = attrTbl.ReadAsArray(histColNdx).astype(numpy.uint32)
+    
+    # Create columns, as required 
+    n_intCols, n_floatCols, statsSelection_fast = createUserColumnsSpatial(
+        colNamesAndTypes, attrTbl, existingColNames)
+    # create temprorary arrays for userfunc
+    intArr = numpy.empty(n_intCols, dtype=numpy.int32)
+    floatArr = numpy.empty(n_floatCols, dtype=numpy.float64)
+        
+    # Loop over all tiles in image
+    tileSize = tiling.TILESIZE
+    (nlines, npix) = (segband.YSize, segband.XSize)
+    numXtiles = int(numpy.ceil(npix / tileSize))
+    numYtiles = int(numpy.ceil(nlines / tileSize))
+    
+    segDict = createSegSpatialDataDict()
+    pagedRat = tiling.createPagedRat()
+    noDataDict = createNoDataDict()
+    
+    # similar logic to calcPerSegmentSpatialStatsTiled
+    for tileRow in range(numYtiles):
+        for tileCol in range(numXtiles):
+            topLine = tileRow * tileSize
+            leftPix = tileCol * tileSize
+            xsize = min(tileSize, npix - leftPix)
+            ysize = min(tileSize, nlines - topLine)
+            
+            tileSegments = segband.ReadAsArray(leftPix, topLine, xsize, ysize)
+            tileImageData = imgband.ReadAsArray(leftPix, topLine, xsize, ysize)
+            
+            accumulateSegSpatial(segDict, noDataDict, imgNullVal, tileSegments, 
+                tileImageData, topLine, leftPix)
+            calcStatsForCompletedSegsSpatial(segDict, noDataDict, missingStatsValue, pagedRat,
+                segSize, userFunc, statsSelection_fast, intArr, floatArr, imgNullVal)
+            
+            writeCompletePages(pagedRat, attrTbl, statsSelection_fast)
+
+    # all pages should now be written. Raise an error if this not the case.
+    if len(pagedRat) > 0:
+        raise PyShepSegStatsError('Not all pixels found during processing')
+        
+
+def createUserColumnsSpatial(colNamesAndTypes, attrTbl, existingColNames):
+    """
+    Used by :func:`calcPerSegmentSpatialStatsTiled` to create columns specified
+    in the ``colNamesAndTypes`` structure. 
+    
+    Returns a tuple with number of integer columns, number of float columns
+    and a statsSelection_fast array for use by :func:`calcStatsForCompletedSegsSpatial`.
+    """
+    n_intCols = 0
+    n_floatCols = 0
+    numStats = len(colNamesAndTypes)
+    statsSelection_fast = numpy.empty((numStats, 5), dtype=numpy.uint32)
+    
+    for i, (colName, colType) in enumerate(colNamesAndTypes):
+        if colName not in existingColNames:
+            attrTbl.CreateColumn(colName, colType, gdal.GFU_Generic)
+            colNdx = attrTbl.GetColumnCount() - 1
+        else:
+            colNdx = existingColNames.index(colName)
+            if colType == attrTbl.GetTypeOfCol(colNdx):
+                print('Column {} already exists'.format(colName))
+            else:
+                msg = 'Column {} already exists and is of differing type'.format(colName)
+                raise PyShepSegStatsError(msg)
+
+        statsSelection_fast[i, STATSEL_GLOBALCOLINDEX] = colNdx
+        # not used
+        statsSelection_fast[i, STATSEL_PARAM] = NOPARAM
+        statsSelection_fast[i, STATSEL_STATID] = -1
+                
+        if colType == gdal.GFT_Integer:
+            statsSelection_fast[i, STATSEL_COLARRAYINDEX] = n_intCols
+            statsSelection_fast[i, STATSEL_COLTYPE] = tiling.STAT_DTYPE_INT
+            n_intCols += 1
+        elif colType == gdal.GFT_Real:
+            statsSelection_fast[i, STATSEL_COLARRAYINDEX] = n_floatCols
+            statsSelection_fast[i, STATSEL_COLTYPE] = tiling.STAT_DTYPE_FLOAT
+            n_floatCols += 1
+        else:
+            msg = 'Unknown type ({}) for column {}'.format(colType, colName)
+            raise PyShepSegStatsError(msg)
+
+    return n_intCols + 1, n_floatCols + 1, statsSelection_fast
+
+
+@njit
+def accumulateSegSpatial(segDict, noDataDict, imgNullVal, tileSegments, 
+                tileImageData, topLine, leftPix):
+    """
+    Accumulates data for each segment for the given tile. The data is put
+    into segDict.
+    
+    """
+    ysize, xsize = tileSegments.shape
+    
+    for y in range(ysize):
+        for x in range(xsize):
+            segId = tileSegments[y, x]
+            if segId != shepseg.SEGNULLVAL:    
+                if segId not in segDict:
+                    segDict[segId] = List.empty_list(PTS_TYPE)
+                    
+                imgVal = tileImageData[y, x]
+                imgVal_typed = tiling.numbaTypeForImageType(imgVal)
+                if imgNullVal is not None and imgVal_typed == imgNullVal:
+                    # this is the null value for the tileImageData
+                    if segId not in noDataDict:
+                        noDataDict[segId] = types.uint32(0)
+                        
+                    noDataDict[segId] = types.uint32(noDataDict[segId] + 1)
+
+                else:
+                    # else populate list (note: not done if all nodata for this segment)
+                    segList = segDict[segId]
+                    pt = SegPoint(leftPix + x, topLine + y, imgVal_typed)
+                    segList.append(pt)
+
+
+@njit
+def checkSegCompleteSpatial(segDict, noDataDict, segSize, segId):
+    """
+    Return True if the given segment has a complete entry
+    in the segDict, meaning that the pixel count is equal to
+    the segment size
+    """
+    count = 0
+    # add up the counts of the histogram
+    if segId in segDict:
+        segList = segDict[segId]
+        count += len(segList)
+        
+    # now add up any nodata in this segment
+    if segId in noDataDict:
+        count += noDataDict[segId]
+        
+    return (count == segSize[segId])
+
+    
+@njit
+def convertPtsInto2DArray(pts, imgNullVal):
+    """
+    Given a list of points for a segment turn this back into a 2D array
+    for passing to the user function. 
+    
+    """
+    # find size of tile
+    xmin = pts[0].x
+    xmax = pts[0].x
+    ymin = pts[0].y
+    ymax = pts[0].y
+    for p in pts[1:]:
+        if p.x < xmin:
+            xmin = p.x
+        elif p.x > xmax:
+            xmax = p.x
+        if p.y < ymin:
+            ymin = p.y
+        elif p.y > ymax:
+            ymax = p.y
+
+    # create a new 2D array just big enough to hold the data and set to
+    # imgNullVal to start with.
+    xsize = xmax - xmin
+    ysize = ymax - ymin
+    tile = numpy.full((ysize + 1, xsize + 1), imgNullVal, 
+            dtype=tiling.numbaTypeForImageType)
+            
+    # fill in the tile with the values
+    for p in pts:
+        tile[p.y - ymin, p.x - xmin] = p.val
+        
+    return tile
+
+
+@njit
+def calcStatsForCompletedSegsSpatial(segDict, noDataDict, missingStatsValue, pagedRat,
+        segSize, userFunc, statsSelection_fast, intArr, floatArr, imgNullVal):
+    """
+    Calls the ``userFunc`` on data for completed segs and saves the results into
+    the ``pagedRat``. 
+    
+    """
+
+    maxSegId = len(segSize) - 1
+    segDictKeys = numpy.empty(len(segDict), dtype=tiling.segIdNumbaType)
+    i = 0
+    for segId in segDict:
+        segDictKeys[i] = segId
+        i += 1
+    for segId in segDictKeys:
+        segComplete = checkSegCompleteSpatial(segDict, noDataDict, segSize, segId)
+        if segComplete:
+            ratPageId = tiling.getRatPageId(segId)
+            if ratPageId not in pagedRat:
+                numSegThisPage = min(tiling.RAT_PAGE_SIZE, (maxSegId - ratPageId + 1))
+                pagedRat[ratPageId] = tiling.RatPage(intArr.shape[0], floatArr.shape[0], 
+                    ratPageId, numSegThisPage)
+            ratPage = pagedRat[ratPageId]                   
+
+            segList = segDict[segId]
+            if len(segList) > 0:
+                # convert to a tile 2D structure before calling the user's function
+                tile = convertPtsInto2DArray(segList, imgNullVal)
+                # call userFunc
+                userFunc(tile, imgNullVal, intArr, floatArr)
+                # now write the outputs for the different types 
+                for n in range(statsSelection_fast.shape[0]):
+                    colType = statsSelection_fast[n, STATSEL_COLTYPE]
+                    colArrayNdx = statsSelection_fast[n, STATSEL_COLARRAYINDEX]
+                    if colType == tiling.STAT_DTYPE_INT:
+                        ratPage.setRatVal(segId, tiling.STAT_DTYPE_INT, colArrayNdx,
+                            intArr[colArrayNdx])
+                    else:
+                        ratPage.setRatVal(segId, tiling.STAT_DTYPE_FLOAT, colArrayNdx,
+                            floatArr[colArrayNdx])
+ 
+            else:
+                # all missingStatsValue
+                for n in range(statsSelection_fast.shape[0]):
+                    colType = statsSelection_fast[n, STATSEL_COLTYPE]
+                    colArrayNdx = statsSelection_fast[n, STATSEL_COLARRAYINDEX]
+                    ratPage.setRatVal(segId, colType, colArrayNdx, missingStatsValue)
+            # mark as complete
+            ratPage.setSegmentComplete(segId)
+            
+            # Stats now done for this segment, so remove its points
+            segDict.pop(segId)
+            # same for nodata (if there is one)
+            if segId in noDataDict:
+                noDataDict.pop(segId)
+                
 
 class PyShepSegStatsError(Exception):
     pass
