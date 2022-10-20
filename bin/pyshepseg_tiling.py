@@ -38,6 +38,7 @@ import argparse
 from osgeo import gdal
 
 from pyshepseg import tiling
+from pyshepseg import tilingstats
 from pyshepseg import utils
 
 DFLT_OUTPUT_DRIVER = 'KEA'
@@ -228,7 +229,7 @@ def doPerSegmentStats(cmdargs):
                 selection = (name, statsSpec)
             statsSelection.append(selection)
 
-        tiling.calcPerSegmentStatsTiled(cmdargs.infile, statsBand, 
+        tilingstats.calcPerSegmentStatsTiled(cmdargs.infile, statsBand, 
             cmdargs.outfile, statsSelection)
 
 

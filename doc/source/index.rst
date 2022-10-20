@@ -144,12 +144,15 @@ which uses previously calculated columns in the raster attribute table (RAT) to
 create a colour table which approximates the original imagery. See its help for 
 details, and the preceding section on how to create suitable RAT columns. 
 
+Modules in this Package
+=======================
+
 .. toctree::
    :maxdepth: 2
-   :caption: Contents:
    
    pyshepseg_shepseg
    pyshepseg_tiling
+   pyshepseg_tilingstats
    pyshepseg_utils
 
 
