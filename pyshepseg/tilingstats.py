@@ -634,9 +634,7 @@ def userFuncVariogram(pts, imgNullVal, intArr, floatArr, maxDist):
                             sumDifSqs[dist - 1] += (val - val2)**2
                         
     for n in range(maxDist):
-        if counts[n] == 0:
-            floatArr[n] = -9999  # TODO: pass in missingStatsValue?
-        else:
+        if counts[n] > 0:
             floatArr[n] = numpy.sqrt(sumDifSqs[n] / counts[n])
 
 
@@ -728,7 +726,9 @@ def calcPerSegmentSpatialStatsTiled(imgfile, imgbandnum, segfile,
     1D numpy array which all the integer output values are to be put (in the 
     same order given in ``colNamesAndTypes``). ``floatArr`` is a 1D numpy array 
     which all the floating point output values are to be put (in the same order
-    given in ``colNamesAndTypes``). ``userParam`` is the same value passed to 
+    given in ``colNamesAndTypes``). These arrays are initialised with 
+    ``missingStatsValue`` so the function can skip any that it doesn't have
+    values for. ``userParam`` is the same value passed to 
     this function and needs to be a type understood by Numba. 
     
     ``userFunc`` needs to be a Numba function (ie decorated with @jit or @njit).
@@ -995,8 +995,13 @@ def calcStatsForCompletedSegsSpatial(segDict, noDataDict, missingStatsValue,
 
             segList = segDict[segId]
             if len(segList) > 0:
+                # initialise the arrays to missingStatsValue
+                intArr.fill(missingStatsValue)
+                floatArr.fill(missingStatsValue)
+                
                 # call userFunc
                 userFunc(segList, imgNullVal, intArr, floatArr, userParam)
+                
                 # now write the outputs for the different types 
                 for n in range(statsSelection_fast.shape[0]):
                     colType = statsSelection_fast[n, STATSEL_COLTYPE]
