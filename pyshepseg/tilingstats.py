@@ -638,6 +638,7 @@ def userFuncVariogram(pts, imgNullVal, intArr, floatArr, maxDist):
         else:
             floatArr[n] = numpy.sqrt(sumDifSqs[n] / counts[n])
 
+
 @njit
 def userFuncMeanCoord(pts, imgNullVal, intArr, floatArr, transform):
     """
