@@ -6,6 +6,10 @@ statistics from for each segment in the first image.
 
 These are optimised to work on one tile of the images at a
 time so should be efficient in terms of memory use.
+
+The main functions in this module are :func:`calcPerSegmentStatsTiled`
+and :func:`calcPerSegmentSpatialStatsTiled`.
+
 """
 
 # Copyright 2021 Neil Flood and Sam Gillingham. All rights reserved.
@@ -587,15 +591,25 @@ def equalProjection(proj1, proj2):
 
 
 @njit
-def userFuncVariogram(tile, imgNullVal, intArr, floatArr, maxDist):
+def userFuncVariogram(pts, imgNullVal, intArr, floatArr, maxDist):
     """
     Calculates the variogram at the given distance for the segment
-    contained in the tile.     
+    contained in the tile. This function is intended to be passed in as the 
+    ``userFunc`` parameter to :func:`calcPerSegmentSpatialStatsTiled` if 
+    variograms are to be calculated.
+    
+    ``maxDist`` is the number of variograms to calculate and should be 
+    passed in as the ``userParam`` argument to 
+    :func:`calcPerSegmentSpatialStatsTiled`.
+    
+    It is assumed that floatArr has enough space for the number of variograms
+    requested (this is calculated from the ``colNamesAndTypes`` parameter to
+    :func:`calcPerSegmentSpatialStatsTiled`).
 
-    Used by the userFuncVariogram* functions below for given fixed 
-    distances.
     """
-
+    # turn into a tile for maximum speed when searching
+    tile = convertPtsInto2DArray(pts, imgNullVal)
+    
     counts = numpy.zeros((maxDist,), dtype=numpy.uint32)
     sumDifSqs = numpy.zeros((maxDist,), dtype=numpy.float64)
     ysize, xsize = tile.shape
@@ -624,86 +638,37 @@ def userFuncVariogram(tile, imgNullVal, intArr, floatArr, maxDist):
         else:
             floatArr[n] = numpy.sqrt(sumDifSqs[n] / counts[n])
 
-
 @njit
-def userFuncVariogram1(tile, imgNullVal, intArr, floatArr):
+def userFuncMeanCoord(pts, imgNullVal, intArr, floatArr, transform):
     """
-    Calculates distance=1 variogram and can be used as a parameter
-    to :func:`calcPerSegmentSpatialStatsTiled`.
-    """
-    userFuncVariogram(tile, imgNullVal, intArr, floatArr, 1)
+    Calculates the mean coordinate of each segment. This function is intended 
+    to be passed in as the ``userFunc`` parameter to 
+    :func:`calcPerSegmentSpatialStatsTiled` if the mean coordinates of each
+    segment are required. 
 
-
-@njit
-def userFuncVariogram2(tile, imgNullVal, intArr, floatArr):
+    The ``transform`` of the image (ie. returned by ds.GetGeoTransform() where
+    ds is a GDAL dataset) is to be passed as ``userParam`` but converted to an
+    array so it works with Numba.
+    
+    The result will be written to floatArr (2 values -
+    easting then northing). It is expected that at least 2 float columns are
+    available. 
     """
-    Calculates distance=1, 2 variograms and can be used as a parameter
-    to :func:`calcPerSegmentSpatialStatsTiled`.
-    """
-    userFuncVariogram(tile, imgNullVal, intArr, floatArr, 2)
-
-
-@njit
-def userFuncVariogram3(tile, imgNullVal, intArr, floatArr):
-    """
-    Calculates distance=1-3 variograms and can be used as a parameter
-    to :func:`calcPerSegmentSpatialStatsTiled`.
-    """
-    userFuncVariogram(tile, imgNullVal, intArr, floatArr, 3)
-
-
-@njit
-def userFuncVariogram4(tile, imgNullVal, intArr, floatArr):
-    """
-    Calculates distance=1-4 variograms and can be used as a parameter
-    to :func:`calcPerSegmentSpatialStatsTiled`.
-    """
-    userFuncVariogram(tile, imgNullVal, intArr, floatArr, 4)
-
-
-@njit
-def userFuncVariogram5(tile, imgNullVal, intArr, floatArr):
-    """
-    Calculates distance=1-5 variograms and can be used as a parameter
-    to :func:`calcPerSegmentSpatialStatsTiled`.
-    """
-    userFuncVariogram(tile, imgNullVal, intArr, floatArr, 5)
-
-
-@njit
-def userFuncVariogram6(tile, imgNullVal, intArr, floatArr):
-    """
-    Calculates distance=1-6 variograms and can be used as a parameter
-    to :func:`calcPerSegmentSpatialStatsTiled`.
-    """
-    userFuncVariogram(tile, imgNullVal, intArr, floatArr, 6)
-
-
-@njit
-def userFuncVariogram7(tile, imgNullVal, intArr, floatArr):
-    """
-    Calculates distance=1-7 variograms and can be used as a parameter
-    to :func:`calcPerSegmentSpatialStatsTiled`.
-    """
-    userFuncVariogram(tile, imgNullVal, intArr, floatArr, 7)
-
-
-@njit
-def userFuncVariogram8(tile, imgNullVal, intArr, floatArr):
-    """
-    Calculates distance=1-8 variograms and can be used as a parameter
-    to :func:`calcPerSegmentSpatialStatsTiled`.
-    """
-    userFuncVariogram(tile, imgNullVal, intArr, floatArr, 8)
-
-
-@njit
-def userFuncVariogram9(tile, imgNullVal, intArr, floatArr):
-    """
-    Calculates distance=1-9 variograms and can be used as a parameter
-    to :func:`calcPerSegmentSpatialStatsTiled`.
-    """
-    userFuncVariogram(tile, imgNullVal, intArr, floatArr, 9)
+    count = 0
+    sumx = 0.0
+    sumy = 0.0
+    for pt in pts:
+    
+        # can't use gdal.AppyGetTransform since we are within Numba.
+        geox = transform[0] + transform[1] * pt.x + transform[2] * pt.y
+        geoy = transform[3] + transform[4] * pt.x + transform[5] * pt.y
+        
+        sumx += geox
+        sumy += geoy
+        count += 1
+        
+    floatArr[0] = sumx / count
+    floatArr[1] = sumy / count
 
 
 SegPointSpec = [('x', types.uint32), 
@@ -742,7 +707,7 @@ def createSegSpatialDataDict():
     
 
 def calcPerSegmentSpatialStatsTiled(imgfile, imgbandnum, segfile,
-        colNamesAndTypes, userFunc, missingStatsValue=-9999):
+        colNamesAndTypes, userFunc, userParam=None, missingStatsValue=-9999):
     """
     Similar to the :func:`calcPerSegmentSpatialStatsTiled` function 
     but allows the user to calculate spatial statistics on the data
@@ -752,16 +717,15 @@ def calcPerSegmentSpatialStatsTiled(imgfile, imgbandnum, segfile,
     
     ::
     
-        tile, imgNullVal, intArr, floatArr
+        pts, imgNullVal, intArr, floatArr, userParam
         
-    where ``tile`` is a 2D numpy array containing the data for the segment 
-    in the original shape of the segment. The tile is created just large
-    enough for the shape of the segment. Areas of the tile not within a
-    segment is given the value of ``imgNullVal``. ``intArray`` is a 1D numpy
-    array which all the integer output values are to be put (in the same order
-    given in ``colNamesAndTypes``). ``floatArr`` is a 1D numpy array which all
-    the floating point output values are to be put (in the same order
-    given in ``colNamesAndTypes``).
+    where ``pts`` is List :class:`SegPoint`s. If 2D Numpy tile is prefered the
+    ``userFunc`` can call :func:`convertPtsInto2DArray`. ``intArray`` is a 
+    1D numpy array which all the integer output values are to be put (in the 
+    same order given in ``colNamesAndTypes``). ``floatArr`` is a 1D numpy array 
+    which all the floating point output values are to be put (in the same order
+    given in ``colNamesAndTypes``). ``userParam`` is the same value passed to 
+    this function and needs to be a type understood by Numba. 
     
     ``userFunc`` needs to be a Numba function (ie decorated with @jit or @njit).
     
@@ -851,8 +815,9 @@ def calcPerSegmentSpatialStatsTiled(imgfile, imgbandnum, segfile,
             
             accumulateSegSpatial(segDict, noDataDict, imgNullVal, tileSegments, 
                 tileImageData, topLine, leftPix)
-            calcStatsForCompletedSegsSpatial(segDict, noDataDict, missingStatsValue, pagedRat,
-                segSize, userFunc, statsSelection_fast, intArr, floatArr, imgNullVal)
+            calcStatsForCompletedSegsSpatial(segDict, noDataDict, 
+                missingStatsValue, pagedRat, segSize, userFunc, userParam, 
+                statsSelection_fast, intArr, floatArr, imgNullVal)
             
             writeCompletePages(pagedRat, attrTbl, statsSelection_fast)
 
@@ -965,6 +930,9 @@ def convertPtsInto2DArray(pts, imgNullVal):
     Given a list of points for a segment turn this back into a 2D array
     for passing to the user function. 
     
+    The tile is created just large enough for the shape of the segment. 
+    Areas of the tile not within a segment is given the value of ``imgNullVal``.
+    
     """
     # find size of tile
     xmin = pts[0].x
@@ -996,8 +964,9 @@ def convertPtsInto2DArray(pts, imgNullVal):
 
 
 @njit
-def calcStatsForCompletedSegsSpatial(segDict, noDataDict, missingStatsValue, pagedRat,
-        segSize, userFunc, statsSelection_fast, intArr, floatArr, imgNullVal):
+def calcStatsForCompletedSegsSpatial(segDict, noDataDict, missingStatsValue, 
+        pagedRat, segSize, userFunc, userParam, statsSelection_fast, intArr, 
+        floatArr, imgNullVal):
     """
     Calls the ``userFunc`` on data for completed segs and saves the results into
     the ``pagedRat``. 
@@ -1022,10 +991,8 @@ def calcStatsForCompletedSegsSpatial(segDict, noDataDict, missingStatsValue, pag
 
             segList = segDict[segId]
             if len(segList) > 0:
-                # convert to a tile 2D structure before calling the user's function
-                tile = convertPtsInto2DArray(segList, imgNullVal)
                 # call userFunc
-                userFunc(tile, imgNullVal, intArr, floatArr)
+                userFunc(segList, imgNullVal, intArr, floatArr, userParam)
                 # now write the outputs for the different types 
                 for n in range(statsSelection_fast.shape[0]):
                     colType = statsSelection_fast[n, STATSEL_COLTYPE]

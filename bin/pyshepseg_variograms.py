@@ -56,12 +56,9 @@ def main():
     for n in range(cmdargs.numvariograms):
         cols.append(("variogram{}".format(n + 1), gdal.GFT_Real))
         
-    # find the appropriate user function
-    funcName = 'userFuncVariogram{}'.format(cmdargs.numvariograms)
-    userFunc = getattr(tilingstats, funcName)
-
     tilingstats.calcPerSegmentSpatialStatsTiled(cmdargs.infile, 1, 
-        cmdargs.segfile, cols, userFunc)
+        cmdargs.segfile, cols, tilingstats.userFuncVariogram, 
+        cmdargs.numvariograms)
 
 
 if __name__ == '__main__':
