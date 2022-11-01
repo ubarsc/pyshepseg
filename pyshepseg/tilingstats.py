@@ -33,6 +33,7 @@ and :func:`calcPerSegmentSpatialStatsTiled`.
 # CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION 
 # WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+import sys
 import numpy
 from osgeo import gdal
 from osgeo import osr
@@ -693,7 +694,9 @@ class SegPoint(object):
 
         
 # for use in jitted functions - see https://github.com/numba/numba/issues/7291
-PTS_TYPE = typeof(SegPoint(0, 0, 0))
+if 'sphinx' not in sys.modules:
+    # for some reason fails when called from sphinx
+    PTS_TYPE = typeof(SegPoint(0, 0, 0))
 
 
 def createSegSpatialDataDict():

@@ -19,7 +19,7 @@ to allow sufficient initial segments to characterize the variation.
 
 Related to this, one may also consider reducing the percentile
 used for automatic estimation of maxSpectralDiff (see 
-shepseg.doShepherdSegmentation() and shepseg.autoMaxSpectralDiff() 
+:func:`shepseg.doShepherdSegmentation` and :func:`shepseg.autoMaxSpectralDiff`
 for further details). 
 
 Because of these caveats, one should be very cautious about 
@@ -847,7 +847,7 @@ def crossesMidline(overlap, segLoc, orientation):
     """
     Return True if the given segment crosses the midline of the
     overlap array. Orientation of the midline is either
-        HORIZONTAL or VERTICAL
+    HORIZONTAL or VERTICAL
         
     segLoc is the segment location entry for the segment in question
     
@@ -881,8 +881,7 @@ def calcHistogramTiled(segfile, maxSegId, writeToRat=True):
     very large images in a memory-efficient way. 
     
     For a raster which can easily fit into memory, a histogram
-    can be calculated directly using 
-        pyshepseg.shepseg.makeSegSize()
+    can be calculated directly using :func:`pyshepseg.shepseg.makeSegSize`.
     
     Once completed, the histogram can be written to the image file's
     raster attribute table, if writeToRat is True). It will also be
