@@ -30,7 +30,7 @@ from __future__ import print_function, division
 import math
 import argparse
 from osgeo import gdal
-from pyshepseg import tiling
+from pyshepseg import tiling, tilingstats
 gdal.UseExceptions()
 
 DFLT_OUTPUT_DRIVER = 'KEA'
@@ -102,7 +102,7 @@ def getExtentOfMaskForInfile(infile, maskfile):
     maskds = gdal.Open(maskfile)
     mask_transform = maskds.GetGeoTransform()
 
-    if not tiling.equalProjection(inds.GetProjection(),
+    if not tilingstats.equalProjection(inds.GetProjection(),
             maskds.GetProjection()):
         msg = "Mask and infile don't have same projection"
     

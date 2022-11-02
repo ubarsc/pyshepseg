@@ -15,7 +15,7 @@ import numpy
 
 from osgeo import gdal
 
-from pyshepseg import shepseg, tiling, utils
+from pyshepseg import shepseg, tiling, tilingstats, utils
 
 # This is a list of (x, y) coordinate pairs, representing centres of
 # some test segments. These were initially generated randomly, but
@@ -276,7 +276,7 @@ def makeRATcolumns(segResults, outsegfile, imagefile):
         meanColNames.append(meanCol)
         stdColNames.append(stdCol)
         statsSelection = [(meanCol, "mean"), (stdCol, "stddev")]
-        tiling.calcPerSegmentStatsTiled(imagefile, (i + 1), outsegfile, 
+        tilingstats.calcPerSegmentStatsTiled(imagefile, (i + 1), outsegfile, 
             statsSelection)
     
     return (meanColNames, stdColNames)

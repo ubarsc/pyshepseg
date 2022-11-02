@@ -1,6 +1,9 @@
 """
 Python implementation of the image segmentation algorithm described
 by Shepherd et al
+
+.. code-block:: none
+
     Shepherd, J., Bunting, P. and Dymond, J. (2019). 
         Operational Large-Scale Segmentation of Imagery Based on 
         Iterative Elimination. Remote Sensing 11(6).
@@ -8,8 +11,9 @@ by Shepherd et al
 
 Implemented using scikit-learn's K-Means algorithm, and using
 numba compiled code for the other main components. 
-    https://scikit-learn.org/stable/modules/generated/sklearn.cluster.KMeans.html
-    https://numba.pydata.org/
+
+* https://scikit-learn.org/stable/modules/generated/sklearn.cluster.KMeans.html
+* https://numba.pydata.org/
 
 Main entry point is the doShepherdSegmentation() function. 
 
@@ -645,7 +649,11 @@ def buildSegmentSpectra(seg, img, maxSegId):
     """
     Build an array of the spectral statistics for each segment. 
     Return an array of shape
+    
+    ::
+    
         (numSegments+1, numBands)
+        
     where each row is the entry for that segment ID, and each 
     column is the sum of the spectral values for that band. 
     The zero-th entry is empty, as zero is not a valid
