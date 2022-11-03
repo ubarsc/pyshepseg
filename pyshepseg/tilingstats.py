@@ -2,7 +2,7 @@
 Routines to support calculation of statistics on large rasters.
 The statistics are calculated per segment so require two input
 rasters - the segmentation output and another image to gather 
-statistics from for each segment in the first image. 
+statistics from the second image for each segment in the first image. 
 
 These are optimised to work on one tile of the images at a
 time so should be efficient in terms of memory use.
