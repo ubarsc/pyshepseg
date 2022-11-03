@@ -37,30 +37,30 @@ are set to zero.
 
 **Efficient segment location**
 
-    After segmentation, the location of individual segments can be
-    found efficiently using the object returned by makeSegmentLocations(). 
-    
-    E.g. ::
+After segmentation, the location of individual segments can be
+found efficiently using the object returned by makeSegmentLocations().
 
-      segSize = shepseg.makeSegSize(segimg)
-      segLoc = shepseg.makeSegmentLocations(segimg, segSize)
-    
-    This segLoc object is indexed by segment ID number (must be
-    of type shepseg.SegIdType), and each element contains information
-    about the pixels which are in that segment. This information 
-    can be returned as a slicing object suitable to index the image array
-    
-    E.g. ::
+E.g. ::
 
-      segNdx = segLoc[segId].getSegmentIndices()
-      vals = img[0][segNdx]
+    segSize = shepseg.makeSegSize(segimg)
+    segLoc = shepseg.makeSegmentLocations(segimg, segSize)
     
-    This example would give an array of the pixel values from the first 
-    band of the original image, for the given segment ID. 
+This segLoc object is indexed by segment ID number (must be
+of type shepseg.SegIdType), and each element contains information
+about the pixels which are in that segment. This information
+can be returned as a slicing object suitable to index the image array
+
+E.g. ::
+
+    segNdx = segLoc[segId].getSegmentIndices()
+    vals = img[0][segNdx]
     
-    This can be a very efficient way to calculate per-segment 
-    quantities. It can be used in pure Python code, or it can be used
-    inside numba jit functions, for even greater efficiency. 
+This example would give an array of the pixel values from the first
+band of the original image, for the given segment ID.
+
+This can be a very efficient way to calculate per-segment
+quantities. It can be used in pure Python code, or it can be used
+inside numba jit functions, for even greater efficiency.
 
 """
 # Copyright 2021 Neil Flood and Sam Gillingham. All rights reserved.
