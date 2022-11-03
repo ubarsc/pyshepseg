@@ -1,6 +1,6 @@
 """
 Routines to support calculation of statistics on large rasters.
-The statistics are calculated per segment so require to input
+The statistics are calculated per segment so require two input
 rasters - the segmentation output and another image to gather 
 statistics from for each segment in the first image. 
 
