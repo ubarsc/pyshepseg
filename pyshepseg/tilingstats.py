@@ -61,7 +61,9 @@ def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile,
     
     The statsSelection parameter is a list of tuples, one for each
     statistics to be included. Each tuple is either 2 or 3 elements,
+
         (columnName, statName) or (columnName, statName, parameter)
+
     The 3-element form is used for any statistic which requires
     a parameter, which currently is only the percentile. 
     
@@ -69,8 +71,10 @@ def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile,
     output RAT. 
     The statName is a string used to identify which statistic 
     is to be calculated. Available options are:
+
         'min', 'max', 'mean', 'stddev', 'median', 'mode', 
         'percentile', 'pixcount'.
+
     The 'percentile' statistic requires the 3-element form, with 
     the 3rd element being the percentile to be calculated. 
     
