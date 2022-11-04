@@ -51,7 +51,8 @@ exclude_patterns = []
 html_theme = 'classic'
 html_theme_options = {
     "sidebarwidth": "20%",
-    "body_min_width": "90%"
+    "body_min_width": "90%",
+    "stickysidebar": True
 }
 
 # Add any paths that contain custom static files (such as style sheets) here,
