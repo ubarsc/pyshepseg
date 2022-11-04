@@ -700,7 +700,7 @@ if 'sphinx' not in sys.modules:
 def createSegSpatialDataDict():
     """
     Create a dictionary where the key is the segment ID and the 
-    value is a List of :class:`SegPoint`s. 
+    value is a List of :class:`SegPoint` objects.
     """
     pointList = List.empty_list(SegPoint.class_type.instance_type)
     segDict = Dict.empty(key_type=tiling.segIdNumbaType, 
@@ -721,7 +721,7 @@ def calcPerSegmentSpatialStatsTiled(imgfile, imgbandnum, segfile,
     
         pts, imgNullVal, intArr, floatArr, userParam
         
-    where ``pts`` is List :class:`SegPoint`s. If 2D Numpy tile is prefered the
+    where ``pts`` is List of :class:`SegPoint` objects. If 2D Numpy tile is prefered the
     ``userFunc`` can call :func:`convertPtsInto2DArray`. ``intArray`` is a 
     1D numpy array which all the integer output values are to be put (in the 
     same order given in ``colNamesAndTypes``). ``floatArr`` is a 1D numpy array 
