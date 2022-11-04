@@ -1,3 +1,5 @@
+:tocdepth: 2
+
 utils
 =======
 .. automodule:: pyshepseg.utils

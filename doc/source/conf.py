@@ -49,6 +49,10 @@ exclude_patterns = []
 # a list of builtin themes.
 #
 html_theme = 'classic'
+html_theme_options = {
+    "sidebarwidth": "20%",
+    "body_min_width": "90%"
+}
 
 # Add any paths that contain custom static files (such as style sheets) here,
 # relative to this directory. They are copied after the builtin static files,
