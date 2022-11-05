@@ -119,11 +119,12 @@ class SegmentationResult(object):
         adjacent segments
 
     """
-    segimg = None
-    kmeans = None
-    maxSpectralDiff = None
-    singlePixelsEliminated = None
-    smallSegmentsEliminated = None
+    def __init__(self):
+        self.segimg = None
+        self.kmeans = None
+        self.maxSpectralDiff = None
+        self.singlePixelsEliminated = None
+        self.smallSegmentsEliminated = None
 
 
 def doShepherdSegmentation(img, numClusters=60, clusterSubsamplePcnt=1,

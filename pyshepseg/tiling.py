@@ -106,13 +106,14 @@ class TiledSegmentationResult(object):
       hasEmptySegments: Boolean flag, this is an error condition
       
     """
-    maxSegId = None
-    numTileRows = None
-    numTileCols = None
-    subsamplePcnt = None
-    maxSpectralDiff = None
-    kmeans = None
-    hasEmptySegments = None
+    def __init__(self):
+        self.maxSegId = None
+        self.numTileRows = None
+        self.numTileCols = None
+        self.subsamplePcnt = None
+        self.maxSpectralDiff = None
+        self.kmeans = None
+        self.hasEmptySegments = None
 
 
 def fitSpectralClustersWholeFile(inDs, bandNumbers, numClusters=60, 
