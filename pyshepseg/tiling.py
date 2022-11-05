@@ -143,7 +143,9 @@ def fitSpectralClustersWholeFile(inDs, bandNumbers, numClusters=60,
     for details. 
     
     Returns a tuple
+
         (kmeansObj, subsamplePcnt, imgNullVal)
+
     where kmeansObj is the fitted object, subsamplePcnt
     is the subsample percentage actually used, and imgNullVal 
     is the null value used (perhaps from the file). 
@@ -810,6 +812,7 @@ def relabelSegments(tileData, recodeDict, maxSegId,
     unchanged. 
     
     Return value is a tuple
+
         (newTileData, newMaxSegId)
     
     """

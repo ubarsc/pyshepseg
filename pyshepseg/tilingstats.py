@@ -79,11 +79,14 @@ def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile,
     the 3rd element being the percentile to be calculated. 
     
     For example
-        [('Band1_Mean', 'mean'),
+
+        [
+         ('Band1_Mean', 'mean'),
          ('Band1_stdDev', 'stddev'),
          ('Band1_LQ', 'percentile', 25),
          ('Band1_UQ', 'percentile', 75)
         ]
+
     would create 4 columns, for the per-segment mean and 
     standard deviation of the given band, and the lower and upper 
     quartiles, with corresponding column names. 
@@ -405,8 +408,10 @@ def makeFastStatsSelection(colIndexList, statsSelection):
     Make a fast version of the statsSelection data structure, combined
     with the global column index numbers.
     
-    Return a tuple of 
+    Return a tuple of
+
         (statsSelection_fast, numIntCols, numFloatCols)
+
     The statsSelection_fast is a single array, of shape (numStats, 5). 
     The first index corresponds to the sequence in statsSelection. 
     The second index corresponds to the STATSEL_* values. 
