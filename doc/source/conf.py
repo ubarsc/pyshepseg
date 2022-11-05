@@ -65,6 +65,8 @@ html_theme_options = {
 # a list of warning messages coming from Sphinx while testing, but
 # makes no real difference when running on ReadTheDocs (when everything
 # will be mocked anyway).
+# I am very unsure about this. I would much prefer to remove the warnings
+# for real, but don't yet know how.
 possibleMockList = ['numpy', 'numba', 'osgeo', 'scipy', 'sklearn']
 autodoc_mock_imports = []
 for module in possibleMockList:
