@@ -78,7 +78,7 @@ def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile,
     The 'percentile' statistic requires the 3-element form, with 
     the 3rd element being the percentile to be calculated. 
     
-    For example
+    For example::
 
         [
          ('Band1_Mean', 'mean'),
