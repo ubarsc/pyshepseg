@@ -60,4 +60,15 @@ html_theme_options = {
 # so a file named "default.css" will overwrite the builtin "default.css".
 # html_static_path = ['_static']
 
-autodoc_mock_imports = ['numpy', 'numba', 'osgeo', 'scipy', 'sklearn']
+# Set up list of things to mock, if they are not actually present. In other
+# words, don't mock them when they are present. This is mainly to avoid
+# a list of warning messages coming from Sphinx while testing, but
+# makes no real difference when running on ReadTheDocs (when everything
+# will be mocked anyway).
+possibleMockList = ['numpy', 'numba', 'osgeo', 'scipy', 'sklearn']
+autodoc_mock_imports = []
+for module in possibleMockList:
+    try:
+        exec('import {}'.format(module))
+    except ImportError:
+        autodoc_mock_imports.append(module)
