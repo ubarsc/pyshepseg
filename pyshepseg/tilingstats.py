@@ -177,8 +177,9 @@ def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile,
 @njit
 def accumulateSegDict(segDict, noDataDict, imgNullVal, tileSegments, tileImageData):
     """
-    Accumulate per-segment histogram counts for all 
-    pixels in the given tile. Updates segDict entries in-place. 
+    Accumulate per-segment histogram counts for all
+    pixels in the given tile. Updates segDict entries in-place.
+
     """
     ysize, xsize = tileSegments.shape
     
