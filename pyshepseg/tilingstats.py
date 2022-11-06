@@ -219,6 +219,7 @@ def checkSegComplete(segDict, noDataDict, segSize, segId):
     Return True if the given segment has a complete entry
     in the segDict, meaning that the pixel count is equal to
     the segment size
+
     """
     count = 0
     # add up the counts of the histogram
