@@ -37,30 +37,30 @@ are set to zero.
 
 **Efficient segment location**
 
-    After segmentation, the location of individual segments can be
-    found efficiently using the object returned by makeSegmentLocations(). 
-    
-    E.g. ::
+After segmentation, the location of individual segments can be
+found efficiently using the object returned by makeSegmentLocations().
 
-      segSize = shepseg.makeSegSize(segimg)
-      segLoc = shepseg.makeSegmentLocations(segimg, segSize)
-    
-    This segLoc object is indexed by segment ID number (must be
-    of type shepseg.SegIdType), and each element contains information
-    about the pixels which are in that segment. This information 
-    can be returned as a slicing object suitable to index the image array
-    
-    E.g. ::
+E.g. ::
 
-      segNdx = segLoc[segId].getSegmentIndices()
-      vals = img[0][segNdx]
+    segSize = shepseg.makeSegSize(segimg)
+    segLoc = shepseg.makeSegmentLocations(segimg, segSize)
     
-    This example would give an array of the pixel values from the first 
-    band of the original image, for the given segment ID. 
+This segLoc object is indexed by segment ID number (must be
+of type shepseg.SegIdType), and each element contains information
+about the pixels which are in that segment. This information
+can be returned as a slicing object suitable to index the image array
+
+E.g. ::
+
+    segNdx = segLoc[segId].getSegmentIndices()
+    vals = img[0][segNdx]
     
-    This can be a very efficient way to calculate per-segment 
-    quantities. It can be used in pure Python code, or it can be used
-    inside numba jit functions, for even greater efficiency. 
+This example would give an array of the pixel values from the first
+band of the original image, for the given segment ID.
+
+This can be a very efficient way to calculate per-segment
+quantities. It can be used in pure Python code, or it can be used
+inside numba jit functions, for even greater efficiency.
 
 """
 # Copyright 2021 Neil Flood and Sam Gillingham. All rights reserved.
@@ -119,11 +119,12 @@ class SegmentationResult(object):
         adjacent segments
 
     """
-    segimg = None
-    kmeans = None
-    maxSpectralDiff = None
-    singlePixelsEliminated = None
-    smallSegmentsEliminated = None
+    def __init__(self):
+        self.segimg = None
+        self.kmeans = None
+        self.maxSpectralDiff = None
+        self.singlePixelsEliminated = None
+        self.smallSegmentsEliminated = None
 
 
 def doShepherdSegmentation(img, numClusters=60, clusterSubsamplePcnt=1,
@@ -672,14 +673,16 @@ def buildSegmentSpectra(seg, img, maxSegId):
     return spectSum
 
 
-# This data structure is used to store the locations of
-# every pixel, indexed by the segment ID. This means we can
-# quickly find all the pixels belonging to a particular segment.
 spec = [('idx', types.uint32), ('rowcols', types.uint32[:, :])]
 
 
 @jitclass(spec)
 class RowColArray(object):
+    """
+    This data structure is used to store the locations of
+    every pixel, indexed by the segment ID. This means we can
+    quickly find all the pixels belonging to a particular segment.
+    """
     def __init__(self, length):
         self.idx = 0
         self.rowcols = numpy.empty((length, 2), dtype=numpy.uint32)

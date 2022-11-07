@@ -148,7 +148,7 @@ Modules in this Package
 =======================
 
 .. toctree::
-   :maxdepth: 2
+   :maxdepth: 1
    
    pyshepseg_shepseg
    pyshepseg_tiling

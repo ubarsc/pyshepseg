@@ -49,10 +49,28 @@ exclude_patterns = []
 # a list of builtin themes.
 #
 html_theme = 'classic'
+html_theme_options = {
+    "sidebarwidth": "20%",
+    "body_min_width": "90%",
+    "stickysidebar": True
+}
 
 # Add any paths that contain custom static files (such as style sheets) here,
 # relative to this directory. They are copied after the builtin static files,
 # so a file named "default.css" will overwrite the builtin "default.css".
-html_static_path = ['_static']
+# html_static_path = ['_static']
 
-autodoc_mock_imports = ['numpy', 'numba', 'osgeo', 'scipy', 'sklearn']
+# Set up list of things to mock, if they are not actually present. In other
+# words, don't mock them when they are present. This is mainly to avoid
+# a list of warning messages coming from Sphinx while testing, but
+# makes no real difference when running on ReadTheDocs (when everything
+# will be mocked anyway).
+# I am very unsure about this. I would much prefer to remove the warnings
+# for real, but don't yet know how.
+possibleMockList = ['numpy', 'numba', 'osgeo', 'scipy', 'sklearn']
+autodoc_mock_imports = []
+for module in possibleMockList:
+    try:
+        exec('import {}'.format(module))
+    except ImportError:
+        autodoc_mock_imports.append(module)

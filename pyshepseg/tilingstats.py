@@ -1,8 +1,8 @@
 """
 Routines to support calculation of statistics on large rasters.
-The statistics are calculated per segment so require to input
-rasters - the segmentation output and another image to gather 
-statistics from for each segment in the first image. 
+The statistics are calculated per segment so require two input
+rasters - the segmentation output, and another image to gather 
+statistics from, for each segment in the first image. 
 
 These are optimised to work on one tile of the images at a
 time so should be efficient in terms of memory use.
@@ -61,7 +61,9 @@ def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile,
     
     The statsSelection parameter is a list of tuples, one for each
     statistics to be included. Each tuple is either 2 or 3 elements,
+
         (columnName, statName) or (columnName, statName, parameter)
+
     The 3-element form is used for any statistic which requires
     a parameter, which currently is only the percentile. 
     
@@ -69,17 +71,22 @@ def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile,
     output RAT. 
     The statName is a string used to identify which statistic 
     is to be calculated. Available options are:
+
         'min', 'max', 'mean', 'stddev', 'median', 'mode', 
         'percentile', 'pixcount'.
+
     The 'percentile' statistic requires the 3-element form, with 
     the 3rd element being the percentile to be calculated. 
     
-    For example
-        [('Band1_Mean', 'mean'),
+    For example::
+
+        [
+         ('Band1_Mean', 'mean'),
          ('Band1_stdDev', 'stddev'),
          ('Band1_LQ', 'percentile', 25),
          ('Band1_UQ', 'percentile', 75)
         ]
+
     would create 4 columns, for the per-segment mean and 
     standard deviation of the given band, and the lower and upper 
     quartiles, with corresponding column names. 
@@ -170,8 +177,9 @@ def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile,
 @njit
 def accumulateSegDict(segDict, noDataDict, imgNullVal, tileSegments, tileImageData):
     """
-    Accumulate per-segment histogram counts for all 
-    pixels in the given tile. Updates segDict entries in-place. 
+    Accumulate per-segment histogram counts for all
+    pixels in the given tile. Updates segDict entries in-place.
+
     """
     ysize, xsize = tileSegments.shape
     
@@ -211,6 +219,7 @@ def checkSegComplete(segDict, noDataDict, segSize, segId):
     Return True if the given segment has a complete entry
     in the segDict, meaning that the pixel count is equal to
     the segment size
+
     """
     count = 0
     # add up the counts of the histogram
@@ -401,8 +410,10 @@ def makeFastStatsSelection(colIndexList, statsSelection):
     Make a fast version of the statsSelection data structure, combined
     with the global column index numbers.
     
-    Return a tuple of 
+    Return a tuple of
+
         (statsSelection_fast, numIntCols, numFloatCols)
+
     The statsSelection_fast is a single array, of shape (numStats, 5). 
     The first index corresponds to the sequence in statsSelection. 
     The second index corresponds to the STATSEL_* values. 
@@ -700,7 +711,7 @@ if 'sphinx' not in sys.modules:
 def createSegSpatialDataDict():
     """
     Create a dictionary where the key is the segment ID and the 
-    value is a List of :class:`SegPoint`s. 
+    value is a List of :class:`SegPoint` objects.
     """
     pointList = List.empty_list(SegPoint.class_type.instance_type)
     segDict = Dict.empty(key_type=tiling.segIdNumbaType, 
@@ -721,7 +732,7 @@ def calcPerSegmentSpatialStatsTiled(imgfile, imgbandnum, segfile,
     
         pts, imgNullVal, intArr, floatArr, userParam
         
-    where ``pts`` is List :class:`SegPoint`s. If 2D Numpy tile is prefered the
+    where ``pts`` is List of :class:`SegPoint` objects. If 2D Numpy tile is prefered the
     ``userFunc`` can call :func:`convertPtsInto2DArray`. ``intArray`` is a 
     1D numpy array which all the integer output values are to be put (in the 
     same order given in ``colNamesAndTypes``). ``floatArr`` is a 1D numpy array 
