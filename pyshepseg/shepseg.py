@@ -673,14 +673,16 @@ def buildSegmentSpectra(seg, img, maxSegId):
     return spectSum
 
 
-# This data structure is used to store the locations of
-# every pixel, indexed by the segment ID. This means we can
-# quickly find all the pixels belonging to a particular segment.
 spec = [('idx', types.uint32), ('rowcols', types.uint32[:, :])]
 
 
 @jitclass(spec)
 class RowColArray(object):
+    """
+    This data structure is used to store the locations of
+    every pixel, indexed by the segment ID. This means we can
+    quickly find all the pixels belonging to a particular segment.
+    """
     def __init__(self, length):
         self.idx = 0
         self.rowcols = numpy.empty((length, 2), dtype=numpy.uint32)
