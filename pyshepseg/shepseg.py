@@ -1,33 +1,23 @@
 """
 Python implementation of the image segmentation algorithm described
-by Shepherd et al
+by Shepherd et al [1]_
 
-.. code-block:: none
-
-    Shepherd, J., Bunting, P. and Dymond, J. (2019). 
-        Operational Large-Scale Segmentation of Imagery Based on 
-        Iterative Elimination. Remote Sensing 11(6).
-    https://www.mdpi.com/2072-4292/11/6/658
-
-Implemented using scikit-learn's K-Means algorithm, and using
-numba compiled code for the other main components. 
-
-* https://scikit-learn.org/stable/modules/generated/sklearn.cluster.KMeans.html
-* https://numba.pydata.org/
+Implemented using scikit-learn's K-Means algorithm [2]_, and using
+numba [3]_ compiled code for the other main components. 
 
 Main entry point is the doShepherdSegmentation() function. 
 
-**Basic usage** ::
+Examples
+--------
 
-    from pyshepseg import shepseg
+Read in a multi-band image as a single array, img,
+of shape (nBands, nRows, nCols). 
+Ensure that any null pixels are all set to a known 
+null value in all bands. Failure to correctly identify 
+null pixels can result in a poorer quality segmentation. 
     
-    # Read in a multi-band image as a single array, img,
-    # of shape (nBands, nRows, nCols). 
-    # Ensure that any null pixels are all set to a known 
-    # null value in all bands. Failure to correctly identify 
-    # null pixels can result in a poorer quality segmentation. 
-    
-    segRes = shepseg.doShepherdSegmentation(img, imgNullVal=nullVal)
+>>> from pyshepseg import shepseg
+>>> segRes = shepseg.doShepherdSegmentation(img, imgNullVal=nullVal)
     
 The segimg attribute of the segRes object is an array
 of segment ID numbers, of shape (nRows, nCols). 
@@ -40,20 +30,16 @@ are set to zero.
 After segmentation, the location of individual segments can be
 found efficiently using the object returned by makeSegmentLocations().
 
-E.g. ::
-
-    segSize = shepseg.makeSegSize(segimg)
-    segLoc = shepseg.makeSegmentLocations(segimg, segSize)
+>>> segSize = shepseg.makeSegSize(segimg)
+>>> segLoc = shepseg.makeSegmentLocations(segimg, segSize)
     
 This segLoc object is indexed by segment ID number (must be
 of type shepseg.SegIdType), and each element contains information
 about the pixels which are in that segment. This information
 can be returned as a slicing object suitable to index the image array
 
-E.g. ::
-
-    segNdx = segLoc[segId].getSegmentIndices()
-    vals = img[0][segNdx]
+>>> segNdx = segLoc[segId].getSegmentIndices()
+>>> vals = img[0][segNdx]
     
 This example would give an array of the pixel values from the first
 band of the original image, for the given segment ID.
@@ -61,6 +47,16 @@ band of the original image, for the given segment ID.
 This can be a very efficient way to calculate per-segment
 quantities. It can be used in pure Python code, or it can be used
 inside numba jit functions, for even greater efficiency.
+
+References
+----------
+.. [1] Shepherd, J., Bunting, P. and Dymond, J. (2019). 
+   Operational Large-Scale Segmentation of Imagery Based on 
+   Iterative Elimination. Remote Sensing 11(6).
+   https://www.mdpi.com/2072-4292/11/6/658
+.. [2] https://scikit-learn.org/stable/modules/generated/sklearn.cluster.KMeans.html
+.. [3] https://numba.pydata.org/
+
 
 """
 # Copyright 2021 Neil Flood and Sam Gillingham. All rights reserved.
@@ -108,15 +104,18 @@ class SegmentationResult(object):
     """
     Results of the segmentation process
     
-    Attributes:
-      segimg: Segment image, as numpy array (nRows, nCols)
+    Attributes
+    ----------
+      segimg : numpy array (nRows, nCols)
         Elements are segment ID numbers (starting from 1)
-      kmeans: The sklearn KMeans object, after fitting
-      maxSpectralDiff: The value used to limit segment merging
-      singlePixelsEliminated: Number of single pixels merged 
-        to adjacent segments
-      smallSegmentsEliminated: Number of small segments merged into 
-        adjacent segments
+      kmeans : sklearn.cluster.KMeans
+        Fitted KMeans object
+      maxSpectralDiff : float
+        The value used to limit segment merging
+      singlePixelsEliminated : int
+        Number of single pixels merged to adjacent segments
+      smallSegmentsEliminated : int
+        Number of small segments merged into adjacent segments
 
     """
     def __init__(self):
@@ -135,54 +134,67 @@ def doShepherdSegmentation(img, numClusters=60, clusterSubsamplePcnt=1,
     Perform Shepherd segmentation in memory, on the given 
     multi-band img array.
     
-    The img array has shape (nBands, nRows, nCols).
+    Parameters
+    ----------
+      img : integer ndarray of shape (nBands, nRows, nCols)
+      numClusters : int
+        Number of clusters to create with k-means clustering
+      clusterSubsamplePcnt : int
+        Passed to fitSpectralClusters(). See there for details
+      minSegmentSize : int
+        the minimum segment size (in pixels) which will be left
+        after eliminating small segments (except for segments which
+        cannot be eliminated).
+      maxSpectralDiff : str or float
+        sets a limit on how different segments can be and still be merged.
+        It is given in the units of the spectral space of img. If 
+        maxSpectralDiff is 'auto', a default value will be calculated
+        from the spectral distances between cluster centres, as a 
+        percentile of the distribution of these (spectDistPcntile). 
+        The value of spectDistPcntile should be lowered when segementing 
+        an image with a larger range of spectral distances. 
+      spectDictPcntile : int
+        See maxSpectralDiff
+      fourConnected : boolean
+        If True, use 4-way connectedness when clumping, otherwise use
+        8-way
+      imgNullVal : int or None
+        If not None, then pixels with this value in any band are set to zero
+        (SEGNULLVAL) in the output segmentation. If there are null values
+        in the image array, it is important to give this null value, as it can
+        stringly affect the initial spectral clustering, which in turn 
+        strongly affects the final segmenation.
+      fixedKMeansInit : boolean
+        If fixedKMeansInit is True, then choose a fixed set of 
+        cluster centres to initialize the KMeans algorithm. This can
+        be useful to provide strict determinacy of the results by
+        avoiding sklearn's multiple random initial guesses. The default 
+        is to allow sklearn to guess, which is good for avoiding 
+        local minima. 
+      kmeansObj : sklearn.cluster.KMeans object
+        By default, the spectral clustering step will be fitted using 
+        the given img. However, if kmeansObj is not None, it is taken 
+        to be a fitted instance of sklearn.cluster.KMeans, and will 
+        be used instead. This is useful when enforcing a consistent 
+        clustering across multiple tiles (see the pyshepseg.tiling 
+        module for details).
     
-    numClusters and clusterSubsamplePcnt are passed
-    through to fitSpectralClusters(). 
-    
-    minSegmentSize is the minimum segment size (in pixels) which 
-    will be left after eliminating small segments (except for
-    segments which cannot be eliminated).
-    
-    maxSpectralDiff sets a limit on how different segments can be 
-    and still be merged. It is given in the units of the spectral 
-    space of img. If maxSpectralDiff is 'auto',
-    a default value will be calculated from the spectral 
-    distances between cluster centres, as a percentile of
-    the distribution of these (spectDistPcntile). The value of
-    spectDistPcntile should be lowered when segementing an image 
-    with a larger range of spectral distances. 
-    
+    Returns
+    -------
+    segResult : SegmentationResult object
+
+    Notes
+    -----    
     Default values are mostly as suggested by Shepherd et al. 
-    
-    If fourConnected is True, then use 4-way connectedness when clumping,
-    otherwise use 8-way connectedness. 
-    
-    If imgNullVal is not None, then pixels with this value in 
-    any band are set to zero (SEGNULLVAL) in the output 
-    segmentation. If there are null values in the image array,
-    it is important to give this null value, as it can strongly
-    affect the initial spectral clustering, which in turn strongly
-    affects the final segmentation. 
-    
-    If fixedKMeansInit is True, then choose a fixed set of 
-    cluster centres to initialize the KMeans algorithm. This can
-    be useful to provide strict determinacy of the results by
-    avoiding sklearn's multiple random initial guesses. The default 
-    is to allow sklearn to guess, which is good for avoiding 
-    local minima. 
-    
-    By default, the spectral clustering step will be fitted using 
-    the given img. However, if kmeansObj is not None, it is taken 
-    to be a fitted instance of sklearn.cluster.KMeans, and will 
-    be used instead. This is useful when enforcing a consistent 
-    clustering across multiple tiles (see the pyshepseg.tiling 
-    module for details). 
     
     Segment ID numbers start from 1. Zero is a NULL segment ID. 
     
     The return value is an instance of SegmentationResult class. 
     
+    See Also
+    --------
+    pyshepseg.tiling, fitSpectralClusters
+
     """
     t0 = time.time()
     if kmeansObj is not None:
@@ -243,22 +255,28 @@ def fitSpectralClusters(img, numClusters, subsamplePcnt, imgNullVal,
     to create a set of "seed" segments, labelled only with
     their spectral cluster number. 
     
-    The img array has shape (nBands, nRows, nCols).
-    numClusters is the number of clusters for the KMeans
-    algorithm to find (i.e. it is 'k'). 
-    subsamplePcnt is the percentage of the pixels to actually use 
-    for KMeans clustering. Shepherd et al find that only
-    a very small percentage is required. 
+    Parameters
+    ----------
+      img : int ndarray (nBands, nRows, nCols).
+      numClusters : int
+        The number of clusters for the KMeans algorithm to find
+        (i.e. it is 'k') 
+      subsamplePcnt : int
+        The percentage of the pixels to actually use for KMeans clustering.
+        Shepherd et al find that only a very small percentage is required. 
+      imgNullVal : int or None
+        If imgNullVal is not None, then pixels in img with this value in 
+        any band are set to segNullVal in the output. 
+      fixedKMeansInit : boolean
+        If True, then use a simple algorithm to determine the fixed
+        set of initial cluster centres. Otherwise allow the sklearn 
+        routine to choose its own initial guesses. 
     
-    If imgNullVal is not None, then pixels in img with this value in 
-    any band are set to segNullVal in the output. 
-    
-    if fixedKMeansInit is True, then use a simple algorithm to 
-    determine the fixed set of initial cluster centres. Otherwise 
-    allow the sklearn routine to choose its own initial guesses. 
-    
-    Return a fitted object of class sklearn.cluster.KMeans. This
-    is suitable to use with the applySpectralClusters() function. 
+    Returns
+    -------
+    kmeansObj : sklearn.cluster.KMeans
+      A fitted object of class sklearn.cluster.KMeans. This
+      is suitable to use with the applySpectralClusters() function. 
 
     """
     (nBands, nRows, nCols) = img.shape
@@ -300,17 +318,21 @@ def applySpectralClusters(kmeansObj, img, imgNullVal):
     Use the given KMeans object to predict spectral clusters on 
     a whole image array. 
     
-    The kmeansObj is an instance of sklearn.cluster.KMeans, 
-    as returned by fitSpectralClusters(). 
-    
-    The img array is a numpy array of the image to predict on,
-    of shape (nBands, nRows, nCols). 
-    
-    Any pixels in img which have value imgNullVal will be set to
-    SEGNULLVAL (i.e. zero) in the output cluster image.
-    
-    Return value is a numpy array of shape (nRows, nCols),
-    with each element being the segment ID value for that pixel. 
+    Parameters
+    ----------
+      kmeansObj : sklearn.cluster.KMeans
+        A fitted instance, as returned by fitSpectralClusters(). 
+      img : int ndarray (nBands, nRows, nCols)
+        The image to predict on
+      imgNullVal : int
+        Any pixels in img which have value imgNullVal will be set to
+        SEGNULLVAL (i.e. zero) in the output cluster image.
+
+    Returns
+    -------
+      segimg : int ndarray (nRows, nCols)
+        The initial segment image, each element being the segment 
+        ID value for that pixel
     
     """
 
@@ -340,16 +362,25 @@ def applySpectralClusters(kmeansObj, img, imgNullVal):
 
 def diagonalClusterCentres(xSample, numClusters):
     """
-    Return an array of initial guesses at cluster centres. 
+    Calculate an array of initial guesses at cluster centres. 
     This will be given to the KMeans constructor as the init
     parameter. 
-    
-    The given array xSample is the (numPoints, numBands) array
-    ready to be used for fitting. 
     
     The centres are evenly spaced along the diagonal of 
     the bounding box of the data. The end points are placed 
     1 step in from the corners. 
+
+    Parameters
+    ----------
+      xSample : ndarray (numPoints, numBands)
+        A sample of data to be used for fitting
+      numClusters : int
+        Number of cluster centres to be calculated
+    
+    Returns
+    -------
+      centres : ndarray (numPoints, numBands)
+        Initial cluster centres in spectral space
     
     """
     (numPoints, numBands) = xSample.shape
@@ -403,15 +434,23 @@ def clump(img, ignoreVal, fourConnected=True, clumpId=1):
     """
     Implementation of clumping using Numba. 
 
-    Args:
-      img: should be an integer 2d array containing the data to be clumped.
-      ignoreVal: should be the no data value for the input
-      fourConnected: If True, use 4-way connected, otherwise 8-way
-      clumpId: is the start clump id to use
+    Parameters
+    ----------
+      img : int ndarray
+        2d array containing the data to be clumped.
+      ignoreVal : int
+        should be the no data value for the input
+      fourConnected : boolean
+        If True, use 4-way connected, otherwise 8-way
+      clumpId : int
+        The start clump id to use
 
-    Returns:
-      a 2d uint32 array containing the clump ids
-      and the highest clumpid used + 1
+    Returns
+    -------
+      clumpimg : 2d uint32 array
+        2d uint32 array containing the clump ids
+      clumpId : int
+        The highest clumpid used + 1
     
     """
     
@@ -485,9 +524,19 @@ def clump(img, ignoreVal, fourConnected=True, clumpId=1):
 @njit
 def makeSegSize(seg):
     """
-    Return an array of segment sizes, from the given seg image. The
-    returned array is indexed by segment ID. Each element is the 
-    number of pixels in that segment. 
+    Return an array of segment sizes, essentially a histogram for
+    the segment ID values.
+    
+    Parameters
+    ----------
+      seg : SegIdType ndarray (nRows, nCols)
+        Image array of segment ID values
+    
+    Returns
+    -------
+      segSize : int ndarray (numSegments+1, )
+        Array is indexed by segment ID. Each element is the 
+        number of pixels in that segment. 
 
     """
     maxSegId = seg.max()
@@ -509,13 +558,23 @@ def eliminateSinglePixels(img, seg, segSize, minSegId, maxSegId, fourConnected):
     neighbouring segment with the spectrally-nearest neighouring
     pixel. 
     
-    Args:
-      img: the original spectral image, of shape (nBands, nRows, nCols)
-      seg: the image of segments, of shape (nRows, nCols)
-      segSize: Array of pixel counts for every segment
-      minSegId: Smallest segment ID
-      maxSegId: Largest segment ID
-      fourConnected: If True use 4-way connectedness, otherwise 8-way
+    Parameters
+    ----------
+      img : int ndarray (nBands, nRows, nCols)
+        the original spectral image
+      seg : int ndarray (nRows, nCols)
+        the image of segments
+      segSize : int array (numSeg+1, )
+        Array of pixel counts for every segment
+      minSegId : SegIdType
+        Smallest segment ID
+      maxSegId : SegIdType
+        Largest segment ID
+      fourConnected : boolean
+        If True use 4-way connectedness, otherwise 8-way
+
+    Notes
+    -----
 
     Segment ID numbers start at 1 (i.e. 0 is not valid)
     
@@ -831,7 +890,7 @@ def findMergeSegment(segId, segLoc, seg, segSize, spectSum, maxSpectralDiff,
 @njit
 def doMerge(segId, nbrSegId, seg, segSize, segLoc, spectSum):
     """
-    Carry out a single merge. The segId segment is merged to the
+    Carry out a single segment merge. The segId segment is merged to the
     neighbouring nbrSegId. 
     Modifies seg, segSize, segLoc and spectSum in place. 
 

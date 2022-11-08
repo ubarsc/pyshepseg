@@ -29,7 +29,8 @@ author = 'Neil Flood & Sam Gillingham'
 # ones.
 extensions = [
     'sphinx.ext.autodoc',
-    'sphinx.ext.napoleon'
+    'sphinx.ext.napoleon',
+    'numpydoc'
 ]
 napoleon_google_docstring = True
 napoleon_numpy_docstring = False
