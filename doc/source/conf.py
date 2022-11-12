@@ -12,10 +12,8 @@
 #
 import os
 import sys
-sys.path.insert(0, os.path.abspath('.'))
-sys.path.insert(0, os.path.abspath('..'))
 sys.path.insert(0, os.path.abspath('../..'))
-print('Running readthedocs from', os.curdir)
+print('Running readthedocs from', os.getcwd())
 
 
 # -- Project information -----------------------------------------------------
