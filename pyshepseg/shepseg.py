@@ -155,7 +155,7 @@ def doShepherdSegmentation(img, numClusters=60, clusterSubsamplePcnt=1,
         an image with a larger range of spectral distances. 
       spectDictPcntile : int
         See maxSpectralDiff
-      fourConnected : boolean
+      fourConnected : bool
         If True, use 4-way connectedness when clumping, otherwise use
         8-way
       imgNullVal : int or None
@@ -164,7 +164,7 @@ def doShepherdSegmentation(img, numClusters=60, clusterSubsamplePcnt=1,
         in the image array, it is important to give this null value, as it can
         stringly affect the initial spectral clustering, which in turn 
         strongly affects the final segmenation.
-      fixedKMeansInit : boolean
+      fixedKMeansInit : bool
         If fixedKMeansInit is True, then choose a fixed set of 
         cluster centres to initialize the KMeans algorithm. This can
         be useful to provide strict determinacy of the results by
@@ -267,7 +267,7 @@ def fitSpectralClusters(img, numClusters, subsamplePcnt, imgNullVal,
       imgNullVal : int or None
         If imgNullVal is not None, then pixels in img with this value in 
         any band are set to segNullVal in the output. 
-      fixedKMeansInit : boolean
+      fixedKMeansInit : bool
         If True, then use a simple algorithm to determine the fixed
         set of initial cluster centres. Otherwise allow the sklearn 
         routine to choose its own initial guesses. 
@@ -372,14 +372,14 @@ def diagonalClusterCentres(xSample, numClusters):
 
     Parameters
     ----------
-      xSample : ndarray (numPoints, numBands)
+      xSample : int ndarray (numPoints, numBands)
         A sample of data to be used for fitting
       numClusters : int
         Number of cluster centres to be calculated
     
     Returns
     -------
-      centres : ndarray (numPoints, numBands)
+      centres : int ndarray (numPoints, numBands)
         Initial cluster centres in spectral space
     
     """
@@ -436,19 +436,19 @@ def clump(img, ignoreVal, fourConnected=True, clumpId=1):
 
     Parameters
     ----------
-      img : int ndarray
-        2d array containing the data to be clumped.
+      img : int ndarray (nRows, nCols)
+        Image array containing the data to be clumped.
       ignoreVal : int
-        should be the no data value for the input
-      fourConnected : boolean
+        should be the "no data" value for the input
+      fourConnected : bool
         If True, use 4-way connected, otherwise 8-way
       clumpId : int
         The start clump id to use
 
     Returns
     -------
-      clumpimg : 2d uint32 array
-        2d uint32 array containing the clump ids
+      clumpimg : SegIdType ndarray (nRows, nCols)
+        Image array containing the clump IDs for each pixel
       clumpId : int
         The highest clumpid used + 1
     
@@ -570,7 +570,7 @@ def eliminateSinglePixels(img, seg, segSize, minSegId, maxSegId, fourConnected):
         Smallest segment ID
       maxSegId : SegIdType
         Largest segment ID
-      fourConnected : boolean
+      fourConnected : bool
         If True use 4-way connectedness, otherwise 8-way
 
     Notes
