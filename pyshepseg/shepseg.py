@@ -409,6 +409,25 @@ def autoMaxSpectralDiff(km, maxSpectralDiff, distPcntile):
 
     Otherwise, return the given current value.
 
+    Parameters
+    ----------
+      km : sklearn.cluster.KMeans 
+        KMeans clustering object
+      maxSpectralDiff : str or float
+        It is given in the units of the spectral space of img. If 
+        maxSpectralDiff is 'auto', a default value will be calculated
+        from the spectral distances between cluster centres, as a 
+        percentile of the distribution of these (distPcntile). 
+        The value of distPcntile should be lowered when segementing 
+        an image with a larger range of spectral distances. 
+      distPcntile : int
+        See maxSpectralDiff
+
+    Returns
+    -------
+      maxSpectralDiff : int
+        The value to use as maxSpectralDiff.
+
     """
     # Calculate distances between pairs of cluster centres
     centres = km.cluster_centers_
@@ -604,6 +623,26 @@ def mergeSinglePixels(img, seg, segSize, segToElim, fourConnected):
     segSize arrays in place, and returns the number of segments 
     eliminated. 
     
+    Parameters
+    ----------
+      img : int ndarray
+        (nBands, nRows, nCols)
+        the original spectral image
+      seg : int ndarray (nRows, nCols)
+        the image of segments
+      segSize : int array (numSeg+1, )
+        Array of pixel counts for every segment
+      segToElim : int ndarray
+        (3, maxSegId)
+        Temporary storage for segments to be eliminated
+      fourConnected : bool
+        If True use 4-way connectedness, otherwise 8-way
+        
+    Returns
+    -------
+      numEliminated : int
+        Number of segments eliminated
+
     """
     (nRows, nCols) = seg.shape
     numEliminated = 0
