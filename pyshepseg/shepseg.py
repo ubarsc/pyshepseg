@@ -153,7 +153,7 @@ def doShepherdSegmentation(img, numClusters=60, clusterSubsamplePcnt=1,
         percentile of the distribution of these (spectDistPcntile). 
         The value of spectDistPcntile should be lowered when segementing 
         an image with a larger range of spectral distances. 
-      spectDictPcntile : int
+      spectDistPcntile : int
         See maxSpectralDiff
       fourConnected : bool
         If True, use 4-way connectedness when clumping, otherwise use
@@ -580,9 +580,9 @@ def eliminateSinglePixels(img, seg, segSize, minSegId, maxSegId, fourConnected):
     Parameters
     ----------
       img : int ndarray (nBands, nRows, nCols)
-        the original spectral image
-      seg : int ndarray (nRows, nCols)
-        the image of segments
+        The original spectral image
+      seg : SegIdType ndarray (nRows, nCols)
+        The image of segment IDs
       segSize : int array (numSeg+1, )
         Array of pixel counts for every segment
       minSegId : SegIdType
@@ -625,15 +625,13 @@ def mergeSinglePixels(img, seg, segSize, segToElim, fourConnected):
     
     Parameters
     ----------
-      img : int ndarray
-        (nBands, nRows, nCols)
+      img : int ndarray (nBands, nRows, nCols)
         the original spectral image
       seg : int ndarray (nRows, nCols)
         the image of segments
       segSize : int array (numSeg+1, )
         Array of pixel counts for every segment
-      segToElim : int ndarray
-        (3, maxSegId)
+      segToElim : int ndarray (3, maxSegId)
         Temporary storage for segments to be eliminated
       fourConnected : bool
         If True use 4-way connectedness, otherwise 8-way
@@ -679,11 +677,37 @@ def mergeSinglePixels(img, seg, segSize, segToElim, fourConnected):
 def findNearestNeighbourPixel(img, seg, i, j, segSize, fourConnected):
     """
     For the (i, j) pixel, choose which of the neighbouring
-    pixels is the most similar, spectrally. 
-    
-    Returns tuple (ii, jj) of the row and column of the most
+    pixels is the most similar, spectrally.
+
+    Returns the row and column of the most
     spectrally similar neighbour, which is also in a 
     clump of size > 1. If none is found, return (-1, -1)
+
+    Parameters
+    ----------
+      img : int ndarray (nBands, nRows, nCols)
+        Input multi-band image
+      seg : SegIdType ndarray (nRows, nCols)
+        Partially completed segmentation image (values are segment
+        ID numbers)
+      i : int
+        Row number of target pixel
+      j : int
+        Column number of target pixel
+      segSize : int ndarray (numSegments+1, )
+        Pixel counts, indexed by segment ID number (i.e. a histogram of
+        the seg array)
+      fourConnected : bool
+        If True, use four-way connectedness to judge neighbours, otherwise
+        use eight-way.
+
+    Returns
+    -------
+      ii : int
+        Row number of the selected neighbouring pixel (-1 if not found)
+      jj : int
+        Column number of the selected neighbouring pixel (-1 if not found)
+
     """
     (nBands, nRows, nCols) = img.shape
     
@@ -720,7 +744,16 @@ def relabelSegments(seg, segSize, minSegId):
     these so that segment labels are contiguous. 
     
     Modifies the seg array in place. The segSize array is not 
-    updated, and should be recomputed. 
+    updated, and should be recomputed.
+
+    Parameters
+    ----------
+      seg : SegIdType ndarray (nRows, nCols)
+        Segmentation image. Updated in place with new segment ID values
+      segSize : int array (numSeg+1, )
+        Array of pixel counts for every segment
+      minSegId : int
+        Smallest valid segment ID number
     
     """
     oldNumSeg = len(segSize)
@@ -747,16 +780,24 @@ def relabelSegments(seg, segSize, minSegId):
 def buildSegmentSpectra(seg, img, maxSegId):
     """
     Build an array of the spectral statistics for each segment. 
-    Return an array of shape
-    
-    ::
-    
-        (numSegments+1, numBands)
-        
-    where each row is the entry for that segment ID, and each 
-    column is the sum of the spectral values for that band. 
-    The zero-th entry is empty, as zero is not a valid
-    segment ID. 
+    Return an array of the sums of the spectral values for each
+    segment, for each band
+
+    Parameters
+    ----------
+      seg : SegIdType ndarray (nRows, nCols)
+        Segmentation image
+      img : Integer ndarray (nBands, nRows, nCols)
+        Input multi-band image
+      maxSegId : int
+        Largest segment ID number in seg
+
+    Returns
+    -------
+      spectSum : float32 ndarray (numSegments+1, nBands)
+        Sums of all pixel values. Element [i, j] is the sum of all
+        values in img for the j-th band, which have segment ID i. The
+        row for i==0 is unused, as zero is not a valid segment ID.
     
     """
     (nBands, nRows, nCols) = img.shape
@@ -778,14 +819,43 @@ spec = [('idx', types.uint32), ('rowcols', types.uint32[:, :])]
 class RowColArray(object):
     """
     This data structure is used to store the locations of
-    every pixel, indexed by the segment ID. This means we can
-    quickly find all the pixels belonging to a particular segment.
+    every pixel in a given segment. It will be used for entries
+    in a jit dictionary. This means we can quickly find all the
+    pixels belonging to a particular segment.
+
+    Attributes
+    ----------
+      idx : int
+        Index of most recently added pixel
+      rowcols : uint32 ndarray (length, 2)
+        Row and col numbers of pixels in the segment
+
     """
     def __init__(self, length):
+        """
+        Initialize the data structure
+
+        Parameters
+        ----------
+          length : int
+            Number of pixels in the segment
+
+        """
         self.idx = 0
         self.rowcols = numpy.empty((length, 2), dtype=numpy.uint32)
 
     def append(self, row, col):
+        """
+        Add the coordinates of a new pixel in the segment
+
+        Parameters
+        ----------
+          row : int
+            Row number of pixel
+          col : int
+            Column number of pixel
+
+        """
         self.rowcols[self.idx, 0] = row
         self.rowcols[self.idx, 1] = col
         self.idx += 1
@@ -807,6 +877,21 @@ def makeSegmentLocations(seg, segSize):
     """
     Create a data structure to hold the locations of all pixels
     in all segments.
+
+    Parameters
+    ----------
+      seg : SegIdType ndarray (nRows, nCols)
+        Segment ID image array
+      segSize : int ndarray (numSegments+1, )
+        Counts of pixels in each segment, indexed by segment ID
+
+    Returns
+    -------
+      segLoc : numba Dict
+        Indexed by segment ID number, each entry is a RowColArray
+        object, giving the pixel coordinates of all pixels for that
+        segment
+
     """
     d = Dict.empty(key_type=types.uint32, value_type=RowColArray_Type)
     numSeg = len(segSize)
@@ -833,7 +918,32 @@ def eliminateSmallSegments(seg, img, maxSegId, minSegSize, maxSpectralDiff,
     them into spectrally most similar neighbour. Repeat for 
     larger segments. 
     
-    minSegSize is the smallest segment which will NOT be eliminated
+    Modifies seg array in place.
+
+    Parameters
+    ----------
+      seg : SegIdType ndarray (nRows, nCols)
+        Segment ID image array. Modified in place as segments are merged.
+      img : Integer ndarray (nBands, nRows, nCols)
+        Input multi-band image
+      maxSegId : SegIdType
+        Largest segment ID number in seg
+      minSegSize : int
+        Size (in pixels) of the smallest segment which will NOT
+        be eliminated
+      maxSpectralDiff : float
+        Limit on how different segments can be and still be merged.
+        It is given in the units of the spectral space of img.
+      fourConnected : bool
+        If True, use four-way connectedness to judge neighbours, otherwise
+        use eight-way.
+      minSegId : SegIdType
+        Minimum valid segment ID number
+
+    Returns
+    -------
+      numEliminated : int
+        Number of segments eliminated
     
     """
     spectSum = buildSegmentSpectra(seg, img, maxSegId)
@@ -892,7 +1002,29 @@ def findMergeSegment(segId, segLoc, seg, segSize, spectSum, maxSpectralDiff,
     For the given segId, find which neighboring segment it 
     should be merged with. The chosen merge segment is the one
     which is spectrally most similar to the given one, as
-    measured by minimum Euclidean distance in spectral space. 
+    measured by minimum Euclidean distance in spectral space.
+
+    Called by eliminateSmallSegments().
+
+    Parameters
+    ----------
+      segId : SegIdType
+        Segment ID number of segment to merge
+      segLoc : numba Dict
+        Dictionary of per-segment pixel coordinates. As computed by
+        makeSegmentLocations()
+      seg : SegIdType ndarray (nRows, nCols)
+        Segment ID image array
+      segSize : int ndarray (numSegments+1, )
+        Counts of pixels in each segment, indexed by segment ID
+      spectSum : float32 ndarray (numSegments+1, nBands)
+        Sums of all pixel values. As computed by buildSegmentSpectra()
+      maxSpectralDiff : float
+        Limit on how different segments can be and still be merged.
+        It is given in the units of the spectral space of img
+      fourConnected : bool
+        If True, use four-way connectedness to judge neighbours, otherwise
+        use eight-way
 
     """
     bestNbrSeg = SEGNULLVAL
@@ -930,8 +1062,27 @@ def findMergeSegment(segId, segLoc, seg, segSize, spectSum, maxSpectralDiff,
 def doMerge(segId, nbrSegId, seg, segSize, segLoc, spectSum):
     """
     Carry out a single segment merge. The segId segment is merged to the
-    neighbouring nbrSegId. 
-    Modifies seg, segSize, segLoc and spectSum in place. 
+    neighbouring nbrSegId. Modifies seg, segSize, segLoc and
+    spectSum in place.
+
+    Parameters
+    ----------
+      segId : SegIdType
+        Segment ID of the segment to be merged. Modified in place
+      nbrSegId : SegIdType
+        Segment ID of the segment into which segId will be merged.
+        Modified in place
+      seg : SegIdType ndarray (nRows, nCols)
+        Segment ID image array
+      segSize : int ndarray (numSegments+1, )
+        Counts of pixels in each segment, indexed by segment ID. Modified
+        in place with new counts for both segments
+      segLoc : numba Dict
+        Dictionary of per-segment pixel coordinates. As computed by
+        makeSegmentLocations()
+      spectSum : float32 ndarray (numSegments+1, nBands)
+        Sums of all pixel values. As computed by buildSegmentSpectra().
+        Updated in place with new sums for both segments
 
     """
     segRowcols = segLoc[segId].rowcols
