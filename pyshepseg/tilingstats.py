@@ -59,46 +59,49 @@ def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile,
     very large rasters to be processed. Raster data is handled in 
     small tiles, attribute table is handled in fixed-size chunks. 
     
-    The statsSelection parameter is a list of tuples, one for each
-    statistics to be included. Each tuple is either 2 or 3 elements,
-
-        (columnName, statName) or (columnName, statName, parameter)
-
-    The 3-element form is used for any statistic which requires
-    a parameter, which currently is only the percentile. 
-    
-    The columnName is a string, used to name the column in the 
-    output RAT. 
-    The statName is a string used to identify which statistic 
-    is to be calculated. Available options are:
-
-        'min', 'max', 'mean', 'stddev', 'median', 'mode', 
-        'percentile', 'pixcount'.
-
-    The 'percentile' statistic requires the 3-element form, with 
-    the 3rd element being the percentile to be calculated. 
-    
-    For example::
-
-        [
-         ('Band1_Mean', 'mean'),
-         ('Band1_stdDev', 'stddev'),
-         ('Band1_LQ', 'percentile', 25),
-         ('Band1_UQ', 'percentile', 75)
-        ]
-
-    would create 4 columns, for the per-segment mean and 
-    standard deviation of the given band, and the lower and upper 
-    quartiles, with corresponding column names. 
-    
-    Any pixels that are set to the nodata value of imgfile (if set)
-    are ignored in the stats calculations. If there are no pixels
-    that aren't the nodata value then the value passed in as
-    missingStatsValue is put into the RAT for the requested
-    statistics.
-    
-    The 'pixcount' statName can be used to find the number of
-    valid pixels (not nodata) that were used to calculate the statistics.
+    Parameters
+    ----------
+      imgfile : string
+        Path to input file for collecting statistics from
+      imgbandnum : int
+        1-based index of the band number in imgfile to use for collecting stats
+      segfile : string
+        Path to segmented file. Will collect stats in imgfile for each segment
+        in this file.
+      statsSelection : list of tuples.
+        One tuple for each statistic to be included. Each tuple is either 2
+        or 3 elements:
+        
+        >>> (columnName, statName)
+        
+        or
+        
+        >>> (columnName, statName, parameter)
+        
+        The columnName is a string, used to name the column in the 
+        output RAT. 
+        The statName is a string used to identify which statistic 
+        is to be calculated. Available options are:
+        
+        >>> ['min', 'max', 'mean', 'stddev', 'median', 'mode', 'percentile', 'pixcount']
+        
+        The 'percentile' statistic requires the 3-element form, with 
+        the 3rd element being the percentile to be calculated. 
+        For example::
+        
+        >>> statsSelection = [('Band1_Mean', 'mean'),('Band1_stdDev', 'stddev'),
+        >>> ('Band1_LQ', 'percentile', 25),('Band1_UQ', 'percentile', 75)]
+        
+        would create 4 columns, for the per-segment mean and 
+        standard deviation of the given band, and the lower and upper 
+        quartiles, with corresponding column names. 
+        Any pixels that are set to the nodata value of imgfile (if set)
+        are ignored in the stats calculations. If there are no pixels
+        that aren't the nodata value then the value passed in as
+        missingStatsValue is put into the RAT for the requested
+        statistics.
+        The 'pixcount' statName can be used to find the number of
+        valid pixels (not nodata) that were used to calculate the statistics.
 
     """
     segds = segfile
@@ -179,6 +182,19 @@ def accumulateSegDict(segDict, noDataDict, imgNullVal, tileSegments, tileImageDa
     """
     Accumulate per-segment histogram counts for all
     pixels in the given tile. Updates segDict entries in-place.
+    
+    Parameters
+    ----------
+      segDict : numba.typed.Dict 
+        Dictionary of segments keyed on segment id. Values are histograms for the segment
+      noDataDict : numba.typed.Dict
+        Dictionary of nodata values for each segment.
+      imgNullVal : int
+        No data value for image
+      tileSegments : int ndarray of shape (nRows, nCols)
+        Contains the tile of segments currently being processed.
+      tileImageData : int ndarray of shape (nRows, nCols)
+        Contains the tile of the image data currently being processed.
 
     """
     ysize, xsize = tileSegments.shape
@@ -220,6 +236,22 @@ def checkSegComplete(segDict, noDataDict, segSize, segId):
     in the segDict, meaning that the pixel count is equal to
     the segment size
 
+    Parameters
+    ----------
+      segDict : numba.typed.Dict 
+        Dictionary of segments keyed on segment id. Values are histograms for the segment
+      noDataDict : numba.typed.Dict
+        Dictionary of nodata values for each segment.
+      segSize : numba.typed.Dict
+        Dictionary of the total segment size of each segment
+      segId: int
+        Segment to check for completeness
+
+    Returns
+    -------
+     complete : bool
+       Whether the segId is complete or not
+      
     """
     count = 0
     # add up the counts of the histogram
