@@ -303,18 +303,12 @@ class TileInfo(object):
 
         Parameters
         ----------
-          xpos : int
-            Pixel column of top left pixel of tile
-          ypos : int
-            Pixel row of top left pixel of tile
-          xsize : int
-            Number of pixel columns in tile
-          ysize : int
-            Number of pixel rows in tile
-          col : int
-            Tile column
-          row : int
-            Tile row
+          xpos, ypos : int
+            Pixel column & row of top left pixel of tile
+          xsize, ysize : int
+            Number of pixel columns & rows in tile
+          col, row : int
+            Tile column & row
 
         """
         self.tiles[(col, row)] = (xpos, ypos, xsize, ysize)
@@ -332,25 +326,20 @@ class TileInfo(object):
         
     def getTile(self, col, row):
         """
-        Return the position and shape of the requested tile
+        Return the position and shape of the requested tile, as
+        a single tuple of values
 
         Parameters
         ----------
-          col : int
-            Tile column
-          row : int
-            Tile row
+          col, row : int
+            Tile column & row
 
         Returns
         -------
-          xpos : int
-            Pixel column of top left pixel of tile
-          ypos : int
-            Pixel row of top left pixel of tile
-          xsize : int
-            Number of pixel columns in tile
-          ysize : int
-            Number of pixel rows in tile
+          xpos, ypos : int
+            Pixel column & row of top left pixel of tile
+          xsize, ysize : int
+            Number of pixel columns & rows in tile
 
         """
 
