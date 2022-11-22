@@ -96,14 +96,25 @@ class TiledSegmentationResult(object):
     """
     Result of tiled segmentation
     
-    Attributes:
-      maxSegId: Largest segment ID used in final segment image
-      numTileRows: Number of rows of tiles used
-      numTileCols: Number of columns of tiles used
-      subsamplePcnt: Percentage of image subsampled for clustering
-      maxSpectralDiff: The value used to limit segment merging (in all tiles)
-      kmeans: The sklearn KMeans object, after fitting
-      hasEmptySegments: Boolean flag, this is an error condition
+    Attributes
+    ----------
+      maxSegId : SegIdType
+        Largest segment ID used in final segment image
+      numTileRows : int
+        Number of rows of tiles used
+      numTileCols : int
+        Number of columns of tiles used
+      subsamplePcnt : float
+        Percentage of image subsampled for clustering
+      maxSpectralDiff : float
+        The value used to limit segment merging (in all tiles)
+      kmeans : sklearn.cluster.KMeans
+        The sklearn KMeans object, after fitting
+      hasEmptySegments : bool
+        True if the segmentation contains segments with no pixels.
+        This is an error condition, probably indicating that the
+        merging of segments across tiles has produced inconsistent
+        numbering
       
     """
     def __init__(self):
@@ -120,35 +131,42 @@ def fitSpectralClustersWholeFile(inDs, bandNumbers, numClusters=60,
         subsamplePcnt=None, imgNullVal=None, 
         fixedKMeansInit=False):
     """
-    Given a raster filename, read a selected sample of pixels
+    Given an open raster Dataset, read a selected sample of pixels
     and use these to fit a spectral cluster model. Uses GDAL
     to read the pixels, and shepseg.fitSpectralClusters() 
-    to do the fitting. 
-    
-    If bandNumbers is not None, this is a list of band numbers 
-    (1 is 1st band) to use in fitting the model. 
-    
-    If subsamplePcnt is not None, this is the percentage of 
-    pixels sampled. If it is None, then a suitable subsample is 
-    calculated such that around one million pixels are sampled
-    (Note - this would include null pixels, so if the image is 
-    dominated by nulls, this would undersample.) 
-    No further subsampling is carried out by fitSpectralClusters(). 
-    
-    If imgNullVal is None, the file is queried for a null value. 
-    If none is defined there, then no null value is used. If 
-    each band has a different null value, an exception is raised. 
-    
-    fixedKMeansInit is passed to fitSpectralClusters(), see there
-    for details. 
-    
-    Returns a tuple
+    to do the fitting.
 
-        (kmeansObj, subsamplePcnt, imgNullVal)
+    Parameters
+    ----------
+      inDs : gdal.Dataset
+        Open GDAL Dataset object for the input raster
+      bandNumbers : list of int (or None)
+        List of GDAL band numbers for the bands of interest. If
+        None, then use all bands in the dataset. Note that GDAL band
+        numbers start at 1.
+      numClusters : int
+        Desired number of clusters
+      subsamplePcnt : float or None
+        Percentage of pixels to use in fitting. If it is None, then
+        a suitable subsample is calculated such that around one million
+        pixels are sampled. (Note - this would include null pixels, so
+        if the image is dominated by nulls, this would undersample.)
+        No further subsampling is carried out by fitSpectralClusters().
+      imgNullVal : float or None
+        Pixels with this value in the input raster are ignored. If None,
+        the NoDataValue from the raster file is used
+      fixedKMeansInit : bool
+        If True, then use a fixed estimate for the initial KMeans cluster
+        centres. See shepseg.fitSpectralClusters() for details.
 
-    where kmeansObj is the fitted object, subsamplePcnt
-    is the subsample percentage actually used, and imgNullVal 
-    is the null value used (perhaps from the file). 
+    Returns
+    -------
+      kmeansObj : sklearn.cluster.KMeans
+        The fitted KMeans object
+      subsamplePcnt : float
+        The subsample percentage actually used
+      imgNullVal : float
+        The image null value (possibly read from the file)
     
     """
     if subsamplePcnt is None:
@@ -183,8 +201,25 @@ def fitSpectralClustersWholeFile(inDs, bandNumbers, numClusters=60,
 
 def getImgNullValue(inDs, bandNumbers):
     """
-    Return the null value for the given dataset. Raises an error if
-    not all bands have the same null value. 
+    Return the null value for the given dataset
+
+    Parameters
+    ----------
+      inDs : gdal.Dataset
+        Open input Dataset
+      bandNumbers : list of int
+        GDAL band numbers of interest
+
+    Returns
+    -------
+      imgNullVal : float or None
+        Null value from input raster, None if there is no null value
+
+    Raises
+    ------
+      PyShepSegTilingError
+        If not all bands have the same null value
+
     """
     nullValArr = numpy.array([inDs.GetRasterBand(i).GetNoDataValue() 
         for i in bandNumbers])
@@ -197,15 +232,7 @@ def getImgNullValue(inDs, bandNumbers):
 def readSubsampledImageBand(bandObj, subsampleProp):
     """
     Read in a sub-sampled copy of the whole of the given band. 
-    
-    bandObj is an open gdal.Band object. 
-    subsampleProp is the proportion by which to sub-sample 
-    (i.e. a value between zero and 1, applied to rows and
-    columns separately)
-    
-    Returns a numpy array of the image data, equivalent to 
-    gdal.Band.ReadAsArray(). 
-    
+
     Note that one can, in principle, do this directly using GDAL. 
     However, if overview layers are present in the file, it will use
     these, and so is dependent on how these were created. Since 
@@ -214,6 +241,20 @@ def readSubsampledImageBand(bandObj, subsampleProp):
     so we have chosen to always go directly to the full resolution 
     image. 
     
+    Parameters
+    ----------
+      bandObj : gdal.Band
+        An open Band object for input
+      subsampleProp : float
+        The proportion by which to sub-sample (i.e. a value between
+        zero and 1, applied to rows and columns separately)
+
+    Returns
+    -------
+      imgSub : <dtype> ndarray (nRowsSub, nColsSub)
+        A numpy array of the image subsample, equivalent to
+        calling gdal.Band.ReadAsArray()
+
     """
     # A skip factor, applied to rows and column
     skip = int(round(1. / subsampleProp))
@@ -257,12 +298,62 @@ class TileInfo(object):
         self.nrows = None
         
     def addTile(self, xpos, ypos, xsize, ysize, col, row):
+        """
+        Add a new tile to the set
+
+        Parameters
+        ----------
+          xpos : int
+            Pixel column of top left pixel of tile
+          ypos : int
+            Pixel row of top left pixel of tile
+          xsize : int
+            Number of pixel columns in tile
+          ysize : int
+            Number of pixel rows in tile
+          col : int
+            Tile column
+          row : int
+            Tile row
+
+        """
         self.tiles[(col, row)] = (xpos, ypos, xsize, ysize)
         
     def getNumTiles(self):
+        """
+        Get total number of tiles in the set
+
+        Returns
+        -------
+          numTiles : int
+            Total number of tiles
+        """
         return len(self.tiles)
         
     def getTile(self, col, row):
+        """
+        Return the position and shape of the requested tile
+
+        Parameters
+        ----------
+          col : int
+            Tile column
+          row : int
+            Tile row
+
+        Returns
+        -------
+          xpos : int
+            Pixel column of top left pixel of tile
+          ypos : int
+            Pixel row of top left pixel of tile
+          xsize : int
+            Number of pixel columns in tile
+          ysize : int
+            Number of pixel rows in tile
+
+        """
+
         return self.tiles[(col, row)]
 
 
@@ -270,6 +361,24 @@ def getTilesForFile(ds, tileSize, overlapSize):
     """
     Return a TileInfo object for a given file and input
     parameters.
+
+    Parameters
+    ----------
+      ds : gdal.Dataset
+        Open GDAL Dataset object for raster to be tiles
+      tileSize : int
+        Size of tiles, in pixels. Individual tiles may end up being
+        larger in either direction, when they meet the edge of the raster,
+        to ensure we do not use very small tiles
+      overlapSize : int
+        Number of pixels by which tiles will overlap
+
+    Returns
+    -------
+      tileInfo : TileInfo
+        TileInfo object detailing the sizes and positions of all tiles
+        across the raster
+
     """
     # ensure int
     tileSize = int(tileSize)
@@ -329,37 +438,76 @@ def doTiledShepherdSegmentation(infile, outfile, tileSize=DFLT_TILESIZE,
     """
     Run the Shepherd segmentation algorithm in a memory-efficient
     manner, suitable for large raster files. Runs the segmentation
-    on separate tiles across the raster, then stitches these
-    together into a single output segment raster. 
-    
+    on separate (overlapping) tiles across the raster, then stitches these
+    together into a single output segment raster.
+
     The initial spectral clustering is performed on a sub-sample
     of the whole raster (using fitSpectralClustersWholeFile), 
     to create consistent clusters. These are then used as seeds 
     for all individual tiles. Note that subsamplePcnt is used at 
     this stage, over the whole raster, and is not passed through to 
-    shepseg.doShepherdSegmentation() for any further sub-sampling. 
-    
-    The tileSize is the minimum width/height of the tiles (in pixels).
-    These tiles are overlapped by overlapSize (also in pixels), both 
-    horizontally and vertically.
-    Tiles on the right and bottom edges of the input image may end up 
-    slightly larger than tileSize to ensure there are no small tiles.
+    shepseg.doShepherdSegmentation() for any further sub-sampling.
 
-    outputDriver is a string of the name of the GDAL driver to use
-    for the output file. creationOptions is the list of creation options
-    to use for this driver.
-    
-    tempfilesDriver is a string of the name of the GDAL driver to use
-    for temporary files. tempfilesExt the the extension to use and
-    tempfilesCreationOptions is the list of creation options to use for 
-    this driver.
-    
     Most of the arguments are passed through to 
-    shepseg.doShepherdSegmentation, and are described in the docstring 
-    for that function. 
-    
-    Return an instance of TiledSegmentationResult class. 
-    
+    shepseg.doShepherdSegmentation, and are described in the docstring
+    for that function.
+
+    Parameters
+    ----------
+      infile : str
+        Filename of input raster
+      outfile : str
+        Filename of output segmentation raster
+      tileSize : int
+        Desired width & height (in pixels) of the tiles (i.e.
+        desired tiles have shape (tileSize, tileSize). Tiles on the
+        right and bottom edges of the input image may end up slightly
+        larger than tileSize to ensure there are no small tiles.
+      overlapSize : int
+        Number of pixels to overlap tiles (??? should give more precise detail....)
+      minSegmentSize : int
+        Minimum number of pixels in a segment
+      numClusters : int
+        Number of clusters to request in k-means clustering
+      bandNumbers : list of int
+        The GDAL band numbers (i.e. start at 1) of the bands of input raster
+        to use for segmentation
+      subsamplePcnt : float or None
+        See fitSpectralClustersWholeFile()
+      maxSpectralDiff : float or str
+        See shepseg.doShepherdSegmentation()
+      spectDistPcntile : int
+        See shepseg.doShepherdSegmentation()
+      imgNullVal : float or None
+        If given, use this as the null value for the input raster. If None,
+        use the value defined in the raster file
+      fixedKMeansInit : bool
+        If True, use a fixed set of initial cluster centres for the KMeans
+        clustering. This is good to ensure exactly reproducible results
+      fourConnected : bool
+        If True, use 4-way connectedness, otherwise use 8-way
+      verbose : bool
+        If True, print informative messages during processing (to stdout)
+      simpleTileRecode : bool
+        If True, use only a simple tile recoding procedure. See
+        stitchTiles() for more detail
+      outputDriver : str
+        The short name of the GDAL format driver to use for output file
+      creationOptions : list of str
+        The GDAL output creation options to match the outputDriver
+      kmeansObj : sklearn.cluster.KMeans
+        See shepseg.doShepherdSegmentation() for details
+      tempfilesDriver : str
+        Short name of GDAL driver to use for temporary raster files
+      tempfilesExt : str
+        File extension to use for temporary raster files
+      tempfilesCreationOptions : list of str
+        GDAL creation options to use for temporary raster files
+
+    Returns
+    -------
+      tileSegResult : TiledSegmentationResult
+        
     """
  
     inDs, bandNumbers, kmeansObj, subsamplePcnt, imgNullVal, tileInfo = (
