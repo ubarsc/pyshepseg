@@ -274,6 +274,26 @@ def calcStatsForCompletedSegs(segDict, noDataDict, missingStatsValue, pagedRat,
     Calculate statistics for all complete segments in the segDict.
     Update the pagedRat with the resulting entries. Completed segments
     are then removed from segDict. 
+
+    Parameters
+    ----------
+      segDict : numba.typed.Dict 
+        Dictionary of segments keyed on segment id. Values are histograms for the segment
+      noDataDict : numba.typed.Dict
+        Dictionary of nodata values for each segment.
+      missingStatsValue : int
+        value to insert into the RAT where no valid pixels were found
+      pagedRat : numba.typed.Dict
+        The RAT as a paged data structure
+      statsSelection_fast : int ndarray of shape (numStats, 2)
+        Allows quick access to the types of stats required
+      segSize : numba.typed.Dict
+        Dictionary of the total segment size of each segment
+      numIntCols : int
+        Number of Integer RAT cols to be created
+      numFloatCols : int
+        Number of Float RAT cols to be created
+
     """
     numStats = len(statsSelection_fast)
     maxSegId = len(segSize) - 1
@@ -319,6 +339,12 @@ def createSegDict():
     a single segment. Each of its entries is for a single value from 
     the imagery, the key is the pixel value, and the dictionary value 
     is the number of times that pixel value appears in the segment. 
+
+    Returns
+    -------
+     segDict : numba.typed.Dict 
+       Dictionary of histograms used for calculating statistics.
+
     """
     histDict = Dict.empty(key_type=tiling.numbaTypeForImageType, value_type=types.uint32)
     segDict = Dict.empty(key_type=tiling.segIdNumbaType, value_type=histDict._dict_type)
@@ -330,6 +356,12 @@ def createNoDataDict():
     Create the dictionary that holds counts of nodata seen for each 
     segment. The key is the segId, value is the count of nodata seen 
     for that segment in the image data.
+
+    Returns
+    -------
+     nodataDict : numba.typed.Dict 
+       Dictionary of nodata counts for each segment
+       
     """
     noDataDict = Dict.empty(key_type=tiling.segIdNumbaType, value_type=types.uint32)
     return noDataDict
@@ -339,6 +371,17 @@ def checkHistColumn(existingColNames):
     """
     Check for the Histogram column in the attribute table. Return
     its column number, and raise an exception if it is not present
+
+    Parameters
+    ----------
+      existingColNames : list of strings
+        The existing column names in the segment file
+
+    Returns
+    -------
+      histColNdx : int
+        The index of the histogram column
+
     """
     histColNdx = -1
     for i in range(len(existingColNames)):
