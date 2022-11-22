@@ -887,7 +887,7 @@ def makeSegmentLocations(seg, segSize):
 
     Returns
     -------
-      segLoc : numba Dict
+      segLoc : numba.typed.Dict
         Indexed by segment ID number, each entry is a RowColArray
         object, giving the pixel coordinates of all pixels for that
         segment
@@ -1010,7 +1010,7 @@ def findMergeSegment(segId, segLoc, seg, segSize, spectSum, maxSpectralDiff,
     ----------
       segId : SegIdType
         Segment ID number of segment to merge
-      segLoc : numba Dict
+      segLoc : numba.typed.Dict
         Dictionary of per-segment pixel coordinates. As computed by
         makeSegmentLocations()
       seg : SegIdType ndarray (nRows, nCols)
@@ -1077,7 +1077,7 @@ def doMerge(segId, nbrSegId, seg, segSize, segLoc, spectSum):
       segSize : int ndarray (numSegments+1, )
         Counts of pixels in each segment, indexed by segment ID. Modified
         in place with new counts for both segments
-      segLoc : numba Dict
+      segLoc : numba.typed.Dict
         Dictionary of per-segment pixel coordinates. As computed by
         makeSegmentLocations()
       spectSum : float32 ndarray (numSegments+1, nBands)
