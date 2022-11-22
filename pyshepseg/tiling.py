@@ -95,7 +95,7 @@ segIdNumbaType = types.uint32
 class TiledSegmentationResult(object):
     """
     Result of tiled segmentation
-    
+
     Attributes
     ----------
       maxSegId : SegIdType
@@ -115,7 +115,7 @@ class TiledSegmentationResult(object):
         This is an error condition, probably indicating that the
         merging of segments across tiles has produced inconsistent
         numbering
-      
+
     """
     def __init__(self):
         self.maxSegId = None
@@ -167,7 +167,7 @@ def fitSpectralClustersWholeFile(inDs, bandNumbers, numClusters=60,
         The subsample percentage actually used
       imgNullVal : float
         The image null value (possibly read from the file)
-    
+
     """
     if subsamplePcnt is None:
         # We will try to sample roughly this many pixels
@@ -240,7 +240,7 @@ def readSubsampledImageBand(bandObj, subsampleProp):
     has shown that they are not always to be trusted as data, 
     so we have chosen to always go directly to the full resolution 
     image. 
-    
+
     Parameters
     ----------
       bandObj : gdal.Band
@@ -496,7 +496,7 @@ def doTiledShepherdSegmentation(infile, outfile, tileSize=DFLT_TILESIZE,
     Returns
     -------
       tileSegResult : TiledSegmentationResult
-        
+
     """
  
     inDs, bandNumbers, kmeansObj, subsamplePcnt, imgNullVal, tileInfo = (
@@ -554,7 +554,9 @@ def doTiledShepherdSegmentation_prepare(infile, tileSize=DFLT_TILESIZE,
     creating a parallel implementation, then call 
     doTiledShepherdSegmentation_doOne() for each tile in the returned TileInfo
     object.
-    
+
+    See doTiledShepherdSegmentation() for detailed parameter descriptions.
+
     Returns a tuple with: (datasetObj, bandNumbers, kmeansObj, subsamplePcnt, 
     imgNullVal, tileInfo)
     """
@@ -595,15 +597,18 @@ def doTiledShepherdSegmentation_doOne(inDs, filename, tileInfo, col, row,
         fourConnected=True, tempfilesDriver=DFLT_TEMPFILES_DRIVER,
         tempfilesCreationOptions=[]):
     """
-    Called from doTiledShepherdSegmentation(). Does a single tile and split
-    out here as a seperate function so it can be called from in parallel 
-    with other tiles if desired.
-    
+    Called from doTiledShepherdSegmentation(). Does a single tile, and is
+    split out here as a separate function so it can be called from in
+    parallel with other tiles if desired.
+
     tileInfo is object returned from doTiledShepherdSegmentation_prepare()
     and col, row describe the tile that this call will process.
-    
+
+    See doTiledShepherdSegmentation() for detailed descriptions of
+    other parameters.
+
     Return value is that from shepseg.doShepherdSegmentation().
-    
+
     """
 
     outDrvr = gdal.GetDriverByName(tempfilesDriver)
@@ -657,9 +662,9 @@ def doTiledShepherdSegmentation_finalize(inDs, outfile, tileFilenames, tileInfo,
     Do the stitching of tiles and check for empty segments. Call after every 
     doTiledShepherdSegmentation_doOne() has completed for a given tiled
     segmentation.
-    
+
     Returns a tuple with (axSegId, hasEmptySegments).
-    
+
     """
         
     maxSegId = stitchTiles(inDs, outfile, tileFilenames, tileInfo, overlapSize,
@@ -701,22 +706,42 @@ def stitchTiles(inDs, outfile, tileFilenames, tileInfo, overlapSize,
     Recombine individual tiles into a single segment raster output 
     file. Segment ID values are recoded to be unique across the whole
     raster, and contiguous. 
-    
-    outfile is the name of the final output raster. 
-    tileFilenames is a dictionary of the individual tile filenames, 
-    keyed by a tuple of (col, row) defining which tile it is. 
-    tileInfo is the object returned by getTilesForFile. 
-    overlapSize is the number of pixels in the overlap between tiles. 
-    outputDriver is a string of the name of the GDAL driver to use
-    for the output file. 
-    
-    If simpleTileRecode is True, a simpler method will be used to 
-    recode segment IDs, using just a block offset to shift ID numbers.
-    If it is False, then a more complicated method is used which
-    recodes and merges segments which cross the boundary between tiles. 
-    
-    Return the maximum segment ID used. 
-    
+
+    Parameters
+    ----------
+      inDs : gdal.Dataset
+        Open Dataset of input raster
+      outfile : str
+        Filename of the final output raster
+      tileFilenames : dict
+        Dictionary of the individual tile filenames,
+        keyed by a tuple of (col, row) defining which tile it is.
+      tileInfo : TileInfo
+        Positions and sizes of all tiles across the raster.
+        As returned by getTilesForFile().
+      overlapSize : int
+        The number of pixels in the overlap between tiles.
+      tempDir : str
+        Name of directory for temporary files
+      simpleTileRecode : bool
+        If True, a simpler method will be used to recode segment IDs,
+        using just a block offset to shift ID numbers. This is useful when
+        testing, but leaves non-contiguous segment numbers. If False,
+        then a more complicated method is used which recodes and merges
+        segments which cross the boundary between tiles (this is the
+        intended normal behaviour).
+      outputDriver : str
+        Short name string of the GDAL driver to use for the output file.
+      creationOptions : list of str
+        GDAL creation options for output driver
+      verbose : bool
+        If True, print informative messages to stdout
+
+    Returns
+    -------
+      maxSegId : SegIdType
+        The maximum segment ID used.
+
     """
     marginSize = int(overlapSize / 2)
 
@@ -823,23 +848,38 @@ VERTICAL = 1
 def recodeTile(tileData, maxSegId, tileRow, tileCol, overlapSize, tempDir,
         top, bottom, left, right):
     """
-    Adjust the segment ID numbers in the current tile, 
-    to make them globally unique across the whole mosaic.
-    
+    Adjust the segment ID numbers in the current tile, to make them
+    globally unique (and contiguous) across the whole mosaic.
+
     Make use of the overlapping regions of tiles above and left,
     to identify shared segments, and recode those to segment IDs 
     from the adjacent tiles (i.e. we change the current tile, not 
     the adjacent ones). Non-shared segments are increased so they 
     are larger than previous values. 
-    
-    tileData is the array of segment IDs for a single tile. 
-    maxSegId is the current maximum segment ID for all preceding
-    tiles. 
-    tileRow, tileCol are the row/col numbers of this tile, within
-    the whole-mosaic tile numbering scheme. 
-    
-    Return a copy of tileData, with new segment ID numbers. 
-    
+
+    Parameters
+    ----------
+      tileData : SegIdType ndarray (tileNrows, tileNcols)
+        The array of segment IDs for a single image tile
+      maxSegId : SegIdType
+        The current maximum segment ID for all preceding tiles.
+      tileRow, tileCol : int
+        The row/col numbers of this tile, within the whole-mosaic
+        tile numbering scheme. (These are not pixel numbers, but tile
+        grid numbers)
+      overlapSize : int
+        Number of pixels in tile overlap
+      tempDir : str
+        Name of directory for temporary files
+      top, bottom, left, right : int
+        Pixel coordinates *within tile* of the non-overlap region of
+        the tile.
+
+    Returns
+    -------
+      newTileData : SegIdType ndarray (tileNrows, tileNcols)
+        A copy of tileData, with new segment ID numbers.
+
     """
     # The A overlaps are from the current tile. The B overlaps 
     # are the same regions from the earlier adjacent tiles, and
@@ -880,27 +920,37 @@ def recodeSharedSegments(tileData, overlapA, overlapB, orientation,
     are in the overlap with an earlier tile, and which cross the 
     midline of the overlap, which is where the stitchline between 
     the tiles will fall. 
-    
+
     Updates recodeDict, which is a dictionary keyed on the 
     existing segment ID numbers, where the value of each entry 
     is the segment ID number from the earlier tile, to be used 
     to recode the segment in the current tile. 
-    
-    overlapA and overlapB are numpy arrays of the overlap region
-    in question, giving the segment ID numbers is the two tiles. 
-    The values in overlapB are from the earlier tile, and those in 
-    overlapA are from the current tile. 
-    
+
+    overlapA and overlapB are numpy arrays of pixels in the overlap
+    region in question, giving the segment ID numbers in the two tiles.
+    The values in overlapB are from the earlier tile, and those in
+    overlapA are from the current tile.
+
     It is critically important that the overlapping region is either
     at the top or the left of the current tile, as this means that 
     the row and column numbers of pixels in the overlap arrays 
     match the same pixels in the full tile. This cannot be used
-    for overlaps on the right or bottom of the current tile. 
-    
-    The orientation parameter defines whether we are dealing with 
-    overlap at the top (orientation == HORIZONTAL) or the left
-    (orientation == VERTICAL). 
-    
+    for overlaps on the right or bottom of the current tile.
+
+    Parameters
+    ----------
+      tileData : SegIdType ndarray (tileNrows, tileNcols)
+        Tile subset of segment ID image
+      overlapA, overlapB : SegIdType ndarray (overlapNrows, overlapNcols)
+        Tile overlap subsets of segment ID image
+      orientation : {HORIZONTAL, VERTICAL}
+        The orientation parameter defines whether we are dealing with
+        overlap at the top (orientation == HORIZONTAL) or the left
+        (orientation == VERTICAL).
+      recodeDict : dict
+        Keys and values are both segment ID numbers. Defines the mapping
+        which recodes segment IDs. Updated in place.
+
     """
     # The current segment IDs just from the overlap region.
     segIdList = numpy.unique(overlapA)
@@ -938,20 +988,36 @@ def relabelSegments(tileData, recodeDict, maxSegId,
         top, bottom, left, right):
     """
     Recode the segment IDs in the given tileData array.
-    
+
     For segment IDs which are keys in recodeDict, these
     are replaced with the corresponding entry. For all other 
     segment IDs, they are replaced with sequentially increasing
     ID numbers, starting from one more than the previous
     maximum segment ID (maxSegId). 
-    
-    A re-coded copy of tileData is created, the original is 
-    unchanged. 
-    
-    Return value is a tuple
 
-        (newTileData, newMaxSegId)
-    
+    A re-coded copy of tileData is created, the original is 
+    unchanged.
+
+    Parameters
+    ----------
+      tileData : SegIdType ndarray (tileNrows, tileNcols)
+        Segment IDs of tile
+      recodeDict : dict
+        Keys and values are segemtn ID numbers. Defines mapping
+        for segment relabelling
+      maxSegId : SegIdType
+        Maximum segment ID number
+      top, bottom, left, right : int
+        Pixel coordinates *within tile* of the non-overlap region of
+        the tile.
+
+    Returns
+    -------
+        newTileData : SegIdType ndarray (tileNrows, tileNcols)
+          Segment IDs of tile, after relabelling
+        newMaxSegId : SegIdType
+          New maximum segment ID after relabelling
+
     """
     newTileData = numpy.full(tileData.shape, shepseg.SEGNULLVAL, 
         dtype=tileData.dtype)
