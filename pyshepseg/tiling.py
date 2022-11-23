@@ -98,7 +98,7 @@ class TiledSegmentationResult(object):
 
     Attributes
     ----------
-      maxSegId : SegIdType
+      maxSegId : shepseg.SegIdType
         Largest segment ID used in final segment image
       numTileRows : int
         Number of rows of tiles used
@@ -114,7 +114,7 @@ class TiledSegmentationResult(object):
         True if the segmentation contains segments with no pixels.
         This is an error condition, probably indicating that the
         merging of segments across tiles has produced inconsistent
-        numbering
+        numbering. A warning message will also have been printed.
 
     """
     def __init__(self):
@@ -678,7 +678,23 @@ def doTiledShepherdSegmentation_finalize(inDs, outfile, tileFilenames, tileInfo,
 def checkForEmptySegments(outfile, maxSegId, overlapSize):
     """
     Check the final segmentation for any empty segments. These
-    can be problematic later, and should be avoided.
+    can be problematic later, and should be avoided. Prints a
+    warning message if empty segments are found.
+
+    Parameters
+    ----------
+      outfile : str
+        File name of segmentation image to check
+      maxSegId : shepseg.SegIdType
+        Maximum segment ID used
+      overlapSize : int
+        Number of pixels to use in overlaps between tiles
+
+    Returns
+    -------
+      hasEmptySegments : bool
+        True if there are segment ID numbers with no pixels
+
     """
     hist = calcHistogramTiled(outfile, maxSegId, writeToRat=False)
     emptySegIds = numpy.where(hist[1:] == 0)[0]
@@ -739,7 +755,7 @@ def stitchTiles(inDs, outfile, tileFilenames, tileInfo, overlapSize,
 
     Returns
     -------
-      maxSegId : SegIdType
+      maxSegId : shepseg.SegIdType
         The maximum segment ID used.
 
     """
@@ -834,7 +850,19 @@ BOTTOM_OVERLAP = 'bottom'
 
 def overlapFilename(col, row, edge, tempDir):
     """
-    Return the filename used for the overlap array
+    Return the temporary filename used for the overlap array
+
+    Parameters
+    ----------
+      col, row : int
+        Tile column & row numbers
+      edge : {right', 'bottom'}
+        Indicates from which edge of the given tile the overlap is taken
+
+    Returns
+    -------
+      filename : str
+        Temp numpy array filename for the overlap
     """
     fname = '{}_{}_{}.npy'.format(edge, col, row)
     return os.path.join(tempDir, fname)
@@ -859,9 +887,9 @@ def recodeTile(tileData, maxSegId, tileRow, tileCol, overlapSize, tempDir,
 
     Parameters
     ----------
-      tileData : SegIdType ndarray (tileNrows, tileNcols)
+      tileData : shepseg.SegIdType ndarray (tileNrows, tileNcols)
         The array of segment IDs for a single image tile
-      maxSegId : SegIdType
+      maxSegId : shepseg.SegIdType
         The current maximum segment ID for all preceding tiles.
       tileRow, tileCol : int
         The row/col numbers of this tile, within the whole-mosaic
@@ -877,7 +905,7 @@ def recodeTile(tileData, maxSegId, tileRow, tileCol, overlapSize, tempDir,
 
     Returns
     -------
-      newTileData : SegIdType ndarray (tileNrows, tileNcols)
+      newTileData : shepseg.SegIdType ndarray (tileNrows, tileNcols)
         A copy of tileData, with new segment ID numbers.
 
     """
@@ -939,9 +967,9 @@ def recodeSharedSegments(tileData, overlapA, overlapB, orientation,
 
     Parameters
     ----------
-      tileData : SegIdType ndarray (tileNrows, tileNcols)
+      tileData : shepseg.SegIdType ndarray (tileNrows, tileNcols)
         Tile subset of segment ID image
-      overlapA, overlapB : SegIdType ndarray (overlapNrows, overlapNcols)
+      overlapA, overlapB : shepseg.SegIdType ndarray (overlapNrows, overlapNcols)
         Tile overlap subsets of segment ID image
       orientation : {HORIZONTAL, VERTICAL}
         The orientation parameter defines whether we are dealing with
@@ -1000,12 +1028,12 @@ def relabelSegments(tileData, recodeDict, maxSegId,
 
     Parameters
     ----------
-      tileData : SegIdType ndarray (tileNrows, tileNcols)
+      tileData : shepseg.SegIdType ndarray (tileNrows, tileNcols)
         Segment IDs of tile
       recodeDict : dict
-        Keys and values are segemtn ID numbers. Defines mapping
+        Keys and values are segment ID numbers. Defines mapping
         for segment relabelling
-      maxSegId : SegIdType
+      maxSegId : shepseg.SegIdType
         Maximum segment ID number
       top, bottom, left, right : int
         Pixel coordinates *within tile* of the non-overlap region of
@@ -1013,9 +1041,9 @@ def relabelSegments(tileData, recodeDict, maxSegId,
 
     Returns
     -------
-        newTileData : SegIdType ndarray (tileNrows, tileNcols)
+        newTileData : shepseg.SegIdType ndarray (tileNrows, tileNcols)
           Segment IDs of tile, after relabelling
-        newMaxSegId : SegIdType
+        newMaxSegId : shepseg.SegIdType
           New maximum segment ID after relabelling
 
     """
@@ -1052,11 +1080,25 @@ def relabelSegments(tileData, recodeDict, maxSegId,
 
 def crossesMidline(overlap, segLoc, orientation):
     """
-    Return True if the given segment crosses the midline of the
-    overlap array. Orientation of the midline is either
-    HORIZONTAL or VERTICAL
-        
-    segLoc is the segment location entry for the segment in question
+    Check whether the given segment crosses the midline of the
+    given overlap. If it does not, then it will lie entirely within
+    exactly one tile, but if it does cross, then it will need to be
+    re-coded across the midline.
+
+    Parameters
+    ----------
+      overlap : shepseg.SegIdType ndarray (overlapNrows, overlapNcols)
+        Array of segments just for this overlap region
+      segLoc : shepseg.RowColArray
+        The row/col coordinates (within the overlap array) of the
+        pixels for the segment of interest
+      orientation : {HORIZONTAL, VERTICAL}
+        Indicates the orientation of the midline
+
+    Returns
+    -------
+      crosses : bool
+        True if the given segment crosses the midline
     
     """
     (nrows, ncols) = overlap.shape
@@ -1090,9 +1132,23 @@ def calcHistogramTiled(segfile, maxSegId, writeToRat=True):
     For a raster which can easily fit into memory, a histogram
     can be calculated directly using :func:`pyshepseg.shepseg.makeSegSize`.
     
-    Once completed, the histogram can be written to the image file's
-    raster attribute table, if writeToRat is True). It will also be
-    returned as a numpy array, indexed by segment ID. 
+    Parameters
+    ----------
+      segfile : str or gdal.Dataset
+        Segmentation image file. Can be either the file name string, or
+        an open Dataset object.
+      maxSegId : shepseg.SegIdType
+        Maximum segment ID used
+      writeToRat : bool
+        If True, the completed histogram will be written to the image
+        file's raster attribute table. If segfile was given as a Dataset
+        object, it would therefore need to have been opened with update
+        access.
+
+    Returns
+    -------
+      hist : int ndarray (numSegments+1, )
+        Histogram counts for each segment (index is segment ID number)
 
     segfile can be either a filename string, or an open 
     gdal.Dataset object. If writeToRat is True, then a Dataset
@@ -1148,7 +1204,7 @@ def calcHistogramTiled(segfile, maxSegId, writeToRat=True):
 @njit
 def updateCounts(tileData, hist):
     """
-    Fast function to increment counts for each segment ID
+    Fast function to increment counts for each segment ID in the given tile
     """
     (nrows, ncols) = tileData.shape
     for i in range(nrows):
@@ -1161,7 +1217,7 @@ def subsetImage(inname, outname, tlx, tly, newXsize, newYsize, outformat,
         creationOptions=[], origSegIdColName=None, maskImage=None):
     """
     Subset an image and "compress" the RAT so only values that 
-    are in the new image are in the RAT. Note: the image values
+    are in the new image are in the RAT. Note that the image values
     will be recoded in the process.
     
     gdal_translate seems to have a problem with files that
