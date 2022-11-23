@@ -72,25 +72,33 @@ def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile,
         One tuple for each statistic to be included. Each tuple is either 2
         or 3 elements:
         
-        >>> (columnName, statName)
+        ::
+        
+          (columnName, statName)
         
         or
         
-        >>> (columnName, statName, parameter)
+        ::
+        
+          (columnName, statName, parameter)
         
         The columnName is a string, used to name the column in the 
         output RAT. 
         The statName is a string used to identify which statistic 
         is to be calculated. Available options are:
         
-        >>> ['min', 'max', 'mean', 'stddev', 'median', 'mode', 'percentile', 'pixcount']
+        :: 
+        
+          'min', 'max', 'mean', 'stddev', 'median', 'mode', 'percentile', 'pixcount'
         
         The 'percentile' statistic requires the 3-element form, with 
         the 3rd element being the percentile to be calculated. 
-        For example::
+        For example:
         
-        >>> statsSelection = [('Band1_Mean', 'mean'),('Band1_stdDev', 'stddev'),
-        >>> ('Band1_LQ', 'percentile', 25),('Band1_UQ', 'percentile', 75)]
+        ::
+        
+          [('Band1_Mean', 'mean'),('Band1_stdDev', 'stddev'), 
+          ('Band1_LQ', 'percentile', 25),('Band1_UQ', 'percentile', 75)]
         
         would create 4 columns, for the per-segment mean and 
         standard deviation of the given band, and the lower and upper 
@@ -244,7 +252,7 @@ def checkSegComplete(segDict, noDataDict, segSize, segId):
         Dictionary of nodata values for each segment.
       segSize : numba.typed.Dict
         Dictionary of the total segment size of each segment
-      segId: int
+      segId: shepseg.SegIdType
         Segment to check for completeness
 
     Returns
@@ -285,10 +293,10 @@ def calcStatsForCompletedSegs(segDict, noDataDict, missingStatsValue, pagedRat,
         value to insert into the RAT where no valid pixels were found
       pagedRat : numba.typed.Dict
         The RAT as a paged data structure
-      statsSelection_fast : int ndarray of shape (numStats, 2)
+      statsSelection_fast : int ndarray of shape (numStats, 5)
         Allows quick access to the types of stats required
-      segSize : numba.typed.Dict
-        Dictionary of the total segment size of each segment
+      segSize : int indarray of shape (numSegments+1, )
+        Array containing the histograms of the segment file
       numIntCols : int
         Number of Integer RAT cols to be created
       numFloatCols : int
@@ -797,7 +805,7 @@ def createSegSpatialDataDict():
 def calcPerSegmentSpatialStatsTiled(imgfile, imgbandnum, segfile,
         colNamesAndTypes, userFunc, userParam=None, missingStatsValue=-9999):
     """
-    Similar to the :func:`calcPerSegmentSpatialStatsTiled` function 
+    Similar to the :func:`calcPerSegmentStatsTiled` function 
     but allows the user to calculate spatial statistics on the data
     for each segment. This is done by recording the location and value
     for each pixel within the segment. Once all the pixels are found
@@ -817,16 +825,29 @@ def calcPerSegmentSpatialStatsTiled(imgfile, imgbandnum, segfile,
     values for. ``userParam`` is the same value passed to 
     this function and needs to be a type understood by Numba. 
     
-    ``userFunc`` needs to be a Numba function (ie decorated with @jit or @njit).
-    
-    ``colNamesAndTypes`` should be a list of ``(colName, colType)`` tuples that
-    define the names, types are order of the output RAT columns. 
-    ``colName`` should be a string containing the name of the RAT column to be
-    created and ``colType`` should be one of ``gdal.GFT_Integer`` or 
-    ``gdal.GFT_Real`` and this controls the type of the column to be created.
-    Note that the order of columns given in this parameter is important as
-    this dicates the order of the ``intArray`` and ``floatArr`` parameters to 
-    ``userFunc``.
+    Parameters
+    ----------
+      imgfile : string
+        Path to input file for collecting statistics from
+      imgbandnum : int
+        1-based index of the band number in imgfile to use for collecting stats
+      segfile : string
+        Path to segmented file. Will collect stats in imgfile for each segment
+        in this file.
+      colNamesAndTypes : list of ``(colName, colType)`` tuples
+        This defines the names, types and order of the output RAT columns.
+        ``colName`` should be a string containing the name of the RAT column to be
+        created and ``colType`` should be one of ``gdal.GFT_Integer`` or 
+        ``gdal.GFT_Real`` and this controls the type of the column to be created.
+        Note that the order of columns given in this parameter is important as
+        this dicates the order of the ``intArray`` and ``floatArr`` parameters to 
+        ``userFunc``.
+      userFunc : a Numba function (ie decorated with @jit or @njit).
+        See above for description
+      userParam : anything that can be passed to a Numba function
+        This includes: arrays, scalars and @jitclass decorated classes.
+      missingStatsValue : int
+        The value to fill in for segments that have no data.
     
     """
     segds = segfile
@@ -968,6 +989,24 @@ def accumulateSegSpatial(segDict, noDataDict, imgNullVal, tileSegments,
     Accumulates data for each segment for the given tile. The data is put
     into segDict.
     
+    Parameters
+    ----------
+      segDict : numba.typed.Dict
+        Dictionary of segments keyed on segment id. Values are histograms 
+        for the segment
+      noDataDict : numba.typed.Dict
+        Dictionary of nodata values for each segment.
+      imgNullVal : int
+        No data value for image
+      tileSegmentsint ndarray of shape (nRows, nCols)
+        Contains the tile of segments currently being processed.
+      tileImageData : int ndarray of shape (nRows, nCols)
+        Contains the tile of the image data currently being processed.
+      topLine : int
+        row of the top of this tile in the full image
+      leftPix : int
+        col of the left of this tile in the full image
+
     """
     ysize, xsize = tileSegments.shape
     
@@ -1023,6 +1062,18 @@ def convertPtsInto2DArray(pts, imgNullVal):
     The tile is created just large enough for the shape of the segment. 
     Areas of the tile not within a segment is given the value of ``imgNullVal``.
     
+    Parameters
+    ----------
+      pts : numba.typed.List containing SegPoint objects    
+        This is the list passed to the userFunc.
+      imgNullVal : int
+        No data value for image
+        
+    Returns
+    -------
+      tile : tiling.numbaTypeForImageType ndarray of shape (ysize, xsize)
+        Where ysize and xsize are the total extent of the tile
+
     """
     # find size of tile
     xmin = pts[0].x
@@ -1061,6 +1112,33 @@ def calcStatsForCompletedSegsSpatial(segDict, noDataDict, missingStatsValue,
     Calls the ``userFunc`` on data for completed segs and saves the results into
     the ``pagedRat``. 
     
+    Parameters
+    ----------
+      segDict : numba.typed.Dict
+        Dictionary of segments keyed on segment id. Values are a numba.typed.List
+        containing instances of SegPoint.
+      noDataDict : numba.typed.Dict
+        Dictionary of nodata values for each segment.
+      missingStatsValue : int
+        Value to fill the intArr and floatArr parameters with so this valu
+        gets written to the RAT if no valid pixels found
+      pagedRat : numba.typed.Dict
+        The RAT as a paged data structure
+      segSize : numba.typed.Dict
+        Dictionary of the total segment size of each segment
+      userFunc : Numba function
+        This is the user defined function to call for each completed segment
+      userParam : Numba compatible argument
+        This is passed to the userFunc
+      statsSelection_fast : int ndarray of shape (numStats, 5)
+        Allows quick access to the types of stats required
+      intArr : int indarray of shape (numIntCols,)
+        Spaced used for storing the integer outputs for this segment
+      floatArr : float indarray of shape (numFloatCols,)
+        Spaced used for storing the float outputs for this segment
+      imgNullVal : int
+        No data value for image
+
     """
 
     maxSegId = len(segSize) - 1
