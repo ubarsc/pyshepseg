@@ -125,7 +125,7 @@ arbitrary percentile values, amongst others. The selected per-segment
 statistics are written to the segment image file as columns of a raster
 attribute table (RAT). 
 
-For details, see the help on the ``tiling.calcPerSegmentStatsTiled()`` 
+For details, see the help on the ``tilingstats.calcPerSegmentStatsTiled()``
 function. 
 
 Segment Colour Tables
