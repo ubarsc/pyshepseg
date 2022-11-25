@@ -19,8 +19,8 @@ to allow sufficient initial segments to characterize the variation.
 
 Related to this, one may also consider reducing the percentile
 used for automatic estimation of maxSpectralDiff (see 
-:func:`shepseg.doShepherdSegmentation` and :func:`shepseg.autoMaxSpectralDiff`
-for further details). 
+:func:`pyshepseg.shepseg.doShepherdSegmentation` and
+:func:`pyshepseg.shepseg.autoMaxSpectralDiff` for further details).
 
 Because of these caveats, one should be very cautious about 
 segmenting something like a continental-scale image. There is a 
@@ -1551,6 +1551,14 @@ def writeCompletedPagesForSubset(inRAT, outRAT, outPagedRat):
     """
     For the subset operation. Writes out any completed pages to outRAT
     using the inRAT as a template.
+
+    Parameters
+    ----------
+      inRAT, outRAT : gdal.RasterAttributeTable
+        The input and output raster attribute tables.
+      outPagedRat : numba.typed.Dict
+        The paged RAT in memory, as created by createPagedRat()
+
     """
     for pageId in outPagedRat:
         ratPage = outPagedRat[pageId]
@@ -1629,7 +1637,7 @@ class RatPage(object):
         numSeg is the number of segments within this page, normally the
         page size, but the last page will be smaller. 
         
-        numIntCols and numFloatCols are as returned by makeFastStatSelection(). 
+        numIntCols and numFloatCols are as returned by makeFastStatsSelection().
         
         """
         self.startSegId = startSegId
