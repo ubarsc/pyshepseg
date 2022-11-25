@@ -409,6 +409,22 @@ def createStatColumns(statsSelection, attrTbl, existingColNames):
     
     Return the column indexes for all requested columns, in the same
     order. 
+    
+    Parameters
+    ----------
+      statsSelection : list of tuples
+        Same as passed to :func:`calcPerSegmentStatsTiled`
+      attrTbl : gdal.RasterAttributeTable
+        The Raster Attribute Table object for the file
+      existingColNames : list of strings
+        A list of the existing column names
+        
+    Returns
+    -------
+      colIndexList : list of ints
+        A list of the indexes of each of the requested new columns
+        in the same order as statsSelection.
+
     """
     colIndexList = []
     for selection in statsSelection:
@@ -547,6 +563,19 @@ def getSortedKeysAndValuesForDict(d):
     value. This function returns a pair of numpy arrays (as a tuple),
     one for the list of pixel values, and one for the corresponding
     counts. The arrays are sorted in increasing order of pixel value.
+    
+    Parameters
+    ----------
+      d : dictionary of int
+        Counts of each pixel value.
+        
+    Returns
+    -------
+      keysSorted : tiling.numbaTypeForImageType ndarray of shape (numValues,)
+        Pixel values sorted
+      valuesSorted : int ndarray of shape (numValues,)
+        Counts of each pixel sorted by pixel value
+
     """
     size = len(d)
     keysArray = numpy.empty(size, dtype=tiling.numbaTypeForImageType)
@@ -677,6 +706,18 @@ def equalProjection(proj1, proj2):
     
     Stolen from rios/pixelgrid.py
 
+    Parameters
+    ----------
+      proj1 : string
+        WKT string for the first projection
+      proj2 : string
+        WKT string for the second projection
+        
+    Returns
+    -------
+      equal : bool
+        Whether the projections are equal or not
+
     """
     selfProj = str(proj1) if proj1 is not None else ''
     otherProj = str(proj2) if proj2 is not None else ''
@@ -795,6 +836,12 @@ def createSegSpatialDataDict():
     """
     Create a dictionary where the key is the segment ID and the 
     value is a List of :class:`SegPoint` objects.
+
+    Returns
+    -------
+      segDict : numba.typed.Dict
+        Dictionary containing lists of :class:`SegPoint` objects.
+
     """
     pointList = List.empty_list(SegPoint.class_type.instance_type)
     segDict = Dict.empty(key_type=tiling.segIdNumbaType, 
@@ -944,6 +991,25 @@ def createUserColumnsSpatial(colNamesAndTypes, attrTbl, existingColNames):
     
     Returns a tuple with number of integer columns, number of float columns
     and a statsSelection_fast array for use by :func:`calcStatsForCompletedSegsSpatial`.
+    
+    Parameters
+    ----------
+      colNamesAndTypes : list of (colName, colType) tuples
+        Same as passed to :func:`calcPerSegmentSpatialStatsTiled`.
+      attrTbl : gdal.RasterAttributeTable
+        The Raster Attribute Table object for the file
+      existingColNames : list of strings
+        A list of the existing column names
+        
+    Returns
+    -------
+      numIntCols : int
+        The number of new Integer columns
+      numFloatCols : int
+        The number of new Float columns
+      statsSelection_fast : int ndarray of shape (numStats, 5)
+        Allows quick access to the types of stats required
+
     """
     n_intCols = 0
     n_floatCols = 0
@@ -1033,26 +1099,7 @@ def accumulateSegSpatial(segDict, noDataDict, imgNullVal, tileSegments,
                     segList.append(pt)
 
 
-@njit
-def checkSegCompleteSpatial(segDict, noDataDict, segSize, segId):
-    """
-    Return True if the given segment has a complete entry
-    in the segDict, meaning that the pixel count is equal to
-    the segment size
-    """
-    count = 0
-    # add up the counts of the histogram
-    if segId in segDict:
-        segList = segDict[segId]
-        count += len(segList)
-        
-    # now add up any nodata in this segment
-    if segId in noDataDict:
-        count += noDataDict[segId]
-        
-    return (count == segSize[segId])
-
-    
+   
 @njit
 def convertPtsInto2DArray(pts, imgNullVal):
     """
@@ -1148,7 +1195,7 @@ def calcStatsForCompletedSegsSpatial(segDict, noDataDict, missingStatsValue,
         segDictKeys[i] = segId
         i += 1
     for segId in segDictKeys:
-        segComplete = checkSegCompleteSpatial(segDict, noDataDict, segSize, segId)
+        segComplete = checkSegComplete(segDict, noDataDict, segSize, segId)
         if segComplete:
             ratPageId = tiling.getRatPageId(segId)
             if ratPageId not in pagedRat:
