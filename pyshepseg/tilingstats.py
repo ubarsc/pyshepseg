@@ -1099,7 +1099,6 @@ def accumulateSegSpatial(segDict, noDataDict, imgNullVal, tileSegments,
                     segList.append(pt)
 
 
-   
 @njit
 def convertPtsInto2DArray(pts, imgNullVal):
     """
