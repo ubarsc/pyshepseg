@@ -250,9 +250,9 @@ def checkSegComplete(segDict, noDataDict, segSize, segId):
         Dictionary of segments keyed on segment id. Values are histograms for the segment
       noDataDict : numba.typed.Dict
         Dictionary of nodata values for each segment.
-      segSize : numba.typed.Dict
-        Dictionary of the total segment size of each segment
-      segId: shepseg.SegIdType
+      segSize : int indarray of shape (numSegments+1, )
+        Array containing the histograms of the segment file
+      segId : shepseg.SegIdType
         Segment to check for completeness
 
     Returns
@@ -445,7 +445,17 @@ def createStatColumns(statsSelection, attrTbl, existingColNames):
 def writeCompletePages(pagedRat, attrTbl, statsSelection_fast):
     """
     Check for completed pages, and write them to the attribute table.
-    Remove them from the pagedRat after writing. 
+    Remove them from the pagedRat after writing.
+
+    Parameters
+    ----------
+      pagedRat : numba.typed.Dict
+        The RAT as a paged data structure
+      attrTbl : gdal.RasterAttributeTable
+        The Raster Attribute Table object for the file
+      statsSelection_fast : int ndarray of shape (numStats, 5)
+        Allows quick access to the types of stats required
+ 
     """
     numStat = len(statsSelection_fast)
     
@@ -523,6 +533,23 @@ def makeFastStatsSelection(colIndexList, statsSelection):
     This is all a bit ugly and un-pythonic. Not sure if there is
     a better way. 
     
+    Parameters
+    ----------
+      colIndexList : list of ints
+        The column indexes for all requested columns 
+      statsSelection : list of tuples
+        See :func:`tilingstats.calcPerSegmentStatsTiled` for a complete 
+        description of this parameter.
+
+    Returns
+    -------
+      statsSelection_fast : int ndarray of shape (numStats, 5)
+        The statsSelection_fast structure
+      intCount : int
+        Number of int columns
+      floatCount : int
+        Number of float columns
+
     """
     numStats = len(colIndexList)
     statsSelection_fast = numpy.empty((numStats, 5), dtype=numpy.uint32)
@@ -742,6 +769,19 @@ def userFuncVariogram(pts, imgNullVal, intArr, floatArr, maxDist):
     requested (this is calculated from the ``colNamesAndTypes`` parameter to
     :func:`calcPerSegmentSpatialStatsTiled`).
 
+    Parameters
+    ----------
+      pts : numba.typed.List containing SegPoint objects
+        This is the list passed to the userFunc.
+      imgNullVal : int
+        The nodata value for the imagery
+      intArr : int ndarray of shape (numIntCols, )
+        The integer columns - not used in this function
+      floatArr : int ndarray of shape (numFloatCols, )
+        The float columns - output written here
+      maxDist : int
+        Number of variograms to calculate
+
     """
     # turn into a tile for maximum speed when searching
     tile = convertPtsInto2DArray(pts, imgNullVal)
@@ -788,6 +828,21 @@ def userFuncMeanCoord(pts, imgNullVal, intArr, floatArr, transform):
     The result will be written to floatArr (2 values -
     easting then northing). It is expected that at least 2 float columns are
     available. 
+    
+    Parameters
+    ----------
+      pts : numba.typed.List containing SegPoint objects
+        This is the list passed to the userFunc.
+      imgNullVal : int
+        The nodata value for the imagery
+      intArr : int ndarray of shape (numIntCols, )
+        The integer columns - not used in this function
+      floatArr : int ndarray of shape (numFloatCols, )
+        The float columns - output written here
+      transform : float ndarray of shape (6,)
+        The GDAL transform array. Passed in as a ``userParam``
+        to :func:`tilingstats.calcPerSegmentSpatialStatsTiled`.
+
     """
     count = 0
     sumx = 0.0
@@ -1064,7 +1119,7 @@ def accumulateSegSpatial(segDict, noDataDict, imgNullVal, tileSegments,
         Dictionary of nodata values for each segment.
       imgNullVal : int
         No data value for image
-      tileSegmentsint ndarray of shape (nRows, nCols)
+      tileSegments : int ndarray of shape (nRows, nCols)
         Contains the tile of segments currently being processed.
       tileImageData : int ndarray of shape (nRows, nCols)
         Contains the tile of the image data currently being processed.
@@ -1170,8 +1225,8 @@ def calcStatsForCompletedSegsSpatial(segDict, noDataDict, missingStatsValue,
         gets written to the RAT if no valid pixels found
       pagedRat : numba.typed.Dict
         The RAT as a paged data structure
-      segSize : numba.typed.Dict
-        Dictionary of the total segment size of each segment
+      segSize : int indarray of shape (numSegments+1, )
+        Array containing the histograms of the segment file
       userFunc : Numba function
         This is the user defined function to call for each completed segment
       userParam : Numba compatible argument
