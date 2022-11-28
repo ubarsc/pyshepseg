@@ -70,39 +70,35 @@ def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile,
         in this file.
       statsSelection : list of tuples.
         One tuple for each statistic to be included. Each tuple is either 2
-        or 3 elements:
-        
-        ::
+        or 3 elements::
         
           (columnName, statName)
         
-        or
-        
-        ::
+        or ::
         
           (columnName, statName, parameter)
         
         The columnName is a string, used to name the column in the 
         output RAT. 
         The statName is a string used to identify which statistic 
-        is to be calculated. Available options are:
-        
-        :: 
+        is to be calculated. Available options are::
         
           'min', 'max', 'mean', 'stddev', 'median', 'mode', 'percentile', 'pixcount'
         
         The 'percentile' statistic requires the 3-element form, with 
-        the 3rd element being the percentile to be calculated. 
-        For example:
+        the 3rd element being the percentile to be calculated.
+
+        For example::
         
-        ::
-        
-          [('Band1_Mean', 'mean'),('Band1_stdDev', 'stddev'), 
-          ('Band1_LQ', 'percentile', 25),('Band1_UQ', 'percentile', 75)]
+          [('Band1_Mean', 'mean'),
+           ('Band1_stdDev', 'stddev'),
+           ('Band1_LQ', 'percentile', 25),
+           ('Band1_UQ', 'percentile', 75)]
         
         would create 4 columns, for the per-segment mean and 
         standard deviation of the given band, and the lower and upper 
-        quartiles, with corresponding column names. 
+        quartiles, with corresponding column names.
+
         Any pixels that are set to the nodata value of imgfile (if set)
         are ignored in the stats calculations. If there are no pixels
         that aren't the nodata value then the value passed in as
