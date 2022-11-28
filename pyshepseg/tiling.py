@@ -1223,22 +1223,32 @@ def subsetImage(inname, outname, tlx, tly, newXsize, newYsize, outformat,
     gdal_translate seems to have a problem with files that
     have large RAT's so while that gets fixed do the subsetting
     in this function.
-    
-    tlx and tly are the top left of the image to extract in pixel coords
-    of the input image. newXSize and newYSize are the size of the subset 
-    to extract in pixels. 
-    
-    outformat is the GDAL driver name to use for the output image and
-    creationOptions is a list of creation options to use for creating the
-    output.
-    
-    If origSegIdColName is not None, a column of this name will be created
-    in the output file that has the original segment ids so they can be
-    linked back to the input file.
-    
-    If maskFile is not None then only pixels != 0 in this image are considered.
-    It is assumed that the top left of this image is at tlx, tly on the 
-    input image and its size is (newXsize, newYsize).
+
+    Parameters
+    ----------
+      inname : str
+        Filename of input raster
+      outname : str
+        Filename of output raster
+      tlx, tly : int
+        The x & y pixel coordinates (i.e. col & row, respectively) of the
+        top left pixel of the image subset to extract.
+      newXsize, newYsize : int
+        The x & y size (in pixels) of the image subset to extract
+      outformat : str
+        The GDAL short name of the format driver to use for the output
+        raster file
+      creationOptions : list of str
+        The GDAL creation options for the output file
+      origSegIdColName : str or None
+        The name of a RAT column. If not None, this will be created
+        in the output file, and will contain the original segment ID
+        numbers so the new segment IDs can be linked back to the old
+      maskImage : str or None
+        If not None, then the filename of a mask raster. Only pixels
+        which are non-zero in this mask image will be included in the
+        subset. This image is assumed to match the shape and position
+        of the output subset
     
     """
     inds = gdal.Open(inname)
@@ -1386,6 +1396,17 @@ def copySubsettedSegmentsToNew(inPage, outPagedRat, recodeDict):
     the original input row found. This value is then
     looked up in recodeDict to find the row in the output RAT to 
     copy the row from the input to.
+
+    Parameters
+    ----------
+      inPage : RatPage
+        A page of RAT from the input file
+      outPagedRat : numba.typed.Dict
+        In-memory pages of the output RAT, as created by createPagedRat().
+        This is modified in-place, creating new pages as required.
+      recodeDict : numba.typed.Dict
+        Keyed by original segment ID, values are the corresponding
+        segment IDs in the subset
     
     """
     numIntCols = inPage.intcols.shape[0]
@@ -1480,11 +1501,21 @@ def readRATIntoPage(rat, numIntCols, numFloatCols, minVal, maxVal):
 
 def copyColumns(inRat, outRat):
     """
-    Copies columns between RATs. Note that empty
-    columns will be created - no data is copied.
-    
-    Also return numIntCols and NumFloatCols for RatPage()
-    processing.
+    Copy column structure from inRat to outRat. Note that this just creates
+    the empty columns in outRat, it does not copy any data.
+
+    Parameters
+    ----------
+      inRat, outRat : gdal.RasterAttributeTable
+        Columns found in inRat are created on outRat
+
+    Returns
+    -------
+      numIntCols : int
+        Number of integer columns found
+      numFloatCols : int
+        Number of float columns found
+
     """
     numIntCols = 0
     numFloatCols = 0
@@ -1508,9 +1539,25 @@ def processSubsetTile(tile, recodeDict, histogramDict, maskData):
     """
     Process a tile of the subset area. Returns a new tile with the new codes.
     Fills in the recodeDict as it goes and also updates histogramDict.
-    
-    if maskData is not None then only pixels != 0 are considered. Assumed 
-    that maskData is for the same area/size as tile.
+
+    Parameters
+    ----------
+      tile : shepseg.SegIdType ndarray (tileNrows, tileNcols)
+        Input tile of segment IDs
+      recodeDict : numba.typed.Dict
+        Keyed by original segment ID, values are the corresponding
+        segment IDs in the subset
+      histogramDict : numba.typed.Dict
+        Histogram counts in the subset, keyed by new segment ID
+      maskData : None or int ndarray (tileNrows, tileNcols)
+        If not None, then is a raster mask. Only pixels which are
+        non-zero in the mask will be included in the subset
+
+    Returns
+    -------
+      outData : shepseg.SegIdType ndarray (tileNrows, tileNcols)
+        Recoded copy of the input tile.
+
     """
     outData = numpy.zeros_like(tile)
 
