@@ -19,8 +19,8 @@ to allow sufficient initial segments to characterize the variation.
 
 Related to this, one may also consider reducing the percentile
 used for automatic estimation of maxSpectralDiff (see 
-:func:`shepseg.doShepherdSegmentation` and :func:`shepseg.autoMaxSpectralDiff`
-for further details). 
+:func:`pyshepseg.shepseg.doShepherdSegmentation` and
+:func:`pyshepseg.shepseg.autoMaxSpectralDiff` for further details).
 
 Because of these caveats, one should be very cautious about 
 segmenting something like a continental-scale image. There is a 
@@ -95,16 +95,27 @@ segIdNumbaType = types.uint32
 class TiledSegmentationResult(object):
     """
     Result of tiled segmentation
-    
-    Attributes:
-      maxSegId: Largest segment ID used in final segment image
-      numTileRows: Number of rows of tiles used
-      numTileCols: Number of columns of tiles used
-      subsamplePcnt: Percentage of image subsampled for clustering
-      maxSpectralDiff: The value used to limit segment merging (in all tiles)
-      kmeans: The sklearn KMeans object, after fitting
-      hasEmptySegments: Boolean flag, this is an error condition
-      
+
+    Attributes
+    ----------
+      maxSegId : shepseg.SegIdType
+        Largest segment ID used in final segment image
+      numTileRows : int
+        Number of rows of tiles used
+      numTileCols : int
+        Number of columns of tiles used
+      subsamplePcnt : float
+        Percentage of image subsampled for clustering
+      maxSpectralDiff : float
+        The value used to limit segment merging (in all tiles)
+      kmeans : sklearn.cluster.KMeans
+        The sklearn KMeans object, after fitting
+      hasEmptySegments : bool
+        True if the segmentation contains segments with no pixels.
+        This is an error condition, probably indicating that the
+        merging of segments across tiles has produced inconsistent
+        numbering. A warning message will also have been printed.
+
     """
     def __init__(self):
         self.maxSegId = None
@@ -120,36 +131,43 @@ def fitSpectralClustersWholeFile(inDs, bandNumbers, numClusters=60,
         subsamplePcnt=None, imgNullVal=None, 
         fixedKMeansInit=False):
     """
-    Given a raster filename, read a selected sample of pixels
+    Given an open raster Dataset, read a selected sample of pixels
     and use these to fit a spectral cluster model. Uses GDAL
     to read the pixels, and shepseg.fitSpectralClusters() 
-    to do the fitting. 
-    
-    If bandNumbers is not None, this is a list of band numbers 
-    (1 is 1st band) to use in fitting the model. 
-    
-    If subsamplePcnt is not None, this is the percentage of 
-    pixels sampled. If it is None, then a suitable subsample is 
-    calculated such that around one million pixels are sampled
-    (Note - this would include null pixels, so if the image is 
-    dominated by nulls, this would undersample.) 
-    No further subsampling is carried out by fitSpectralClusters(). 
-    
-    If imgNullVal is None, the file is queried for a null value. 
-    If none is defined there, then no null value is used. If 
-    each band has a different null value, an exception is raised. 
-    
-    fixedKMeansInit is passed to fitSpectralClusters(), see there
-    for details. 
-    
-    Returns a tuple
+    to do the fitting.
 
-        (kmeansObj, subsamplePcnt, imgNullVal)
+    Parameters
+    ----------
+      inDs : gdal.Dataset
+        Open GDAL Dataset object for the input raster
+      bandNumbers : list of int (or None)
+        List of GDAL band numbers for the bands of interest. If
+        None, then use all bands in the dataset. Note that GDAL band
+        numbers start at 1.
+      numClusters : int
+        Desired number of clusters
+      subsamplePcnt : float or None
+        Percentage of pixels to use in fitting. If it is None, then
+        a suitable subsample is calculated such that around one million
+        pixels are sampled. (Note - this would include null pixels, so
+        if the image is dominated by nulls, this would undersample.)
+        No further subsampling is carried out by fitSpectralClusters().
+      imgNullVal : float or None
+        Pixels with this value in the input raster are ignored. If None,
+        the NoDataValue from the raster file is used
+      fixedKMeansInit : bool
+        If True, then use a fixed estimate for the initial KMeans cluster
+        centres. See shepseg.fitSpectralClusters() for details.
 
-    where kmeansObj is the fitted object, subsamplePcnt
-    is the subsample percentage actually used, and imgNullVal 
-    is the null value used (perhaps from the file). 
-    
+    Returns
+    -------
+      kmeansObj : sklearn.cluster.KMeans
+        The fitted KMeans object
+      subsamplePcnt : float
+        The subsample percentage actually used
+      imgNullVal : float
+        The image null value (possibly read from the file)
+
     """
     if subsamplePcnt is None:
         # We will try to sample roughly this many pixels
@@ -183,8 +201,25 @@ def fitSpectralClustersWholeFile(inDs, bandNumbers, numClusters=60,
 
 def getImgNullValue(inDs, bandNumbers):
     """
-    Return the null value for the given dataset. Raises an error if
-    not all bands have the same null value. 
+    Return the null value for the given dataset
+
+    Parameters
+    ----------
+      inDs : gdal.Dataset
+        Open input Dataset
+      bandNumbers : list of int
+        GDAL band numbers of interest
+
+    Returns
+    -------
+      imgNullVal : float or None
+        Null value from input raster, None if there is no null value
+
+    Raises
+    ------
+      PyShepSegTilingError
+        If not all bands have the same null value
+
     """
     nullValArr = numpy.array([inDs.GetRasterBand(i).GetNoDataValue() 
         for i in bandNumbers])
@@ -197,15 +232,7 @@ def getImgNullValue(inDs, bandNumbers):
 def readSubsampledImageBand(bandObj, subsampleProp):
     """
     Read in a sub-sampled copy of the whole of the given band. 
-    
-    bandObj is an open gdal.Band object. 
-    subsampleProp is the proportion by which to sub-sample 
-    (i.e. a value between zero and 1, applied to rows and
-    columns separately)
-    
-    Returns a numpy array of the image data, equivalent to 
-    gdal.Band.ReadAsArray(). 
-    
+
     Note that one can, in principle, do this directly using GDAL. 
     However, if overview layers are present in the file, it will use
     these, and so is dependent on how these were created. Since 
@@ -213,7 +240,21 @@ def readSubsampledImageBand(bandObj, subsampleProp):
     has shown that they are not always to be trusted as data, 
     so we have chosen to always go directly to the full resolution 
     image. 
-    
+
+    Parameters
+    ----------
+      bandObj : gdal.Band
+        An open Band object for input
+      subsampleProp : float
+        The proportion by which to sub-sample (i.e. a value between
+        zero and 1, applied to rows and columns separately)
+
+    Returns
+    -------
+      imgSub : <dtype> ndarray (nRowsSub, nColsSub)
+        A numpy array of the image subsample, equivalent to
+        calling gdal.Band.ReadAsArray()
+
     """
     # A skip factor, applied to rows and column
     skip = int(round(1. / subsampleProp))
@@ -257,12 +298,51 @@ class TileInfo(object):
         self.nrows = None
         
     def addTile(self, xpos, ypos, xsize, ysize, col, row):
+        """
+        Add a new tile to the set
+
+        Parameters
+        ----------
+          xpos, ypos : int
+            Pixel column & row of top left pixel of tile
+          xsize, ysize : int
+            Number of pixel columns & rows in tile
+          col, row : int
+            Tile column & row
+
+        """
         self.tiles[(col, row)] = (xpos, ypos, xsize, ysize)
         
     def getNumTiles(self):
+        """
+        Get total number of tiles in the set
+
+        Returns
+        -------
+          numTiles : int
+            Total number of tiles
+        """
         return len(self.tiles)
         
     def getTile(self, col, row):
+        """
+        Return the position and shape of the requested tile, as
+        a single tuple of values
+
+        Parameters
+        ----------
+          col, row : int
+            Tile column & row
+
+        Returns
+        -------
+          xpos, ypos : int
+            Pixel column & row of top left pixel of tile
+          xsize, ysize : int
+            Number of pixel columns & rows in tile
+
+        """
+
         return self.tiles[(col, row)]
 
 
@@ -270,6 +350,24 @@ def getTilesForFile(ds, tileSize, overlapSize):
     """
     Return a TileInfo object for a given file and input
     parameters.
+
+    Parameters
+    ----------
+      ds : gdal.Dataset
+        Open GDAL Dataset object for raster to be tiles
+      tileSize : int
+        Size of tiles, in pixels. Individual tiles may end up being
+        larger in either direction, when they meet the edge of the raster,
+        to ensure we do not use very small tiles
+      overlapSize : int
+        Number of pixels by which tiles will overlap
+
+    Returns
+    -------
+      tileInfo : TileInfo
+        TileInfo object detailing the sizes and positions of all tiles
+        across the raster
+
     """
     # ensure int
     tileSize = int(tileSize)
@@ -329,37 +427,76 @@ def doTiledShepherdSegmentation(infile, outfile, tileSize=DFLT_TILESIZE,
     """
     Run the Shepherd segmentation algorithm in a memory-efficient
     manner, suitable for large raster files. Runs the segmentation
-    on separate tiles across the raster, then stitches these
-    together into a single output segment raster. 
-    
+    on separate (overlapping) tiles across the raster, then stitches these
+    together into a single output segment raster.
+
     The initial spectral clustering is performed on a sub-sample
     of the whole raster (using fitSpectralClustersWholeFile), 
     to create consistent clusters. These are then used as seeds 
     for all individual tiles. Note that subsamplePcnt is used at 
     this stage, over the whole raster, and is not passed through to 
-    shepseg.doShepherdSegmentation() for any further sub-sampling. 
-    
-    The tileSize is the minimum width/height of the tiles (in pixels).
-    These tiles are overlapped by overlapSize (also in pixels), both 
-    horizontally and vertically.
-    Tiles on the right and bottom edges of the input image may end up 
-    slightly larger than tileSize to ensure there are no small tiles.
+    shepseg.doShepherdSegmentation() for any further sub-sampling.
 
-    outputDriver is a string of the name of the GDAL driver to use
-    for the output file. creationOptions is the list of creation options
-    to use for this driver.
-    
-    tempfilesDriver is a string of the name of the GDAL driver to use
-    for temporary files. tempfilesExt the the extension to use and
-    tempfilesCreationOptions is the list of creation options to use for 
-    this driver.
-    
     Most of the arguments are passed through to 
-    shepseg.doShepherdSegmentation, and are described in the docstring 
-    for that function. 
-    
-    Return an instance of TiledSegmentationResult class. 
-    
+    shepseg.doShepherdSegmentation, and are described in the docstring
+    for that function.
+
+    Parameters
+    ----------
+      infile : str
+        Filename of input raster
+      outfile : str
+        Filename of output segmentation raster
+      tileSize : int
+        Desired width & height (in pixels) of the tiles (i.e.
+        desired tiles have shape (tileSize, tileSize). Tiles on the
+        right and bottom edges of the input image may end up slightly
+        larger than tileSize to ensure there are no small tiles.
+      overlapSize : int
+        Number of pixels to overlap tiles (??? should give more precise detail....)
+      minSegmentSize : int
+        Minimum number of pixels in a segment
+      numClusters : int
+        Number of clusters to request in k-means clustering
+      bandNumbers : list of int
+        The GDAL band numbers (i.e. start at 1) of the bands of input raster
+        to use for segmentation
+      subsamplePcnt : float or None
+        See fitSpectralClustersWholeFile()
+      maxSpectralDiff : float or str
+        See shepseg.doShepherdSegmentation()
+      spectDistPcntile : int
+        See shepseg.doShepherdSegmentation()
+      imgNullVal : float or None
+        If given, use this as the null value for the input raster. If None,
+        use the value defined in the raster file
+      fixedKMeansInit : bool
+        If True, use a fixed set of initial cluster centres for the KMeans
+        clustering. This is good to ensure exactly reproducible results
+      fourConnected : bool
+        If True, use 4-way connectedness, otherwise use 8-way
+      verbose : bool
+        If True, print informative messages during processing (to stdout)
+      simpleTileRecode : bool
+        If True, use only a simple tile recoding procedure. See
+        stitchTiles() for more detail
+      outputDriver : str
+        The short name of the GDAL format driver to use for output file
+      creationOptions : list of str
+        The GDAL output creation options to match the outputDriver
+      kmeansObj : sklearn.cluster.KMeans
+        See shepseg.doShepherdSegmentation() for details
+      tempfilesDriver : str
+        Short name of GDAL driver to use for temporary raster files
+      tempfilesExt : str
+        File extension to use for temporary raster files
+      tempfilesCreationOptions : list of str
+        GDAL creation options to use for temporary raster files
+
+    Returns
+    -------
+      tileSegResult : TiledSegmentationResult
+
     """
  
     inDs, bandNumbers, kmeansObj, subsamplePcnt, imgNullVal, tileInfo = (
@@ -417,7 +554,9 @@ def doTiledShepherdSegmentation_prepare(infile, tileSize=DFLT_TILESIZE,
     creating a parallel implementation, then call 
     doTiledShepherdSegmentation_doOne() for each tile in the returned TileInfo
     object.
-    
+
+    See doTiledShepherdSegmentation() for detailed parameter descriptions.
+
     Returns a tuple with: (datasetObj, bandNumbers, kmeansObj, subsamplePcnt, 
     imgNullVal, tileInfo)
     """
@@ -458,15 +597,18 @@ def doTiledShepherdSegmentation_doOne(inDs, filename, tileInfo, col, row,
         fourConnected=True, tempfilesDriver=DFLT_TEMPFILES_DRIVER,
         tempfilesCreationOptions=[]):
     """
-    Called from doTiledShepherdSegmentation(). Does a single tile and split
-    out here as a seperate function so it can be called from in parallel 
-    with other tiles if desired.
-    
+    Called from doTiledShepherdSegmentation(). Does a single tile, and is
+    split out here as a separate function so it can be called from in
+    parallel with other tiles if desired.
+
     tileInfo is object returned from doTiledShepherdSegmentation_prepare()
     and col, row describe the tile that this call will process.
-    
+
+    See doTiledShepherdSegmentation() for detailed descriptions of
+    other parameters.
+
     Return value is that from shepseg.doShepherdSegmentation().
-    
+
     """
 
     outDrvr = gdal.GetDriverByName(tempfilesDriver)
@@ -520,9 +662,9 @@ def doTiledShepherdSegmentation_finalize(inDs, outfile, tileFilenames, tileInfo,
     Do the stitching of tiles and check for empty segments. Call after every 
     doTiledShepherdSegmentation_doOne() has completed for a given tiled
     segmentation.
-    
+
     Returns a tuple with (axSegId, hasEmptySegments).
-    
+
     """
         
     maxSegId = stitchTiles(inDs, outfile, tileFilenames, tileInfo, overlapSize,
@@ -536,7 +678,23 @@ def doTiledShepherdSegmentation_finalize(inDs, outfile, tileFilenames, tileInfo,
 def checkForEmptySegments(outfile, maxSegId, overlapSize):
     """
     Check the final segmentation for any empty segments. These
-    can be problematic later, and should be avoided.
+    can be problematic later, and should be avoided. Prints a
+    warning message if empty segments are found.
+
+    Parameters
+    ----------
+      outfile : str
+        File name of segmentation image to check
+      maxSegId : shepseg.SegIdType
+        Maximum segment ID used
+      overlapSize : int
+        Number of pixels to use in overlaps between tiles
+
+    Returns
+    -------
+      hasEmptySegments : bool
+        True if there are segment ID numbers with no pixels
+
     """
     hist = calcHistogramTiled(outfile, maxSegId, writeToRat=False)
     emptySegIds = numpy.where(hist[1:] == 0)[0]
@@ -564,22 +722,42 @@ def stitchTiles(inDs, outfile, tileFilenames, tileInfo, overlapSize,
     Recombine individual tiles into a single segment raster output 
     file. Segment ID values are recoded to be unique across the whole
     raster, and contiguous. 
-    
-    outfile is the name of the final output raster. 
-    tileFilenames is a dictionary of the individual tile filenames, 
-    keyed by a tuple of (col, row) defining which tile it is. 
-    tileInfo is the object returned by getTilesForFile. 
-    overlapSize is the number of pixels in the overlap between tiles. 
-    outputDriver is a string of the name of the GDAL driver to use
-    for the output file. 
-    
-    If simpleTileRecode is True, a simpler method will be used to 
-    recode segment IDs, using just a block offset to shift ID numbers.
-    If it is False, then a more complicated method is used which
-    recodes and merges segments which cross the boundary between tiles. 
-    
-    Return the maximum segment ID used. 
-    
+
+    Parameters
+    ----------
+      inDs : gdal.Dataset
+        Open Dataset of input raster
+      outfile : str
+        Filename of the final output raster
+      tileFilenames : dict
+        Dictionary of the individual tile filenames,
+        keyed by a tuple of (col, row) defining which tile it is.
+      tileInfo : TileInfo
+        Positions and sizes of all tiles across the raster.
+        As returned by getTilesForFile().
+      overlapSize : int
+        The number of pixels in the overlap between tiles.
+      tempDir : str
+        Name of directory for temporary files
+      simpleTileRecode : bool
+        If True, a simpler method will be used to recode segment IDs,
+        using just a block offset to shift ID numbers. This is useful when
+        testing, but leaves non-contiguous segment numbers. If False,
+        then a more complicated method is used which recodes and merges
+        segments which cross the boundary between tiles (this is the
+        intended normal behaviour).
+      outputDriver : str
+        Short name string of the GDAL driver to use for the output file.
+      creationOptions : list of str
+        GDAL creation options for output driver
+      verbose : bool
+        If True, print informative messages to stdout
+
+    Returns
+    -------
+      maxSegId : shepseg.SegIdType
+        The maximum segment ID used.
+
     """
     marginSize = int(overlapSize / 2)
 
@@ -672,7 +850,19 @@ BOTTOM_OVERLAP = 'bottom'
 
 def overlapFilename(col, row, edge, tempDir):
     """
-    Return the filename used for the overlap array
+    Return the temporary filename used for the overlap array
+
+    Parameters
+    ----------
+      col, row : int
+        Tile column & row numbers
+      edge : {right', 'bottom'}
+        Indicates from which edge of the given tile the overlap is taken
+
+    Returns
+    -------
+      filename : str
+        Temp numpy array filename for the overlap
     """
     fname = '{}_{}_{}.npy'.format(edge, col, row)
     return os.path.join(tempDir, fname)
@@ -686,23 +876,38 @@ VERTICAL = 1
 def recodeTile(tileData, maxSegId, tileRow, tileCol, overlapSize, tempDir,
         top, bottom, left, right):
     """
-    Adjust the segment ID numbers in the current tile, 
-    to make them globally unique across the whole mosaic.
-    
+    Adjust the segment ID numbers in the current tile, to make them
+    globally unique (and contiguous) across the whole mosaic.
+
     Make use of the overlapping regions of tiles above and left,
     to identify shared segments, and recode those to segment IDs 
     from the adjacent tiles (i.e. we change the current tile, not 
     the adjacent ones). Non-shared segments are increased so they 
     are larger than previous values. 
-    
-    tileData is the array of segment IDs for a single tile. 
-    maxSegId is the current maximum segment ID for all preceding
-    tiles. 
-    tileRow, tileCol are the row/col numbers of this tile, within
-    the whole-mosaic tile numbering scheme. 
-    
-    Return a copy of tileData, with new segment ID numbers. 
-    
+
+    Parameters
+    ----------
+      tileData : shepseg.SegIdType ndarray (tileNrows, tileNcols)
+        The array of segment IDs for a single image tile
+      maxSegId : shepseg.SegIdType
+        The current maximum segment ID for all preceding tiles.
+      tileRow, tileCol : int
+        The row/col numbers of this tile, within the whole-mosaic
+        tile numbering scheme. (These are not pixel numbers, but tile
+        grid numbers)
+      overlapSize : int
+        Number of pixels in tile overlap
+      tempDir : str
+        Name of directory for temporary files
+      top, bottom, left, right : int
+        Pixel coordinates *within tile* of the non-overlap region of
+        the tile.
+
+    Returns
+    -------
+      newTileData : shepseg.SegIdType ndarray (tileNrows, tileNcols)
+        A copy of tileData, with new segment ID numbers.
+
     """
     # The A overlaps are from the current tile. The B overlaps 
     # are the same regions from the earlier adjacent tiles, and
@@ -743,27 +948,37 @@ def recodeSharedSegments(tileData, overlapA, overlapB, orientation,
     are in the overlap with an earlier tile, and which cross the 
     midline of the overlap, which is where the stitchline between 
     the tiles will fall. 
-    
+
     Updates recodeDict, which is a dictionary keyed on the 
     existing segment ID numbers, where the value of each entry 
     is the segment ID number from the earlier tile, to be used 
     to recode the segment in the current tile. 
-    
-    overlapA and overlapB are numpy arrays of the overlap region
-    in question, giving the segment ID numbers is the two tiles. 
-    The values in overlapB are from the earlier tile, and those in 
-    overlapA are from the current tile. 
-    
+
+    overlapA and overlapB are numpy arrays of pixels in the overlap
+    region in question, giving the segment ID numbers in the two tiles.
+    The values in overlapB are from the earlier tile, and those in
+    overlapA are from the current tile.
+
     It is critically important that the overlapping region is either
     at the top or the left of the current tile, as this means that 
     the row and column numbers of pixels in the overlap arrays 
     match the same pixels in the full tile. This cannot be used
-    for overlaps on the right or bottom of the current tile. 
-    
-    The orientation parameter defines whether we are dealing with 
-    overlap at the top (orientation == HORIZONTAL) or the left
-    (orientation == VERTICAL). 
-    
+    for overlaps on the right or bottom of the current tile.
+
+    Parameters
+    ----------
+      tileData : shepseg.SegIdType ndarray (tileNrows, tileNcols)
+        Tile subset of segment ID image
+      overlapA, overlapB : shepseg.SegIdType ndarray (overlapNrows, overlapNcols)
+        Tile overlap subsets of segment ID image
+      orientation : {HORIZONTAL, VERTICAL}
+        The orientation parameter defines whether we are dealing with
+        overlap at the top (orientation == HORIZONTAL) or the left
+        (orientation == VERTICAL).
+      recodeDict : dict
+        Keys and values are both segment ID numbers. Defines the mapping
+        which recodes segment IDs. Updated in place.
+
     """
     # The current segment IDs just from the overlap region.
     segIdList = numpy.unique(overlapA)
@@ -801,20 +1016,36 @@ def relabelSegments(tileData, recodeDict, maxSegId,
         top, bottom, left, right):
     """
     Recode the segment IDs in the given tileData array.
-    
+
     For segment IDs which are keys in recodeDict, these
     are replaced with the corresponding entry. For all other 
     segment IDs, they are replaced with sequentially increasing
     ID numbers, starting from one more than the previous
     maximum segment ID (maxSegId). 
-    
-    A re-coded copy of tileData is created, the original is 
-    unchanged. 
-    
-    Return value is a tuple
 
-        (newTileData, newMaxSegId)
-    
+    A re-coded copy of tileData is created, the original is 
+    unchanged.
+
+    Parameters
+    ----------
+      tileData : shepseg.SegIdType ndarray (tileNrows, tileNcols)
+        Segment IDs of tile
+      recodeDict : dict
+        Keys and values are segment ID numbers. Defines mapping
+        for segment relabelling
+      maxSegId : shepseg.SegIdType
+        Maximum segment ID number
+      top, bottom, left, right : int
+        Pixel coordinates *within tile* of the non-overlap region of
+        the tile.
+
+    Returns
+    -------
+        newTileData : shepseg.SegIdType ndarray (tileNrows, tileNcols)
+          Segment IDs of tile, after relabelling
+        newMaxSegId : shepseg.SegIdType
+          New maximum segment ID after relabelling
+
     """
     newTileData = numpy.full(tileData.shape, shepseg.SEGNULLVAL, 
         dtype=tileData.dtype)
@@ -849,11 +1080,25 @@ def relabelSegments(tileData, recodeDict, maxSegId,
 
 def crossesMidline(overlap, segLoc, orientation):
     """
-    Return True if the given segment crosses the midline of the
-    overlap array. Orientation of the midline is either
-    HORIZONTAL or VERTICAL
-        
-    segLoc is the segment location entry for the segment in question
+    Check whether the given segment crosses the midline of the
+    given overlap. If it does not, then it will lie entirely within
+    exactly one tile, but if it does cross, then it will need to be
+    re-coded across the midline.
+
+    Parameters
+    ----------
+      overlap : shepseg.SegIdType ndarray (overlapNrows, overlapNcols)
+        Array of segments just for this overlap region
+      segLoc : shepseg.RowColArray
+        The row/col coordinates (within the overlap array) of the
+        pixels for the segment of interest
+      orientation : {HORIZONTAL, VERTICAL}
+        Indicates the orientation of the midline
+
+    Returns
+    -------
+      crosses : bool
+        True if the given segment crosses the midline
     
     """
     (nrows, ncols) = overlap.shape
@@ -887,14 +1132,24 @@ def calcHistogramTiled(segfile, maxSegId, writeToRat=True):
     For a raster which can easily fit into memory, a histogram
     can be calculated directly using :func:`pyshepseg.shepseg.makeSegSize`.
     
-    Once completed, the histogram can be written to the image file's
-    raster attribute table, if writeToRat is True). It will also be
-    returned as a numpy array, indexed by segment ID. 
+    Parameters
+    ----------
+      segfile : str or gdal.Dataset
+        Segmentation image file. Can be either the file name string, or
+        an open Dataset object.
+      maxSegId : shepseg.SegIdType
+        Maximum segment ID used
+      writeToRat : bool
+        If True, the completed histogram will be written to the image
+        file's raster attribute table. If segfile was given as a Dataset
+        object, it would therefore need to have been opened with update
+        access.
 
-    segfile can be either a filename string, or an open 
-    gdal.Dataset object. If writeToRat is True, then a Dataset
-    object should be opened for update. 
-    
+    Returns
+    -------
+      hist : int ndarray (numSegments+1, )
+        Histogram counts for each segment (index is segment ID number)
+
     """
     # This is the histogram array, indexed by segment ID. 
     # Currently just in memory, it could be quite large, 
@@ -945,7 +1200,7 @@ def calcHistogramTiled(segfile, maxSegId, writeToRat=True):
 @njit
 def updateCounts(tileData, hist):
     """
-    Fast function to increment counts for each segment ID
+    Fast function to increment counts for each segment ID in the given tile
     """
     (nrows, ncols) = tileData.shape
     for i in range(nrows):
@@ -958,28 +1213,38 @@ def subsetImage(inname, outname, tlx, tly, newXsize, newYsize, outformat,
         creationOptions=[], origSegIdColName=None, maskImage=None):
     """
     Subset an image and "compress" the RAT so only values that 
-    are in the new image are in the RAT. Note: the image values
+    are in the new image are in the RAT. Note that the image values
     will be recoded in the process.
     
     gdal_translate seems to have a problem with files that
     have large RAT's so while that gets fixed do the subsetting
     in this function.
-    
-    tlx and tly are the top left of the image to extract in pixel coords
-    of the input image. newXSize and newYSize are the size of the subset 
-    to extract in pixels. 
-    
-    outformat is the GDAL driver name to use for the output image and
-    creationOptions is a list of creation options to use for creating the
-    output.
-    
-    If origSegIdColName is not None, a column of this name will be created
-    in the output file that has the original segment ids so they can be
-    linked back to the input file.
-    
-    If maskFile is not None then only pixels != 0 in this image are considered.
-    It is assumed that the top left of this image is at tlx, tly on the 
-    input image and its size is (newXsize, newYsize).
+
+    Parameters
+    ----------
+      inname : str
+        Filename of input raster
+      outname : str
+        Filename of output raster
+      tlx, tly : int
+        The x & y pixel coordinates (i.e. col & row, respectively) of the
+        top left pixel of the image subset to extract.
+      newXsize, newYsize : int
+        The x & y size (in pixels) of the image subset to extract
+      outformat : str
+        The GDAL short name of the format driver to use for the output
+        raster file
+      creationOptions : list of str
+        The GDAL creation options for the output file
+      origSegIdColName : str or None
+        The name of a RAT column. If not None, this will be created
+        in the output file, and will contain the original segment ID
+        numbers so the new segment IDs can be linked back to the old
+      maskImage : str or None
+        If not None, then the filename of a mask raster. Only pixels
+        which are non-zero in this mask image will be included in the
+        subset. This image is assumed to match the shape and position
+        of the output subset
     
     """
     inds = gdal.Open(inname)
@@ -1127,6 +1392,17 @@ def copySubsettedSegmentsToNew(inPage, outPagedRat, recodeDict):
     the original input row found. This value is then
     looked up in recodeDict to find the row in the output RAT to 
     copy the row from the input to.
+
+    Parameters
+    ----------
+      inPage : RatPage
+        A page of RAT from the input file
+      outPagedRat : numba.typed.Dict
+        In-memory pages of the output RAT, as created by createPagedRat().
+        This is modified in-place, creating new pages as required.
+      recodeDict : numba.typed.Dict
+        Keyed by original segment ID, values are the corresponding
+        segment IDs in the subset
     
     """
     numIntCols = inPage.intcols.shape[0]
@@ -1221,11 +1497,21 @@ def readRATIntoPage(rat, numIntCols, numFloatCols, minVal, maxVal):
 
 def copyColumns(inRat, outRat):
     """
-    Copies columns between RATs. Note that empty
-    columns will be created - no data is copied.
-    
-    Also return numIntCols and NumFloatCols for RatPage()
-    processing.
+    Copy column structure from inRat to outRat. Note that this just creates
+    the empty columns in outRat, it does not copy any data.
+
+    Parameters
+    ----------
+      inRat, outRat : gdal.RasterAttributeTable
+        Columns found in inRat are created on outRat
+
+    Returns
+    -------
+      numIntCols : int
+        Number of integer columns found
+      numFloatCols : int
+        Number of float columns found
+
     """
     numIntCols = 0
     numFloatCols = 0
@@ -1249,9 +1535,25 @@ def processSubsetTile(tile, recodeDict, histogramDict, maskData):
     """
     Process a tile of the subset area. Returns a new tile with the new codes.
     Fills in the recodeDict as it goes and also updates histogramDict.
-    
-    if maskData is not None then only pixels != 0 are considered. Assumed 
-    that maskData is for the same area/size as tile.
+
+    Parameters
+    ----------
+      tile : shepseg.SegIdType ndarray (tileNrows, tileNcols)
+        Input tile of segment IDs
+      recodeDict : numba.typed.Dict
+        Keyed by original segment ID, values are the corresponding
+        segment IDs in the subset
+      histogramDict : numba.typed.Dict
+        Histogram counts in the subset, keyed by new segment ID
+      maskData : None or int ndarray (tileNrows, tileNcols)
+        If not None, then is a raster mask. Only pixels which are
+        non-zero in the mask will be included in the subset
+
+    Returns
+    -------
+      outData : shepseg.SegIdType ndarray (tileNrows, tileNcols)
+        Recoded copy of the input tile.
+
     """
     outData = numpy.zeros_like(tile)
 
@@ -1292,6 +1594,14 @@ def writeCompletedPagesForSubset(inRAT, outRAT, outPagedRat):
     """
     For the subset operation. Writes out any completed pages to outRAT
     using the inRAT as a template.
+
+    Parameters
+    ----------
+      inRAT, outRAT : gdal.RasterAttributeTable
+        The input and output raster attribute tables.
+      outPagedRat : numba.typed.Dict
+        The paged RAT in memory, as created by createPagedRat()
+
     """
     for pageId in outPagedRat:
         ratPage = outPagedRat[pageId]
@@ -1370,7 +1680,7 @@ class RatPage(object):
         numSeg is the number of segments within this page, normally the
         page size, but the last page will be smaller. 
         
-        numIntCols and numFloatCols are as returned by makeFastStatSelection(). 
+        numIntCols and numFloatCols are as returned by makeFastStatsSelection().
         
         """
         self.startSegId = startSegId

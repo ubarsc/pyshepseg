@@ -75,7 +75,14 @@ def estimateStatsFromHisto(bandObj, hist):
 
 def addOverviews(ds):
     """
-    Mimic rios.calcstats behaviour
+    Add raster overviews to the given file.
+    Mimic rios.calcstats behaviour to decide how many overviews.
+
+    Parameters
+    ----------
+      ds : gdal.Dataset
+        Open Dataset for the raster file
+
     """
     # first we work out how many overviews to build based on the size
     if ds.RasterXSize < ds.RasterYSize:
@@ -94,9 +101,16 @@ def addOverviews(ds):
 def writeRandomColourTable(outBand, nRows):
     """
     Attach a randomly-generated colour table to the given segmentation
-    image. The image is given as an open gdal.Band object. Also
-    requires the number of rows in the attribute table, i.e. the
-    number of segments + 1. 
+    image. Mainly useful so the segmentation boundaries can be viewed,
+    without any regard to the meaning of the segments.
+
+    Parameters
+    ----------
+      outBand : gdal.Band
+        Open GDAL Band object for the segmentation image
+      nRows : int
+        Number of rows in the attribute table, equal to the
+        number of segments + 1.
     
     """
     nRows = int(nRows)
@@ -131,15 +145,22 @@ def writeColorTableFromRatColumns(segfile, redColName, greenColName,
     the segmented image will display similarly to same bands of the 
     the original image. 
 
-    segfile is the completed segmentation image, with RAT columns 
-    already written. 
-
-    The three column names are strings, being the names of columns 
-    to use to derive corresponding colors. 
-
     The general idea is that the given columns would be the per-segment 
-    means of the desired bands (see tiling.calcPerSegmentStatsTiled()
+    mean values of the desired bands (see tiling.calcPerSegmentStatsTiled()
     to create such columns). 
+
+    Parameters
+    ----------
+      segfile : str
+        Filename of the completed segmentation image, with RAT columns
+        already written.
+      redColName : str
+        Name of the column in the RAT to use for the red color
+      greenColName : str
+        Name of the column in the RAT to use for the green color
+      blueColName : str
+        Name of the column in the RAT to use for the blue color
+
     """
     colList = [redColName, greenColName, blueColName]
     colorColList = ['Red', 'Green', 'Blue']
