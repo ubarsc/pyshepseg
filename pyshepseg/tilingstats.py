@@ -1153,6 +1153,7 @@ def accumulateSegSpatial(segDict, noDataDict, imgNullVal, tileSegments,
                     pt = SegPoint(leftPix + x, topLine + y, imgVal_typed)
                     segList.append(pt)
 
+
 @njit
 def checkSegCompleteSpatial(segDict, noDataDict, segSize, segId):
     """
@@ -1192,6 +1193,7 @@ def checkSegCompleteSpatial(segDict, noDataDict, segSize, segId):
         count += noDataDict[segId]
 
     return (count == segSize[segId])
+
 
 @njit
 def convertPtsInto2DArray(pts, imgNullVal):
