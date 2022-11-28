@@ -1150,10 +1150,6 @@ def calcHistogramTiled(segfile, maxSegId, writeToRat=True):
       hist : int ndarray (numSegments+1, )
         Histogram counts for each segment (index is segment ID number)
 
-    segfile can be either a filename string, or an open 
-    gdal.Dataset object. If writeToRat is True, then a Dataset
-    object should be opened for update. 
-    
     """
     # This is the histogram array, indexed by segment ID. 
     # Currently just in memory, it could be quite large, 
