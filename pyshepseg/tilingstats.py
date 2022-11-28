@@ -1113,8 +1113,8 @@ def accumulateSegSpatial(segDict, noDataDict, imgNullVal, tileSegments,
     Parameters
     ----------
       segDict : numba.typed.Dict
-        Dictionary of segments keyed on segment id. Values are histograms 
-        for the segment
+        Dictionary of segments keyed on segment id. Values are a list
+        of SegPoint objects.
       noDataDict : numba.typed.Dict
         Dictionary of nodata values for each segment.
       imgNullVal : int
@@ -1153,6 +1153,45 @@ def accumulateSegSpatial(segDict, noDataDict, imgNullVal, tileSegments,
                     pt = SegPoint(leftPix + x, topLine + y, imgVal_typed)
                     segList.append(pt)
 
+@njit
+def checkSegCompleteSpatial(segDict, noDataDict, segSize, segId):
+    """
+    Return True if the given segment has a complete entry
+    in the segDict, meaning that the pixel count is equal to
+    the segment size
+    
+    Note: this is distinct from checkSegComplete() as that function 
+    is working with a dictionary of histograms
+
+    Parameters
+    ----------
+      segDict : numba.typed.Dict 
+        Dictionary of segments keyed on segment id. Values are a list
+        of SegPoint objects.
+      noDataDict : numba.typed.Dict
+        Dictionary of nodata values for each segment.
+      segSize : int indarray of shape (numSegments+1, )
+        Array containing the histograms of the segment file
+      segId : shepseg.SegIdType
+        Segment to check for completeness
+        
+    Returns
+    -------
+     complete : bool
+       Whether the segId is complete or not
+       
+    """
+    count = 0
+    # add up the counts of the histogram
+    if segId in segDict:
+        segList = segDict[segId]
+        count += len(segList)
+
+    # now add up any nodata in this segment
+    if segId in noDataDict:
+        count += noDataDict[segId]
+
+    return (count == segSize[segId])
 
 @njit
 def convertPtsInto2DArray(pts, imgNullVal):
@@ -1249,7 +1288,7 @@ def calcStatsForCompletedSegsSpatial(segDict, noDataDict, missingStatsValue,
         segDictKeys[i] = segId
         i += 1
     for segId in segDictKeys:
-        segComplete = checkSegComplete(segDict, noDataDict, segSize, segId)
+        segComplete = checkSegCompleteSpatial(segDict, noDataDict, segSize, segId)
         if segComplete:
             ratPageId = tiling.getRatPageId(segId)
             if ratPageId not in pagedRat:
