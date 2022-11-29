@@ -70,7 +70,7 @@ import scipy.stats
 from numba import njit
 from numba.core import types
 from numba.typed import Dict
-from numba.experimental import jitclass
+from .guardeddecorators import jitclass
 
 from . import shepseg
 
