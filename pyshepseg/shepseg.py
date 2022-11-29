@@ -83,12 +83,13 @@ References
 # Just in case anyone is trying to use this with Python-2
 from __future__ import print_function, division
 
+import sys
 import time
 
 import numpy
 from sklearn.cluster import KMeans
 from numba import njit
-from numba.experimental import jitclass
+from .guardeddecorators import jitclass
 from numba.core import types
 from numba.typed import Dict
 
@@ -869,7 +870,11 @@ class RowColArray(object):
         return (self.rowcols[:, 0], self.rowcols[:, 1])
 
 
-RowColArray_Type = RowColArray.class_type.instance_type
+if 'sphinx' not in sys.modules:
+    RowColArray_Type = RowColArray.class_type.instance_type
+else:
+    # We are running in a Sphinx documentation build, so fake this
+    RowColArray_Type = None
 
 
 @njit

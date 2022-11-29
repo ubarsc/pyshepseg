@@ -41,7 +41,7 @@ from osgeo import osr
 from numba import njit, typeof
 from numba.core import types
 from numba.typed import Dict, List
-from numba.experimental import jitclass
+from .guardeddecorators import jitclass
 
 from . import tiling
 from . import shepseg
