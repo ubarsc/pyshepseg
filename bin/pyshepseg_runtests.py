@@ -97,9 +97,14 @@ def main():
         numClusters=numClusters, fixedKMeansInit=True, fourConnected=False)
     
     (meanColNames, stdColNames) = makeRATcolumns(segResults, outsegfile, imagefile)
+    
+    (eastingCol, northingCol) = makeSpatialRATColumns(outsegfile, imagefile)
 
-    pcntMatch = checkSegmentation(imagefile, outsegfile, meanColNames,
-        stdColNames)
+    if not checkSpatialColumns(outsegfile, eastingCol, northingCol):
+        print('Mean coordinates of segments differ')
+        errorStatus = 1
+
+    pcntMatch = checkSegmentation(imagefile, outsegfile, meanColNames, stdColNames)
 
     print("Segment match on {}% of pixels".format(pcntMatch))
     if pcntMatch < 100:
@@ -247,6 +252,7 @@ def createMultispectral(truesegfile, outfile):
         b.FlushCache()
     ds.FlushCache()
     del ds
+    return segLoc
 
 
 def readSeg(segfile):
@@ -281,6 +287,20 @@ def makeRATcolumns(segResults, outsegfile, imagefile):
     
     return (meanColNames, stdColNames)
 
+def makeSpatialRATColumns(segfile, imagefile):
+    """
+    """
+    # a fake transform array 
+    transform = numpy.array([0, 1, 0, 0, 0, 1])
+    # just do the first band as they should all be the same...
+    eastingCol = "Band_1_easting"
+    northingCol = "Band_1_northing"
+    colNamesAndTypes = [(eastingCol, gdal.GFT_Real), 
+                (northingCol, gdal.GFT_Real)]
+    tilingstats.calcPerSegmentSpatialStatsTiled(imagefile, 1, segfile,
+           colNamesAndTypes, tilingstats.userFuncMeanCoord, transform)
+    
+    return (eastingCol, northingCol)
 
 def checkSegmentation(imgfile, segfile, meanColNames, stdColNames):
     """
@@ -333,8 +353,31 @@ def checkSegmentation(imgfile, segfile, meanColNames, stdColNames):
     # Percentage of pixels which match, either full colour match, or null
     numPix = len(colourMatch.flatten()) + len(nullMatch)
     pcntMatch = 100 * (numColourMatch + numNullMatch) / numPix
-
+    
     return pcntMatch
+
+def checkSpatialColumns(segfile, eastingCol, northingCol):
+    """
+    """
+    # now check spatial columns
+    eastingData = readColumn(segfile, eastingCol)
+    northingData = readColumn(segfile, northingCol)
+
+    seg = readSeg(segfile)
+    segSize = shepseg.makeSegSize(seg)
+    TOL = 0.2
+
+    ok = True
+    segLoc = shepseg.makeSegmentLocations(seg, segSize)
+    for segId in segLoc:
+        norths, easts = segLoc[shepseg.SegIdType(segId)].getSegmentIndices()
+        xdiff = abs(easts.mean() - eastingData[segId])
+        ydiff = abs(norths.mean() - northingData[segId])
+        if xdiff > TOL or ydiff > TOL:
+            ok = False
+            break
+
+    return ok
 
 
 def readColumn(segfile, colName):
