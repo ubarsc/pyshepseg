@@ -287,6 +287,7 @@ def makeRATcolumns(segResults, outsegfile, imagefile):
     
     return (meanColNames, stdColNames)
 
+
 def makeSpatialRATColumns(segfile, imagefile):
     """
     """
@@ -301,6 +302,7 @@ def makeSpatialRATColumns(segfile, imagefile):
            colNamesAndTypes, tilingstats.userFuncMeanCoord, transform)
     
     return (eastingCol, northingCol)
+
 
 def checkSegmentation(imgfile, segfile, meanColNames, stdColNames):
     """
@@ -355,6 +357,7 @@ def checkSegmentation(imgfile, segfile, meanColNames, stdColNames):
     pcntMatch = 100 * (numColourMatch + numNullMatch) / numPix
 
     return pcntMatch
+
 
 def checkSpatialColumns(segfile, eastingCol, northingCol):
     """
