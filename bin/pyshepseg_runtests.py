@@ -104,7 +104,8 @@ def main():
         print('Mean coordinates of segments differ')
         errorStatus = 1
 
-    pcntMatch = checkSegmentation(imagefile, outsegfile, meanColNames, stdColNames)
+    pcntMatch = checkSegmentation(imagefile, outsegfile, meanColNames, 
+        stdColNames)
 
     print("Segment match on {}% of pixels".format(pcntMatch))
     if pcntMatch < 100:
