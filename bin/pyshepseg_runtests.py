@@ -252,7 +252,6 @@ def createMultispectral(truesegfile, outfile):
         b.FlushCache()
     ds.FlushCache()
     del ds
-    return segLoc
 
 
 def readSeg(segfile):
