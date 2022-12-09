@@ -104,7 +104,7 @@ def main():
         print('Mean coordinates of segments differ')
         errorStatus = 1
 
-    pcntMatch = checkSegmentation(imagefile, outsegfile, meanColNames, 
+    pcntMatch = checkSegmentation(imagefile, outsegfile, meanColNames,
         stdColNames)
 
     print("Segment match on {}% of pixels".format(pcntMatch))
@@ -353,7 +353,7 @@ def checkSegmentation(imgfile, segfile, meanColNames, stdColNames):
     # Percentage of pixels which match, either full colour match, or null
     numPix = len(colourMatch.flatten()) + len(nullMatch)
     pcntMatch = 100 * (numColourMatch + numNullMatch) / numPix
-    
+
     return pcntMatch
 
 def checkSpatialColumns(segfile, eastingCol, northingCol):
