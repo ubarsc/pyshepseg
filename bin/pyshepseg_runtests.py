@@ -96,14 +96,24 @@ def main():
     segResults = tiling.doTiledShepherdSegmentation(imagefile, outsegfile, 
         numClusters=numClusters, fixedKMeansInit=True, fourConnected=False)
     
+    # some columns that test the stats
     (meanColNames, stdColNames) = makeRATcolumns(segResults, outsegfile, imagefile)
+    
+    # some columns that test the spatial stats
+    (eastingCol, northingCol) = makeSpatialRATColumns(outsegfile, imagefile)
 
+    # check the segmentation via the non-spatial stats
     pcntMatch = checkSegmentation(imagefile, outsegfile, meanColNames,
         stdColNames)
 
     print("Segment match on {}% of pixels".format(pcntMatch))
     if pcntMatch < 100:
         print("Matching on less than 100% suggests that the segmentation went wrong")
+        errorStatus = 1
+
+    # check the spatial cols
+    if not checkSpatialColumns(outsegfile, eastingCol, northingCol):
+        print('Mean coordinates of segments differ')
         errorStatus = 1
 
     print("Adding colour table to {}".format(outsegfile))
@@ -282,6 +292,32 @@ def makeRATcolumns(segResults, outsegfile, imagefile):
     return (meanColNames, stdColNames)
 
 
+def makeSpatialRATColumns(segfile, imagefile):
+    """
+    Create some RAT columns for checking the spatial stats 
+    functionality. 
+    
+    Here we use the tilingstats.userFuncMeanCoord function passed to
+    calcPerSegmentSpatialStatsTiled so that the mean eastings and northings
+    are calculated. These can be easily checked later on.
+    
+    """
+    # a fake transform array. Created so that the eastings and northings
+    # are equivalent to cols/rows for simplicity.
+    transform = numpy.array([0, 1, 0, 0, 0, 1])
+    # just do the first band as they should all be the same...
+    eastingCol = "Band_1_easting"
+    northingCol = "Band_1_northing"
+    colNamesAndTypes = [(eastingCol, gdal.GFT_Real), 
+                (northingCol, gdal.GFT_Real)]
+    # call calcPerSegmentSpatialStatsTiled to do the stats
+    tilingstats.calcPerSegmentSpatialStatsTiled(imagefile, 1, segfile,
+           colNamesAndTypes, tilingstats.userFuncMeanCoord, transform)
+    
+    # return the names of the columns
+    return (eastingCol, northingCol)
+
+
 def checkSegmentation(imgfile, segfile, meanColNames, stdColNames):
     """
     Check whether the given segmentation of the given image file 
@@ -335,6 +371,41 @@ def checkSegmentation(imgfile, segfile, meanColNames, stdColNames):
     pcntMatch = 100 * (numColourMatch + numNullMatch) / numPix
 
     return pcntMatch
+
+
+def checkSpatialColumns(segfile, eastingCol, northingCol):
+    """
+    Do a quick check of eastingCol and northingCol which were
+    calculated using calcPerSegmentSpatialStatsTiled().
+    
+    Returns True if the calculated coordinates are the same
+    as the actual coordinates (within a tolerance).
+    
+    """
+    # read in the data to check
+    eastingData = readColumn(segfile, eastingCol)
+    northingData = readColumn(segfile, northingCol)
+
+    # read in the segfile
+    seg = readSeg(segfile)
+    # work out the sizes of the segments (needed for makeSegmentLocations)
+    segSize = shepseg.makeSegSize(seg)
+    TOL = 0.0003
+
+    ok = True
+    # get the locations of all the segments
+    segLoc = shepseg.makeSegmentLocations(seg, segSize)
+    for segId in segLoc:
+        # for each segment, get the mean coordinates
+        norths, easts = segLoc[shepseg.SegIdType(segId)].getSegmentIndices()
+        # find the difference from calculated.
+        xdiff = abs(easts.mean() - eastingData[segId])
+        ydiff = abs(norths.mean() - northingData[segId])
+        if xdiff > TOL or ydiff > TOL:
+            ok = False
+            break
+            
+    return ok
 
 
 def readColumn(segfile, colName):
