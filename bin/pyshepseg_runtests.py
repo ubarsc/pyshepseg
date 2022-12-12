@@ -390,7 +390,7 @@ def checkSpatialColumns(segfile, eastingCol, northingCol):
     seg = readSeg(segfile)
     # work out the sizes of the segments (needed for makeSegmentLocations)
     segSize = shepseg.makeSegSize(seg)
-    TOL = 0.2
+    TOL = 0.01
 
     ok = True
     # get the locations of all the segments
