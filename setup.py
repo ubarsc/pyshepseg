@@ -23,10 +23,10 @@ from setuptools import setup
 import pyshepseg
 
 setup(name='pyshepseg',
-      version=pyshepseg.SHEPSEG_VERSION,
-      description='Python implementation of the image segmentation algorithm described by Shepherd et al',
-      author='Neil Flood and Sam Gillingham',
-      entry_points={
+    version=pyshepseg.SHEPSEG_VERSION,
+    description='Python implementation of the image segmentation algorithm described by Shepherd et al',
+    author='Neil Flood and Sam Gillingham',
+    entry_points={
         'console_scripts': [
             'pyshepseg_run_seg = pyshepseg.cmdline:run_seg.main',
             'pyshepseg_tiling = pyshepseg.cmdline:tiling.main',
@@ -34,8 +34,7 @@ setup(name='pyshepseg',
             'pyshepseg_runtests = pyshepseg.cmdline:runtests.main',
             'pyshepseg_variograms = pyshepseg.cmdline:variograms.main'
         ]
-      },
-      packages=['pyshepseg'],
-      license='LICENSE.txt', 
-      url='https://github.com/ubarsc/pyshepseg'
-      )
+    },
+    packages=['pyshepseg'],
+    license='LICENSE.txt',
+    url='https://github.com/ubarsc/pyshepseg')
