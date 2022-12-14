@@ -26,9 +26,15 @@ setup(name='pyshepseg',
       version=pyshepseg.SHEPSEG_VERSION,
       description='Python implementation of the image segmentation algorithm described by Shepherd et al',
       author='Neil Flood and Sam Gillingham',
-      scripts=['bin/pyshepseg_run_seg.py', 'bin/pyshepseg_tiling.py', 
-          'bin/pyshepseg_subset.py', 'bin/pyshepseg_runtests.py',
-          'bin/pyshepseg_variograms.py'],
+      entry_points={
+        'console_scripts': [
+            'pyshepseg_run_seg = pyshepseg.cmdline:run_seg.main',
+            'pyshepseg_tiling = pyshepseg.cmdline:tiling.main',
+            'pyshepseg_subset = pyshepseg.cmdline:tiling.main',
+            'pyshepseg_runtests = pyshepseg.cmdline:runtests.main',
+            'pyshepseg_variograms = pyshepseg.cmdline:variograms.main'
+        ]
+      },
       packages=['pyshepseg'],
       license='LICENSE.txt', 
       url='https://github.com/ubarsc/pyshepseg'
