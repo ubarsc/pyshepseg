@@ -35,6 +35,6 @@ setup(name='pyshepseg',
             'pyshepseg_variograms = pyshepseg.cmdline:variograms.main'
         ]
     },
-    packages=['pyshepseg'],
+    packages=['pyshepseg', 'pyshepseg.cmdline'],
     license='LICENSE.txt',
     url='https://github.com/ubarsc/pyshepseg')
