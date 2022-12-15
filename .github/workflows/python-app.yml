@@ -28,8 +28,8 @@ jobs:
       shell: bash -l {0}
       run: |
         flake8
-    - name: Test with pyshepseg_runtests.py
+    - name: Test with pyshepseg_runtests
       shell: bash -l {0}
       run: |
         pip install .
-        pyshepseg_runtests.py
+        pyshepseg_runtests
