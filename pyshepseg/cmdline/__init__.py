@@ -1,3 +1,3 @@
 """
-Module with modules that are intended from calling from the command line
+Sub package with modules that are intended for calling from the command line
 """
