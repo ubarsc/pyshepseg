@@ -93,21 +93,32 @@ This technique should be used with caution. See the docstring for
 the ``pyshepseg.tiling`` module for further discussion of usage and
 caveats. 
 
+Once a segmentation has been completed, statistics can be gathered per segment on
+large rasters using the functions defined in the ``pyshepseg.tilingstats``
+module.
+
 Command Line Scripts
 --------------------
-A few basic command line scripts are also provided in the ``bin/`` subdirectory. 
+A few basic command line scripts are also provided as entry points.
 Their main purpose is as test scripts during development, but they also serve 
 as examples of how to write scripts which use the package. In addition, 
 they can also be used directly for simple segmentation tasks. 
 
-The ``pyshepseg_run_seg.py`` script is a wrapper around the basic in-memory usage. 
+The ``pyshepseg_run_seg`` entry point is a wrapper around the basic in-memory usage.
 
-The ``pyshepseg_tiling.py`` script is a wrapper around the tiled 
+The ``pyshepseg_tiling`` entry point is a wrapper around the tiled
 segmentation for large rasters. 
 
-The ``pyshepseg_subset.py`` script uses the ``tiling.subsetImage`` 
+The ``pyshepseg_subset`` entry point uses the ``tiling.subsetImage``
 function to subset a segmentation image, re-labelling the segments
 to contiguous segment ID numbers. 
+
+The ``pyshepseg_variograms`` entry point uses the
+``tilingstats.calcPerSegmentSpatialStatsTiled`` function to calculate the
+given number of variograms.
+
+The ``pyshepseg_runtests`` entry point runs some tests on packages data and
+can be used to confirm that the behaviour of this package is as expected.
 
 Use the ``--help`` option on each script for usage details. 
 
