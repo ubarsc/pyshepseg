@@ -421,7 +421,6 @@ def checkSubset(outsegfile):
     origSegIdColName parameter.
     """
     subset_segfile = 'tmp_seg_subset.kea'
-    print('about to call')
     tiling.subsetImage(outsegfile, subset_segfile, 4000, 4000, 1000, 1000, 'KEA',
         origSegIdColName='orig_val')
     lookupcol = readColumn(subset_segfile, 'orig_val')
