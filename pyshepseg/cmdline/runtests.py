@@ -73,7 +73,8 @@ def main():
         truesegfile = cmdargs.knownseg
     imagefile = "tmp_image.kea"
     outsegfile = "tmp_seg.kea"
-    tmpdatafiles = [imagefile, outsegfile]
+    subset_segfile = "tmp_seg_subset.kea"
+    tmpdatafiles = [imagefile, outsegfile, subset_segfile]
     if cmdargs.knownseg is None:
         tmpdatafiles.append(truesegfile)
 
@@ -117,7 +118,7 @@ def main():
         errorStatus = 1
         
     print("Checking subset functionality")
-    if not checkSubset(outsegfile):
+    if not checkSubset(outsegfile, subset_segfile):
         print('Unable to match new values from subset')
         errorStatus = 1
 
@@ -413,14 +414,13 @@ def checkSpatialColumns(segfile, eastingCol, northingCol):
     return ok
 
 
-def checkSubset(outsegfile):
+def checkSubset(outsegfile, subset_segfile):
     """
     Check the behavour of tiling.subsetImage()
     by doing a subset and checking that the new values
     can successfully be translated to the old using the
     origSegIdColName parameter.
     """
-    subset_segfile = 'tmp_seg_subset.kea'
     tiling.subsetImage(outsegfile, subset_segfile, 4000, 4000, 1000, 1000, 'KEA',
         origSegIdColName='orig_val')
     lookupcol = readColumn(subset_segfile, 'orig_val')
