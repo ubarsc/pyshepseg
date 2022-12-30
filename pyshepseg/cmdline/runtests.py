@@ -115,6 +115,11 @@ def main():
     if not checkSpatialColumns(outsegfile, eastingCol, northingCol):
         print('Mean coordinates of segments differ')
         errorStatus = 1
+        
+    print("Checking subset functionality")
+    if not checkSubset(outsegfile):
+        print('Unable to match new values from subset')
+        errorStatus = 1
 
     print("Adding colour table to {}".format(outsegfile))
     utils.writeColorTableFromRatColumns(outsegfile, meanColNames[0], 
@@ -259,14 +264,14 @@ def createMultispectral(truesegfile, outfile):
     del ds
 
 
-def readSeg(segfile):
+def readSeg(segfile, xoff=0, yoff=0, win_xsize=None, win_ysize=None):
     """
     Open and read the given segfile. Return an image array of the 
     segment ID values
     """
     ds = gdal.Open(segfile)
     band = ds.GetRasterBand(1)
-    seg = band.ReadAsArray().astype(shepseg.SegIdType)
+    seg = band.ReadAsArray(xoff, yoff, win_xsize, win_ysize).astype(shepseg.SegIdType)
     return seg
 
 
@@ -407,6 +412,28 @@ def checkSpatialColumns(segfile, eastingCol, northingCol):
             
     return ok
 
+
+def checkSubset(outsegfile):
+    """
+    Check the behavour of tiling.subsetImage()
+    by doing a subset and checking that the new values
+    can successfully be translated to the old using the
+    origSegIdColName parameter.
+    """
+    subset_segfile = 'tmp_seg_subset.kea'
+    print('about to call')
+    tiling.subsetImage(outsegfile, subset_segfile, 4000, 4000, 1000, 1000, 'KEA',
+        origSegIdColName='orig_val')
+    lookupcol = readColumn(subset_segfile, 'orig_val')
+    oldvals = readSeg(outsegfile, 4000, 4000, 1000, 1000)
+    newvals = readSeg(subset_segfile)
+    if newvals.min() != 1:
+        # should have restarted the count
+        return False
+        
+    new2oldvals = lookupcol[newvals]
+    return (new2oldvals == oldvals).all()
+    
 
 def readColumn(segfile, colName):
     """
