@@ -855,7 +855,44 @@ def userFuncMeanCoord(pts, imgNullVal, intArr, floatArr, transform):
         
     floatArr[0] = sumx / count
     floatArr[1] = sumy / count
+    
+    
+@njit
+def userFuncCircumference(pts, imgNullVal, intArr, floatArr, fourConnected):
+    """
+    """
+    mask = convertPtsInto2DMaskArray(pts, imgNullVal, 1)
+    outmask = mask.copy()
+    ysize, xsize = mask.shape
+    
+    if fourConnected:
+        for y in range(1, ysize - 1):
+            for x in range(1, xsize - 1):
+                if mask[y, x] == 1:
+                    total = (mask[y - 1, x] + mask[y + 1, x] +
+                                mask[y, x - 1] + mask[y, x + 1])
+                    if total == 4:
+                        outmask[y, x] = 0
+                    else:
+                        outmask[y, x] = 1
+    else:
+        for y in range(1, ysize - 1):
+            for x in range(1, xsize - 1):
+                if mask[y, x] == 1:
+                    total = (mask[y - 1, x - 1] + mask[y - 1, x] + mask[y + 1, x + 1] +
+                             mask[y, x - 1] + mask[y, x + 1] +
+                             mask[y + 1, x - 1] + mask[y + 1, x] + mask[y + 1, x + 1])
+                    if total == 8:
+                        outmask[y, x] = 0
+                    else:
+                        outmask[y, x] = 1
 
+
+
+    intArr[0] = outmask.sum()
+    print(outmask)
+    print('num edge', intArr[0])
+    
 
 SegPointSpec = [('x', types.uint32), 
     ('y', types.uint32), 
@@ -1238,6 +1275,34 @@ def convertPtsInto2DArray(pts, imgNullVal):
     # fill in the tile with the values
     for p in pts:
         tile[p.y - ymin, p.x - xmin] = p.val
+        
+    return tile
+
+
+@njit
+def convertPtsInto2DMaskArray(pts, imgNullVal, bufferSize=1):
+    # find size of tile
+    xmin = pts[0].x
+    xmax = pts[0].x
+    ymin = pts[0].y
+    ymax = pts[0].y
+    for p in pts[1:]:
+        if p.x < xmin:
+            xmin = p.x
+        elif p.x > xmax:
+            xmax = p.x
+        if p.y < ymin:
+            ymin = p.y
+        elif p.y > ymax:
+            ymax = p.y
+
+    xsize = (xmax - xmin) + (bufferSize * 2) + 1
+    ysize = (ymax - ymin) + (bufferSize * 2) + 1
+    tile = numpy.zeros((ysize, xsize), dtype=numpy.uint8)
+            
+    # fill in the tile with 1 where data
+    for p in pts:
+        tile[(p.y - ymin) + bufferSize, (p.x - xmin) + bufferSize] = 1
         
     return tile
 
