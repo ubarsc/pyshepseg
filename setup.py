@@ -30,7 +30,7 @@ setup(name='pyshepseg',
         'console_scripts': [
             'pyshepseg_run_seg = pyshepseg.cmdline:run_seg.main',
             'pyshepseg_tiling = pyshepseg.cmdline:tiling.main',
-            'pyshepseg_subset = pyshepseg.cmdline:tiling.main',
+            'pyshepseg_subset = pyshepseg.cmdline:subset.main',
             'pyshepseg_runtests = pyshepseg.cmdline:runtests.main',
             'pyshepseg_variograms = pyshepseg.cmdline:variograms.main'
         ]

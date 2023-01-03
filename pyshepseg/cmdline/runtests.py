@@ -15,7 +15,7 @@ import numpy
 
 from osgeo import gdal
 
-from pyshepseg import shepseg, tiling, tilingstats, utils
+from pyshepseg import shepseg, tiling, tilingstats, utils, subset
 
 # This is a list of (x, y) coordinate pairs, representing centres of
 # some test segments. These were initially generated randomly, but
@@ -421,7 +421,7 @@ def checkSubset(outsegfile, subset_segfile):
     can successfully be translated to the old using the
     origSegIdColName parameter.
     """
-    tiling.subsetImage(outsegfile, subset_segfile, 4000, 4000, 1000, 1000, 'KEA',
+    subset.subsetImage(outsegfile, subset_segfile, 4000, 4000, 1000, 1000, 'KEA',
         origSegIdColName='orig_val')
     lookupcol = readColumn(subset_segfile, 'orig_val')
     oldvals = readSeg(outsegfile, 4000, 4000, 1000, 1000)

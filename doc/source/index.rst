@@ -109,7 +109,7 @@ The ``pyshepseg_run_seg`` entry point is a wrapper around the basic in-memory us
 The ``pyshepseg_tiling`` entry point is a wrapper around the tiled
 segmentation for large rasters. 
 
-The ``pyshepseg_subset`` entry point uses the ``tiling.subsetImage``
+The ``pyshepseg_subset`` entry point uses the ``subset.subsetImage``
 function to subset a segmentation image, re-labelling the segments
 to contiguous segment ID numbers. 
 
@@ -165,6 +165,7 @@ Modules in this Package
    pyshepseg_tiling
    pyshepseg_tilingstats
    pyshepseg_utils
+   pyshepseg_subset
 
 
 Indices and tables
