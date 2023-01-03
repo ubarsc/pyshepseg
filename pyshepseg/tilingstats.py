@@ -855,7 +855,83 @@ def userFuncMeanCoord(pts, imgNullVal, intArr, floatArr, transform):
         
     floatArr[0] = sumx / count
     floatArr[1] = sumy / count
+    
+    
+@njit
+def userFuncNumEdgePixels(pts, imgNullVal, intArr, floatArr, fourConnected):
+    """
+    Calculates the number of 'edge' pixels for each segment. Edge pixels are
+    pixels that touch either another segment or the edge of the image.
+    This function is intended
+    to be passed in as the ``userFunc`` parameter to
+    :func:`calcPerSegmentSpatialStatsTiled` if the number of edge pixels are
+    required.
 
+    The result will be written to intArr (1 value - number of edge pixels).
+
+    Parameters
+    ----------
+      pts : numba.typed.List containing SegPoint objects
+        This is the list passed to the userFunc.
+      imgNullVal : int
+        The nodata value for the imagery
+      intArr : int ndarray of shape (numIntCols, )
+        The integer columns - output written here
+      floatArr : int ndarray of shape (numFloatCols, )
+        The float columns - not used in this function
+      fourConnected : bool
+        If True, use four-way connectedness to judge neighbours, otherwise
+        use eight-way.
+
+    """
+
+    mask = convertPtsInto2DMaskArray(pts, imgNullVal)
+    outmask = mask.copy()
+    ysize, xsize = mask.shape
+    
+    # deal with four/eight connected separately so we aren't doing too much
+    # checking within a loop
+    if fourConnected:
+        for y in range(ysize):
+            for x in range(xsize):
+                if mask[y, x] == 1:
+                    if y == 0 or x == 0 or y == (ysize - 1) or x == (xsize - 1):
+                        # we know we are on the edge of the tile so is an edge pixel
+                        outmask[y, x] = 1
+                    else:
+                        # count up number of neighbouring pixels (4 way)
+                        total = (mask[y - 1, x] + mask[y + 1, x] +
+                                mask[y, x - 1] + mask[y, x + 1])
+                        if total == 4:
+                            # all inside
+                            outmask[y, x] = 0
+                        else:
+                            # one or more edges
+                            outmask[y, x] = 1
+    else:
+        for y in range(ysize):
+            for x in range(xsize):
+                if mask[y, x] == 1:
+                    if y == 0 or x == 0 or y == (ysize - 1) or x == (xsize - 1):
+                        # we know we are on the edge of the tile so is an edge pixel
+                        outmask[y, x] = 1
+                    else:
+                        # count up number of neighbouring pixels (4 way)
+                        total = (mask[y - 1, x - 1] + mask[y - 1, x] + mask[y + 1, x + 1] +
+                             mask[y, x - 1] + mask[y, x + 1] +
+                             mask[y + 1, x - 1] + mask[y + 1, x] + mask[y + 1, x + 1])
+                        if total == 8:
+                            # all inside
+                            outmask[y, x] = 0
+                        else:
+                            # one or more edges
+                            outmask[y, x] = 1
+
+    # edge pixels now have 1, 0 elsewhere so sum will be number of edge pixels
+    intArr[0] = outmask.sum()
+    print(outmask)
+    print('num edge', intArr[0])
+    
 
 SegPointSpec = [('x', types.uint32), 
     ('y', types.uint32), 
@@ -1194,8 +1270,9 @@ def checkSegCompleteSpatial(segDict, noDataDict, segSize, segId):
 @njit
 def convertPtsInto2DArray(pts, imgNullVal):
     """
-    Given a list of points for a segment turn this back into a 2D array
-    for passing to the user function. 
+    Given a list of points for a segment turn this back into a 2D array where
+    the value for each pixel is the value of the pixel in the original (data)
+    image.
     
     The tile is created just large enough for the shape of the segment. 
     Areas of the tile not within a segment is given the value of ``imgNullVal``.
@@ -1238,6 +1315,57 @@ def convertPtsInto2DArray(pts, imgNullVal):
     # fill in the tile with the values
     for p in pts:
         tile[p.y - ymin, p.x - xmin] = p.val
+        
+    return tile
+
+
+@njit
+def convertPtsInto2DMaskArray(pts, imgNullVal):
+    """
+    Similar to ``convertPtsInto2DArray()`` but burns in the value 1 where
+    each pixel is within a segment.
+
+    Given a list of points for a segment turn this back into a 2D array
+    for passing to the user function.
+
+    The tile is created just large enough for the shape of the segment.
+    Areas of the tile not within a segment is given the value of ``imgNullVal``.
+
+    Parameters
+    ----------
+      pts : numba.typed.List containing SegPoint objects
+        This is the list passed to the userFunc.
+      imgNullVal : int
+        No data value for image
+
+    Returns
+    -------
+      tile : numpy.uint8 ndarray of shape (ysize, xsize)
+        Where ysize and xsize are the total extent of the tile
+
+    """
+    # find size of tile
+    xmin = pts[0].x
+    xmax = pts[0].x
+    ymin = pts[0].y
+    ymax = pts[0].y
+    for p in pts[1:]:
+        if p.x < xmin:
+            xmin = p.x
+        elif p.x > xmax:
+            xmax = p.x
+        if p.y < ymin:
+            ymin = p.y
+        elif p.y > ymax:
+            ymax = p.y
+
+    xsize = xmax - xmin
+    ysize = ymax - ymin
+    tile = numpy.zeros((ysize + 1, xsize + 1), dtype=numpy.uint8)
+            
+    # fill in the tile with 1 where data
+    for p in pts:
+        tile[p.y - ymin, p.x - xmin] = 1
         
     return tile
 
