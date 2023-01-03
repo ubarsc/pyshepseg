@@ -30,7 +30,7 @@ from __future__ import print_function, division
 import math
 import argparse
 from osgeo import gdal
-from pyshepseg import tiling, tilingstats
+from pyshepseg import subset, tilingstats
 gdal.UseExceptions()
 
 DFLT_OUTPUT_DRIVER = 'KEA'
@@ -156,7 +156,7 @@ def main():
     if cmdargs.format in GDAL_DRIVER_CREATION_OPTIONS:
         creationOptions = GDAL_DRIVER_CREATION_OPTIONS[cmdargs.format]
     
-    tiling.subsetImage(cmdargs.infile, cmdargs.outfile, tlx, tly, 
+    subset.subsetImage(cmdargs.infile, cmdargs.outfile, tlx, tly,
         xsize, ysize, cmdargs.format, creationOptions=creationOptions, 
         origSegIdColName=cmdargs.origsegidcol, maskImage=cmdargs.mask)
 
