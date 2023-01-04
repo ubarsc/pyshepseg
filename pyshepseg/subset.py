@@ -433,7 +433,14 @@ def writeCompletedPagesForSubset(inRAT, outRAT, outPagedRat):
         The paged RAT in memory, as created by createPagedRat()
 
     """
+    # Make an array of the pageId values, with the correct type (SegIdType)
+    pagedRatKeys = numpy.empty(len(outPagedRat), dtype=shepseg.SegIdType)
+    i = 0
     for pageId in outPagedRat:
+        pagedRatKeys[i] = pageId
+        i += 1
+
+    for pageId in pagedRatKeys:
         ratPage = outPagedRat[pageId]
         if ratPage.pageComplete():
             # this one one is complete. Grow RAT if required
