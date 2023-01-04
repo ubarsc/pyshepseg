@@ -454,7 +454,8 @@ def writeCompletePages(pagedRat, attrTbl, statsSelection_fast):
  
     """
     numStat = len(statsSelection_fast)
-    
+
+    # Make an array of the pageId values, with the correct type (SegIdType)
     pagedRatKeys = numpy.empty(len(pagedRat), dtype=shepseg.SegIdType)
     i = 0
     for pageId in pagedRat:
