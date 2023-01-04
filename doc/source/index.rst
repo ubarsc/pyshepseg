@@ -77,7 +77,8 @@ Usage
 The segimg attribute of the segRes object is an array
 of segment ID numbers, of shape (nRows, nCols). 
 
-See the help in the shepseg module for further details and tips. 
+See the help in the ``pyshepseg.shepseg`` module and :func:`pyshepseg.shepseg.doShepherdSegmentation`
+function for further details and tips. 
 
 Large Rasters
 -------------
@@ -90,8 +91,8 @@ tiles are stitched such that segments are matched and merged across
 tile boundaries, so the result is seamless. 
 
 This technique should be used with caution. See the docstring for
-the ``pyshepseg.tiling`` module for further discussion of usage and
-caveats. 
+the ``pyshepseg.tiling`` module and the :func:`pyshepseg.tiling.doTiledShepherdSegmentation`
+function for further discussion of usage and caveats. 
 
 Once a segmentation has been completed, statistics can be gathered per segment on
 large rasters using the functions defined in the ``pyshepseg.tilingstats``
@@ -109,12 +110,12 @@ The ``pyshepseg_run_seg`` entry point is a wrapper around the basic in-memory us
 The ``pyshepseg_tiling`` entry point is a wrapper around the tiled
 segmentation for large rasters. 
 
-The ``pyshepseg_subset`` entry point uses the ``subset.subsetImage``
+The ``pyshepseg_subset`` entry point uses the :func:`pyshepseg.subset.subsetImage`
 function to subset a segmentation image, re-labelling the segments
 to contiguous segment ID numbers. 
 
 The ``pyshepseg_variograms`` entry point uses the
-``tilingstats.calcPerSegmentSpatialStatsTiled`` function to calculate the
+:func:`pyshepseg.tilingstats.calcPerSegmentSpatialStatsTiled` function to calculate the
 given number of variograms.
 
 The ``pyshepseg_runtests`` entry point runs some tests on packages data and
@@ -136,8 +137,8 @@ arbitrary percentile values, amongst others. The selected per-segment
 statistics are written to the segment image file as columns of a raster
 attribute table (RAT). 
 
-For details, see the help on the ``tilingstats.calcPerSegmentStatsTiled()``
-function. 
+For details, see the help on the :func:`pyshepseg.tilingstats.calcPerSegmentStatsTiled`
+and :func:`pyshepseg.tilingstats.calcPerSegmentSpatialStatsTiled` function. 
 
 Segment Colour Tables
 ---------------------
@@ -145,15 +146,23 @@ The segment image contains a large number of individual segment values, and
 can be difficult to view in simple greyscale colouring. To improve this, two 
 routines are provided in the ``pyshepseg.utils`` module which will attach a colour table. 
 
-The simplest routine is ``utils.writeRandomColourTable``, which attaches a 
+The simplest routine is :func:`pyshepseg.utils.writeRandomColourTable`, which attaches a 
 randomly-generated colour table, so that each segment is assigned a randomly 
 chosen colour, which merely serves to distinguish it from the surrounding segments. 
 See its help for details. 
 
-More sophisticated and more useful is the function ``utils.writeColorTableFromRatColumns``,
+More sophisticated and more useful is the function :func:`pyshepseg.utils.writeColorTableFromRatColumns`,
 which uses previously calculated columns in the raster attribute table (RAT) to 
 create a colour table which approximates the original imagery. See its help for 
 details, and the preceding section on how to create suitable RAT columns. 
+
+Subsetting
+----------
+For large segmentations sometimes it is necessary to subset the result into a smaller
+image so it is easier to work with, but have contiguous segment ids and a link back to the
+original segments. For doing this, see the ``pyshepseg.subset`` module and the 
+:func:`pyshepseg.subset.subsetImage` function.
+
 
 Modules in this Package
 =======================

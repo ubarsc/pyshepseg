@@ -1,6 +1,22 @@
 Pyshepseg Release Notes
 =======================
 
+Version 2.0.0 (2023-01-04)
+--------------------------
+
+New Features:
+  * A test script (pyshepseg_runtests) that can be run to confirm 
+    the install is working as intended.
+  * Split up the parts of doTiledSegmentation() so they can be run
+    in parallel.
+  * Check syntax with flake8 and run test script on new PRs in github.
+  * Use entry points for the command line scripts rather than creating
+    our own. Should make running on Windows easier.
+  * Added ability to calculate "spatial" statistics on the segments.
+  * Use numpydoc for creating Sphinx documentation.
+  * Subset functionality is now in a separate "subset" module.
+  * Statistics functionality now in a new "tilingstats" module.
+
 Version 1.1.0 (2021-12-24)
 --------------------------
 
