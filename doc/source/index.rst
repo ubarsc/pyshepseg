@@ -28,22 +28,32 @@ Dependencies
 ------------
 The package requires the `scikit-learn <https://scikit-learn.org/>`_ package,
 and the `numba <https://numba.pydata.org/>`_ package. These need to be installed
-before this package will run. See their instructions on how to install, and
-choose whichever methods best suits you. Both packages are available in 
-mutually consistent builds from the conda-forge archive, but many other 
-options are available. 
+before this package will run. These are installed automatically when using the conda-forge
+``pyshepseg`` package (see below), but will need to be available when building from source.
 
 Also recommended is the `GDAL <https://gdal.org/>`_ package for reading and 
 writing raster file formats. It is not required by the core segmentation
 algorithm, but is highly recommended as a portable way to interface 
 to a large range of raster formats. It is required by the ``tiling`` module
-to support segmentation of large rasters. The GDAL package is also available 
-from conda-forge, but again, other installation options are available. 
+to support segmentation of large rasters. This is installed when using 
+the conda-forge ``pyshepseg`` package.
 
 Installation
 ------------
-The package can be installed directly from the source, using the 
-setup.py script. 
+
+This package can be installed from conda-forge and is the recommended approach. 
+Once you have installed `Conda <conda.pydata.org/miniconda.html#miniconda>`_ run 
+the following commands to install ``pyshepseg`` into a new environment:
+
+::
+
+    conda config --add channels conda-forge
+    conda config --set channel_priority strict
+    conda create -n mysegenv pyshepseg
+    conda activate mysegenv
+
+Alternatively, this package can be installed directly from the source, using the 
+setup.py script (see required dependencies above). 
 
 1. The source code is available from `<https://github.com/ubarsc/pyshepseg>`_.
    Either unpack the latest release bundle from 
