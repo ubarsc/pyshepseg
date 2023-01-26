@@ -46,6 +46,7 @@ Once you have installed `Conda <conda.pydata.org/miniconda.html#miniconda>`_ run
 the following commands to install `pyshepseg` into a new environment:
 
 ::
+
     conda config --add channels conda-forge
     conda config --set channel_priority strict
     conda create -n mysegenv pyshepseg
