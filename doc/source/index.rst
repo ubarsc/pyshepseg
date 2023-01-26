@@ -36,7 +36,7 @@ writing raster file formats. It is not required by the core segmentation
 algorithm, but is highly recommended as a portable way to interface 
 to a large range of raster formats. It is required by the ``tiling`` module
 to support segmentation of large rasters. This is installed when using 
-the conda-forge `pyshepseg` package.
+the conda-forge ``pyshepseg`` package.
 
 Installation
 ------------
