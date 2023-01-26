@@ -29,7 +29,7 @@ Dependencies
 The package requires the `scikit-learn <https://scikit-learn.org/>`_ package,
 and the `numba <https://numba.pydata.org/>`_ package. These need to be installed
 before this package will run. These are installed automatically when using the conda-forge
-`pyshepseg` package (see below), but will need to be available when building from source.
+``pyshepseg`` package (see below), but will need to be available when building from source.
 
 Also recommended is the `GDAL <https://gdal.org/>`_ package for reading and 
 writing raster file formats. It is not required by the core segmentation
@@ -43,7 +43,7 @@ Installation
 
 This package can be installed from conda-forge and is the recommended approach. 
 Once you have installed `Conda <conda.pydata.org/miniconda.html#miniconda>`_ run 
-the following commands to install `pyshepseg` into a new environment:
+the following commands to install ``pyshepseg`` into a new environment:
 
 ::
 
