@@ -930,8 +930,6 @@ def userFuncNumEdgePixels(pts, imgNullVal, intArr, floatArr, fourConnected):
 
     # edge pixels now have 1, 0 elsewhere so sum will be number of edge pixels
     intArr[0] = outmask.sum()
-    print(outmask)
-    print('num edge', intArr[0])
     
 
 SegPointSpec = [('x', types.uint32), 
