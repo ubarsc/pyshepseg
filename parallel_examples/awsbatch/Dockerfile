@@ -1,4 +1,4 @@
-FROM ubuntu:21.04
+FROM ubuntu:22.04
 
 # Needed in case tzdata gets upgraded
 ENV TZ=Australia/Brisbane
@@ -6,6 +6,8 @@ ARG DEBIAN_FRONTEND=noninteractive
 
 ARG AWS_REGION=us-west-2
 ENV AWS_REGION_ENV=$AWS_REGION
+
+ARG PYSHEPSEG_VER
 
 # use local mirror
 RUN sed -i "s/http:\/\/ports./http:\/\/${AWS_REGION_ENV}.ec2.ports./g" /etc/apt/sources.list
@@ -66,7 +68,7 @@ COPY do_prepare.py $SW_VOLUME/bin
 COPY do_tile.py $SW_VOLUME/bin
 COPY do_stitch.py $SW_VOLUME/bin
 
-RUN apt-get remove wget g++ cmake
+RUN apt-get remove -y wget g++ cmake
 RUN apt-get autoremove -y && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 USER $SERVICEUSER

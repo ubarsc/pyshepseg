@@ -83,7 +83,7 @@ Resources:
   BatchRepository:
     Type: AWS::ECR::Repository
     Properties:
-      RepositoryName: pyshepseg_process 
+      RepositoryName: pyshepseg
       LifecyclePolicy:
         LifecyclePolicyText: |
           {

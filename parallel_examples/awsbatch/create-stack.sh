@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 
 if [[ -z "${AWS_REGION}" ]]; then
     echo "Must set AWS_REGION first"
