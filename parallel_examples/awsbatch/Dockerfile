@@ -4,15 +4,18 @@ FROM ubuntu:21.04
 ENV TZ=Australia/Brisbane
 ARG DEBIAN_FRONTEND=noninteractive
 
-# Use EUmirrors
-RUN sed -i 's/http:\/\/archive./http:\/\/eu.archive./g' /etc/apt/sources.list
+ARG AWS_REGION=us-west-2
+ENV AWS_REGION_ENV=$AWS_REGION
+
+# use local mirror
+RUN sed -i "s/http:\/\/ports./http:\/\/${AWS_REGION_ENV}.ec2.ports./g" /etc/apt/sources.list
+RUN sed -i "s/http:\/\/archive./http:\/\/${AWS_REGION_ENV}.ec2.archive./g" /etc/apt/sources.list
 
 # Update Ubuntu software stack and install base GDAL stack
 RUN apt-get update
 RUN apt-get upgrade -y
 RUN apt-get install -y python3-gdal python3-boto3 python3-setuptools python3-sklearn \
-		python3-numba wget g++ cmake libhdf5-dev libgdal-dev unzip python3-pip
-RUN apt-get autoremove -y && apt-get clean && rm -rf /var/lib/apt/lists/*
+		python3-numba wget g++ cmake libhdf5-dev libgdal-dev python3-pip
 
 ENV SW_VOLUME=/ubarscsw
 RUN mkdir $SW_VOLUME
@@ -20,7 +23,7 @@ RUN mkdir $SW_VOLUME
 ENV SERVICEUSER=ubarscuser
 RUN useradd --create-home --shell /bin/bash ${SERVICEUSER}
 
-ENV KEALIB_VERSION=1.4.14
+ENV KEALIB_VERSION=1.5.2
 RUN cd /tmp \
     && wget -q https://github.com/ubarsc/kealib/releases/download/kealib-${KEALIB_VERSION}/kealib-${KEALIB_VERSION}.tar.gz \
     && tar xf kealib-${KEALIB_VERSION}.tar.gz \
@@ -33,13 +36,13 @@ RUN cd /tmp \
     && cd ../.. \
     && rm -rf kealib-${KEALIB_VERSION} kealib-${KEALIB_VERSION}.tar.gz
 
-RUN cd /tmp \
-    && wget https://github.com/ubarsc/pyshepseg/archive/refs/heads/master.zip \
-    && unzip master.zip \
-    && cd pyshepseg-master \
-    && pip install . --prefix=${SW_VOLUME} \
-    && cd .. \
-    && rm -rf master.zip pyshepseg-master
+COPY pyshepseg-$PYSHEPSEG_VER.tar.gz /tmp
+# install RIOS
+RUN cd /tmp && tar xf pyshepseg-$PYSHEPSEG_VER.tar.gz \
+    && cd pyshepseg-$PYSHEPSEG_VER \
+    && pip install . \
+    && cd .. && rm -rf pyshepseg-$PYSHEPSEG_VER pyshepseg-$PYSHEPSEG_VER.tar.gz
+
 
 ENV PYTHONPATH=${SW_VOLUME}/lib/python3.9/site-packages
 ENV LD_LIBRARY_PATH=${SW_VOLUME}/lib
@@ -62,6 +65,9 @@ ENV CPL_ZIP_ENCODING=UTF-8
 COPY do_prepare.py $SW_VOLUME/bin
 COPY do_tile.py $SW_VOLUME/bin
 COPY do_stitch.py $SW_VOLUME/bin
+
+RUN apt-get remove wget g++ cmake
+RUN apt-get autoremove -y && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 USER $SERVICEUSER
 

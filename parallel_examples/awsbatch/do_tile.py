@@ -77,8 +77,7 @@ def main():
     # run the segmentation on this tile.
     # save the result as a GTiff so do_stitch.py can open this tile
     # directly from S3.
-    # Note: COG didn't seem to be available on this Ubuntu GDAL so faking
-    # with the GTiff driver.
+    # TODO: create COG instead
     tiling.doTiledShepherdSegmentation_doOne(inDs, filename,
         dataFromPickle['tileInfo'], col, row, dataFromPickle['bandNumbers'],
         dataFromPickle['imgNullVal'], dataFromPickle['kmeansObj'], 

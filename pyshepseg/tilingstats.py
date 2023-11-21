@@ -462,7 +462,7 @@ def writeCompletePages(pagedRat, attrTbl, statsSelection_fast):
         pagedRatKeys[i] = pageId
         i += 1
 
-    for pageId in pagedRatKeys:
+    for pageId in pagedRat:
         ratPage = pagedRat[pageId]
         if ratPage.pageComplete():
             startSegId = ratPage.startSegId

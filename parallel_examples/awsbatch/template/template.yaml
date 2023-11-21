@@ -80,6 +80,29 @@ Resources:
       - arn:aws:iam::aws:policy/service-role/AmazonEC2ContainerServiceforEC2Role
       - arn:aws:iam::aws:policy/AmazonS3FullAccess
       - arn:aws:iam::aws:policy/service-role/AWSBatchServiceEventTargetRole
+  BatchRepository:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: pyshepseg_process 
+      LifecyclePolicy:
+        LifecyclePolicyText: |
+          {
+            "rules": [
+                {
+                    "rulePriority": 1,
+                    "description": "Expire images older than 1 day",
+                    "selection": {
+                        "tagStatus": "untagged",
+                        "countType": "sinceImagePushed",
+                        "countUnit": "days",
+                        "countNumber": 1
+                    },
+                    "action": {
+                        "type": "expire"
+                    }
+                }
+            ]
+          }
   # Job for doing individual tiles
   BatchProcessingJobDefinitionTile:
     Type: AWS::Batch::JobDefinition
@@ -87,13 +110,7 @@ Resources:
       Type: container
       JobDefinitionName: PyShepSegBatchJobDefinitionTile
       ContainerProperties:
-        Image:
-          Fn::Join:
-          - ''
-          - - Ref: AWS::AccountId
-            - .dkr.ecr.
-            - Ref: AWS::Region
-            - ".amazonaws.com/ubarsc_parallel_seg:latest"
+        Image: !Join ['', [!GetAtt BatchRepository.RepositoryUri, ":latest"]]
         Vcpus: 1
         Memory: 4000
       RetryStrategy:
@@ -105,13 +122,7 @@ Resources:
       Type: container
       JobDefinitionName: PyShepSegBatchJobDefinitionStitch
       ContainerProperties:
-        Image:
-          Fn::Join:
-          - ''
-          - - Ref: AWS::AccountId
-            - .dkr.ecr.
-            - Ref: AWS::Region
-            - ".amazonaws.com/ubarsc_parallel_seg:latest"
+        Image: !Join ['', [!GetAtt BatchRepository.RepositoryUri, ":latest"]]
         Vcpus: 1
         Memory: 8000
       RetryStrategy:
@@ -143,8 +154,24 @@ Resources:
         - Ref: SecurityGroup
         InstanceRole:
           Ref: IamInstanceProfile
+        LaunchTemplate:
+          LaunchTemplateId: !Ref LaunchTemplate
       ServiceRole:
         Ref: BatchServiceRole
+  # Launch template - increase default storage available
+  # https://repost.aws/knowledge-center/batch-job-failure-disk-space
+  # https://docs.aws.amazon.com/batch/latest/userguide/launch-templates.html
+  # Probably don't need this for all job types, but that would mean different queues
+  LaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateData:
+         BlockDeviceMappings:
+           - DeviceName: /dev/xvda
+             Ebs:
+               VolumeType: gp2
+               VolumeSize: 64
+               DeleteOnTermination: true
        
 Outputs:
   ComputeEnvironmentArn:
