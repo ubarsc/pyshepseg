@@ -81,5 +81,5 @@ RUN python3 -c 'from pyshepseg import tiling'
 # export the volume
 VOLUME $SW_VOLUME
 
-# set the workdir to the home directory for our user (not sure if right thing to
+# set the workdir to the home directory for our user (not sure if right thing to do)
 WORKDIR /home/${SERVICEUSER}

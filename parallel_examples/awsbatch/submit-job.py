@@ -3,10 +3,12 @@
 """
 Script that starts a tiled segmentation using AWS Batch.
 
-It runs the _prepare() function then submits an array jobs to run
-the _doOne() function on each time. Finally, it submits a 
-job to run the _finalize() function when the array jobs have 
-completed.
+Submits a job that runs that runs the do_prepare.py
+script with the given arguments. 
+
+do_prepare.py then submits an array job to run do_tile.py 
+- one job per tile. It also submits a do_stitch.py job that 
+is dependent on all the do_tile.py jobs finishing. 
 """
 
 import argparse
