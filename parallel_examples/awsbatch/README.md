@@ -33,13 +33,10 @@ AWS Batch requires a Docker image to be pushed to AWS ECR.
 Contains instructions for creating a Docker Image with the required software
 to perform the tiled segmentation.
 
-`build_docker.sh`
+`Makefile`
 
-Builds the Docker Image from Dockerfile
-
-`push_to_ecr.sh`
-
-Pushes the Docker Image to a repository on AWS ECR called "ubarsc_parallel_seg". Note this 
+Builds the Docker Image from Dockerfile and pushes the Docker Image to a 
+repository on AWS ECR called "ubarsc_parallel_seg". Note this 
 repository is NOT created by the CloudFormation script above.
 
 ### Supporting Scripts
