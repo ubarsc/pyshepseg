@@ -1,4 +1,4 @@
-FROM ubuntu:22.04
+FROM public.ecr.aws/ubuntu/ubuntu:22.04
 
 # Needed in case tzdata gets upgraded
 ENV TZ=Australia/Brisbane
@@ -16,7 +16,7 @@ RUN sed -i "s/http:\/\/archive./http:\/\/${AWS_REGION_ENV}.ec2.archive./g" /etc/
 # Update Ubuntu software stack and install base GDAL stack
 RUN apt-get update
 RUN apt-get upgrade -y
-RUN apt-get install -y python3-gdal python3-boto3 python3-setuptools python3-sklearn \
+RUN apt-get install -y python3-gdal python3-boto3 python3-sklearn \
 		python3-numba wget g++ cmake libhdf5-dev libgdal-dev python3-pip
 
 ENV SW_VOLUME=/ubarscsw
@@ -25,7 +25,7 @@ RUN mkdir $SW_VOLUME
 ENV SERVICEUSER=ubarscuser
 RUN useradd --create-home --shell /bin/bash ${SERVICEUSER}
 
-ENV KEALIB_VERSION=1.5.2
+ENV KEALIB_VERSION=1.5.3
 RUN cd /tmp \
     && wget -q https://github.com/ubarsc/kealib/releases/download/kealib-${KEALIB_VERSION}/kealib-${KEALIB_VERSION}.tar.gz \
     && tar xf kealib-${KEALIB_VERSION}.tar.gz \
@@ -46,7 +46,6 @@ RUN cd /tmp && tar xf pyshepseg-$PYSHEPSEG_VER.tar.gz \
     && cd .. && rm -rf pyshepseg-$PYSHEPSEG_VER pyshepseg-$PYSHEPSEG_VER.tar.gz
 
 
-ENV PYTHONPATH=${SW_VOLUME}/lib/python3.9/site-packages
 ENV LD_LIBRARY_PATH=${SW_VOLUME}/lib
 ENV GDAL_DRIVER_PATH=${SW_VOLUME}/lib/gdalplugins
 
