@@ -1002,7 +1002,12 @@ def recodeSharedSegments(tileData, overlapA, overlapB, orientation,
         # pixels from the B overlap array. In principle there 
         # should only be one, but just in case. 
         modeObj = scipy.stats.mode(overlapB[segNdx])
-        segIdFromB = modeObj.mode[0]
+        # change in scipy 1.9.0. use keepdims=True for old behaviour
+        # but that breaks older scipy. So workaround by seeing what returned
+        if numpy.isscalar(modeObj.mode):
+            segIdFromB = modeObj.mode
+        else:
+            segIdFromB = modeObj.mode[0]
         
         # Now record this recoding relationship
         recodeDict[segid] = segIdFromB
