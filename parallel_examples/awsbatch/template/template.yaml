@@ -48,18 +48,6 @@ Resources:
         Ref: RouteTable
       SubnetId:
         Ref: Subnet
-  BatchServiceRole:
-    Type: AWS::IAM::Role
-    Properties:
-      AssumeRolePolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-        - Effect: Allow
-          Principal:
-            Service: batch.amazonaws.com
-          Action: sts:AssumeRole
-      ManagedPolicyArns:
-      - arn:aws:iam::aws:policy/service-role/AWSBatchServiceRole
   IamInstanceProfile:
     Type: AWS::IAM::InstanceProfile
     Properties:
@@ -156,8 +144,7 @@ Resources:
           Ref: IamInstanceProfile
         LaunchTemplate:
           LaunchTemplateId: !Ref LaunchTemplate
-      ServiceRole:
-        Ref: BatchServiceRole
+          Version: !GetAtt LaunchTemplate.LatestVersionNumber
   # Launch template - increase default storage available
   # https://repost.aws/knowledge-center/batch-job-failure-disk-space
   # https://docs.aws.amazon.com/batch/latest/userguide/launch-templates.html
