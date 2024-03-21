@@ -12,11 +12,14 @@ import os
 import pickle
 import argparse
 import tempfile
+import resource
 import shutil
 import boto3
 from pyshepseg import tiling
 
 from osgeo import gdal
+
+gdal.UseExceptions()
 
 # set by AWS Batch
 ARRAY_INDEX = os.getenv('AWS_BATCH_JOB_ARRAY_INDEX')
@@ -93,7 +96,7 @@ def main():
         dataFromPickle['tileInfo'], col, row, dataFromPickle['bandNumbers'],
         dataFromPickle['imgNullVal'], dataFromPickle['kmeansObj'], 
         minSegmentSize=cmdargs.minSegmentSize,
-        spectDistPcntile=cmdargs.spectDistPcntile, maxSpectDiff=maxSpectDiff,
+        spectDistPcntile=cmdargs.spectDistPcntile, maxSpectralDiff=maxSpectDiff,
         tempfilesDriver='GTiff', tempfilesCreationOptions=['COMPRESS=DEFLATE',
         'ZLEVEL=1', 'PREDICTOR=2', 'TILED=YES', 'INTERLEAVE=BAND', 
         'BIGTIFF=NO', 'BLOCKXSIZE=512', 'BLOCKYSIZE=512'])
@@ -103,6 +106,8 @@ def main():
 
     # cleanup
     shutil.rmtree(tempDir)
+    maxMem = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    print('Max Mem Usage', maxMem)
 
 
 if __name__ == '__main__':

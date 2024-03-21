@@ -53,6 +53,25 @@ Resources:
     Properties:
       Roles:
       - Ref: EcsInstanceRole
+  SubmitJobsManagedPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      Description: Policy for allowing web site to submit Batch jobs
+      Path: /
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Action: 'batch:SubmitJob'
+          Resource:
+            # can't use resources directly as causes a circular dependency
+            # but we know what the names will be
+            #- !Ref BatchProcessingJobDefinitionTile
+            #- !Ref BatchProcessingJobDefinitionStitch
+            #- !Ref BatchProcessingJobQueue
+            - !Sub 'arn:aws:batch:${AWS::Region}:${AWS::AccountId}:job-definition/PyShepSegBatchJobDefinitionTile:*'
+            - !Sub 'arn:aws:batch:${AWS::Region}:${AWS::AccountId}:job-definition/PyShepSegBatchJobDefinitionStitch:*'
+            - !Sub 'arn:aws:batch:${AWS::Region}:${AWS::AccountId}:job-queue/PyShepSegBatchProcessingJobQueue'
   EcsInstanceRole:
     Type: AWS::IAM::Role
     Properties:
@@ -68,6 +87,7 @@ Resources:
       - arn:aws:iam::aws:policy/service-role/AmazonEC2ContainerServiceforEC2Role
       - arn:aws:iam::aws:policy/AmazonS3FullAccess
       - arn:aws:iam::aws:policy/service-role/AWSBatchServiceEventTargetRole
+      - !Ref SubmitJobsManagedPolicy
   BatchRepository:
     Type: AWS::ECR::Repository
     Properties:
@@ -100,7 +120,7 @@ Resources:
       ContainerProperties:
         Image: !Join ['', [!GetAtt BatchRepository.RepositoryUri, ":latest"]]
         Vcpus: 1
-        Memory: 4000
+        Memory: 8000
       RetryStrategy:
         Attempts: 1
   # Job for stitching tiles together 

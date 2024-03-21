@@ -5,6 +5,13 @@ to run the tiled segmentation in parallel on AWS Batch.
 
 ## Contents
 
+`submit-pyshepseg-job.py`
+
+Can be run to submit a tile segmentation to AWS Batch. CloudFormation and 
+Docker Image must have been run beforehand.
+
+See the output of `submit-pyshepseg-job.py --help` for more information.
+
 ### CloudFormation
 
 `template/template.yaml`

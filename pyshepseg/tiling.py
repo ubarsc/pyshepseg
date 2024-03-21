@@ -70,6 +70,8 @@ from .guardeddecorators import jitclass
 
 from . import shepseg
 
+gdal.UseExceptions()
+
 DFLT_TEMPFILES_DRIVER = 'KEA'
 DFLT_TEMPFILES_EXT = 'kea'
 

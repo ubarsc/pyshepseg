@@ -11,6 +11,7 @@ other jobs required to do the tiled segmentation.
 
 import io
 import pickle
+import resource
 import argparse
 import boto3
 from pyshepseg import tiling
@@ -35,7 +36,7 @@ def getCmdargs():
         help="Tile Overlap to use. (default=%(default)s)")
     p.add_argument("--pickle", required=True,
         help="name of pickle to save result of preparation into")
-    p.add_argument("--region", default="eu-central-1",
+    p.add_argument("--region", default="us-west-2",
         help="Region to run the jobs in. (default=%(default)s)")
     p.add_argument("--jobqueue", default="PyShepSegBatchProcessingJobQueue",
         help="Name of Job Queue to use. (default=%(default)s)")
@@ -103,7 +104,7 @@ def main():
         '--infile', cmdargs.infile, 
         '--minSegmentSize', str(cmdargs.minSegmentSize),
         '--maxSpectDiff', cmdargs.maxSpectDiff, 
-        '--spectDistPcntile', int(cmdargs.spectDistPcntile)]}
+        '--spectDistPcntile', str(cmdargs.spectDistPcntile)]}
     response = batch.submit_job(jobName="pyshepseg_tiles",
         jobQueue=cmdargs.jobqueue,
         jobDefinition=cmdargs.jobdefntile,
@@ -128,7 +129,8 @@ def main():
         containerOverrides={
             "command": cmd})
     print('Stitching Job Id', response['jobId'])
-
+    maxMem = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    print('Max Mem Usage', maxMem)
 
 if __name__ == '__main__':
     main()

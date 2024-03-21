@@ -11,13 +11,15 @@ import io
 import os
 import json
 import pickle
+import resource
 import argparse
 import tempfile
 import shutil
 import boto3
-from pyshepseg import tiling
+from pyshepseg import tiling, tilingstats
 from osgeo import gdal
 
+gdal.UseExceptions()
 
 def getCmdargs():
     """
@@ -103,7 +105,8 @@ def main():
 
     # cleanup
     shutil.rmtree(tempDir)
-
+    maxMem = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    print('Max Mem Usage', maxMem)
 
 if __name__ == '__main__':
     main()

@@ -43,7 +43,8 @@ def getCmdargs():
     p.add_argument("--overlapsize", default=1024, type=int,
         help="Tile Overlap to use. (default=%(default)s)")
     p.add_argument("--stats", help="path to json file specifying stats in format:" +
-        "bucket:path/in/bucket.json")
+        "bucket:path/in/bucket.json. Contents must be a list of [img, band, " +
+        "statsSelection] tuples.")
     p.add_argument("--minSegmentSize", type=int, default=50, required=False,
         help="Segment size for segmentation (default=%(default)s)")
     p.add_argument("--numClusters", type=int, default=60, required=False,
@@ -64,17 +65,18 @@ def main():
     batch = boto3.client('batch', region_name=cmdargs.region)
 
     cmd = ['/usr/bin/python3', '/ubarscsw/bin/do_prepare.py',
-                    '--bucket', cmdargs.bucket, '--pickle', PICKLE_NAME,
-                    '--infile', cmdargs.infile, '--outfile', cmdargs.outfile,
-                    '--bands', cmdargs.bands, '--tilesize', str(cmdargs.tilesize), 
-                    '--overlapsize', str(cmdargs.overlapsize),
-                    '--jobqueue', cmdargs.jobqueue, 
-                    '--jobdefntile', cmdargs.jobdefntile,
-                    '--jobdefnstitch', cmdargs.jobdefnstitch,
-                    '--minSegmentSize', str(cmdargs.minSegmentSize),
-                    '--numClusters', str(cmdargs.numClusters),
-                    '--maxSpectDiff', cmdargs.maxSpectDiff,
-                    '--spectDistPcntile', str(cmdargs.spectDistPcntile)]
+        '--region', cmdargs.region,
+        '--bucket', cmdargs.bucket, '--pickle', PICKLE_NAME,
+        '--infile', cmdargs.infile, '--outfile', cmdargs.outfile,
+        '--bands', cmdargs.bands, '--tilesize', str(cmdargs.tilesize), 
+        '--overlapsize', str(cmdargs.overlapsize),
+        '--jobqueue', cmdargs.jobqueue, 
+        '--jobdefntile', cmdargs.jobdefntile,
+        '--jobdefnstitch', cmdargs.jobdefnstitch,
+        '--minSegmentSize', str(cmdargs.minSegmentSize),
+        '--numClusters', str(cmdargs.numClusters),
+        '--maxSpectDiff', cmdargs.maxSpectDiff,
+        '--spectDistPcntile', str(cmdargs.spectDistPcntile)]
     if cmdargs.stats is not None:
         cmd.extend(['--stats', cmdargs.stats])
 

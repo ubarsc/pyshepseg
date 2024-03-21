@@ -46,6 +46,9 @@ from .guardeddecorators import jitclass
 from . import tiling
 from . import shepseg
 
+gdal.UseExceptions()
+osr.UseExceptions()
+
 
 def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile, 
             statsSelection, missingStatsValue=-9999):
