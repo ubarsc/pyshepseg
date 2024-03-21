@@ -9,6 +9,7 @@ Uplaods the resulting segmentation to S3.
 
 import io
 import os
+import json
 import pickle
 import argparse
 import tempfile
@@ -33,6 +34,8 @@ def getCmdargs():
         help="name of pickle with the result of the preparation")
     p.add_argument("--overlapsize", required=True, type=int,
         help="Tile Overlap to use. (default=%(default)s)")
+    p.add_argument("--stats", help="path to json file specifying stats in format:" +
+        "bucket:path/in/bucket.json")
 
     cmdargs = p.parse_args()
 
@@ -74,6 +77,18 @@ def main():
     (maxSegId, hasEmptySegments) = tiling.doTiledShepherdSegmentation_finalize(
         inDs, localOutfile, tileFilenames, dataFromPickle['tileInfo'], 
         cmdargs.overlapsize, tempDir)
+
+    # now do any stats the user has asked for
+    if cmdargs.stats is not None:
+        bucket, stats = cmdargs.stats.split(':')
+        with io.BytesIO() as fileobj:
+            s3.download_fileobj(bucket, stats, fileobj)
+            fileobj.seek(0)
+
+            dataForStats = json.load(fileobj)
+            for img, bandnum, selection in dataForStats:
+                tilingstats.calcPerSegmentStatsTiled(img, bandnum, 
+                    localOutfile, selection)
 
     # upload the KEA file
     s3.upload_file(localOutfile, cmdargs.bucket, cmdargs.outfile)

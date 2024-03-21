@@ -36,12 +36,22 @@ def getCmdargs():
         help="Name of Job Definition to use for tile jobs. (default=%(default)s)")
     p.add_argument("--jobdefnstitch", default="PyShepSegBatchJobDefinitionStitch",
         help="Name of Job Definition to use for the stitch job. (default=%(default)s)")
-    p.add_argument("--region", default="eu-central-1",
+    p.add_argument("--region", default="us-west-2",
         help="Region to run the jobs in. (default=%(default)s)")
     p.add_argument("--tilesize", default=4096, type=int,
         help="Tile Size to use. (default=%(default)s)")
     p.add_argument("--overlapsize", default=1024, type=int,
         help="Tile Overlap to use. (default=%(default)s)")
+    p.add_argument("--stats", help="path to json file specifying stats in format:" +
+        "bucket:path/in/bucket.json")
+    p.add_argument("--minSegmentSize", type=int, default=50, required=False,
+        help="Segment size for segmentation (default=%(default)s)")
+    p.add_argument("--numClusters", type=int, default=60, required=False,
+        help="Number of clusters for segmentation (default=%(default)s)")
+    p.add_argument("--maxSpectDiff", required=False, default='auto',
+        help="Maximum spectral difference for segmentation (default=%(default)s)")
+    p.add_argument("--spectDistPcntile", type=int, default=50, required=False,
+        help="Spectral Distance Percentile for segmentation (default=%(default)s)")
 
     cmdargs = p.parse_args()
 
@@ -53,19 +63,27 @@ def main():
     
     batch = boto3.client('batch', region_name=cmdargs.region)
 
-    # submit the prepare job
-    response = batch.submit_job(jobName="pyshepseg_prepare",
-            jobQueue=cmdargs.jobqueue,
-            jobDefinition=cmdargs.jobdefntile,
-            containerOverrides={
-                "command": ['/usr/bin/python3', '/ubarscsw/bin/do_prepare.py',
+    cmd = ['/usr/bin/python3', '/ubarscsw/bin/do_prepare.py',
                     '--bucket', cmdargs.bucket, '--pickle', PICKLE_NAME,
                     '--infile', cmdargs.infile, '--outfile', cmdargs.outfile,
                     '--bands', cmdargs.bands, '--tilesize', str(cmdargs.tilesize), 
                     '--overlapsize', str(cmdargs.overlapsize),
                     '--jobqueue', cmdargs.jobqueue, 
                     '--jobdefntile', cmdargs.jobdefntile,
-                    '--jobdefnstitch', cmdargs.jobdefnstitch]})
+                    '--jobdefnstitch', cmdargs.jobdefnstitch,
+                    '--minSegmentSize', str(cmdargs.minSegmentSize),
+                    '--numClusters', str(cmdargs.numClusters),
+                    '--maxSpectDiff', cmdargs.maxSpectDiff,
+                    '--spectDistPcntile', str(cmdargs.spectDistPcntile)]
+    if cmdargs.stats is not None:
+        cmd.extend(['--stats', cmdargs.stats])
+
+    # submit the prepare job
+    response = batch.submit_job(jobName="pyshepseg_prepare",
+            jobQueue=cmdargs.jobqueue,
+            jobDefinition=cmdargs.jobdefntile,
+            containerOverrides={
+                "command": cmd})
     prepareId = response['jobId']
     print('Prepare Job Id', prepareId)
     

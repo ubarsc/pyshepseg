@@ -37,6 +37,12 @@ def getCmdargs():
         help="Path in --bucket to use as input file")
     p.add_argument("--pickle", required=True,
         help="name of pickle with the result of the preparation")
+    p.add_argument("--minSegmentSize", type=int, default=50, required=False,
+        help="Segment size for segmentation (default=%(default)s)")
+    p.add_argument("--maxSpectDiff", required=False, default='auto',
+        help="Maximum spectral difference for segmentation (default=%(default)s)")
+    p.add_argument("--spectDistPcntile", type=int, default=50, required=False,
+        help="Spectral Distance Percentile for segmentation (default=%(default)s)")
 
     cmdargs = p.parse_args()
 
@@ -74,6 +80,11 @@ def main():
     filename = 'tile_{}_{}.{}'.format(col, row, 'tif')
     filename = os.path.join(tempDir, filename)
 
+    # test if int
+    maxSpectDiff = cmdargs.maxSpectDiff
+    if maxSpectDiff != 'auto':
+        maxSpectDiff = int(maxSpectDiff)
+
     # run the segmentation on this tile.
     # save the result as a GTiff so do_stitch.py can open this tile
     # directly from S3.
@@ -81,6 +92,8 @@ def main():
     tiling.doTiledShepherdSegmentation_doOne(inDs, filename,
         dataFromPickle['tileInfo'], col, row, dataFromPickle['bandNumbers'],
         dataFromPickle['imgNullVal'], dataFromPickle['kmeansObj'], 
+        minSegmentSize=cmdargs.minSegmentSize,
+        spectDistPcntile=cmdargs.spectDistPcntile, maxSpectDiff=maxSpectDiff,
         tempfilesDriver='GTiff', tempfilesCreationOptions=['COMPRESS=DEFLATE',
         'ZLEVEL=1', 'PREDICTOR=2', 'TILED=YES', 'INTERLEAVE=BAND', 
         'BIGTIFF=NO', 'BLOCKXSIZE=512', 'BLOCKYSIZE=512'])
