@@ -132,5 +132,6 @@ def main():
     maxMem = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
     print('Max Mem Usage', maxMem)
 
+
 if __name__ == '__main__':
     main()

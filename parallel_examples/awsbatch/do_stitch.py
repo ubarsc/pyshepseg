@@ -21,6 +21,7 @@ from osgeo import gdal
 
 gdal.UseExceptions()
 
+
 def getCmdargs():
     """
     Process the command line arguments.
@@ -82,6 +83,9 @@ def main():
 
     # now do any stats the user has asked for
     if cmdargs.stats is not None:
+        # need the histogram for stats
+        tiling.calcHistogramTiled(localOutfile, maxSegId, writeToRat=True)
+
         bucket, stats = cmdargs.stats.split(':')
         with io.BytesIO() as fileobj:
             s3.download_fileobj(bucket, stats, fileobj)
@@ -107,6 +111,7 @@ def main():
     shutil.rmtree(tempDir)
     maxMem = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
     print('Max Mem Usage', maxMem)
+
 
 if __name__ == '__main__':
     main()
