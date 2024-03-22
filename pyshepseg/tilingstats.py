@@ -68,9 +68,9 @@ def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile,
         Path to input file for collecting statistics from
       imgbandnum : int
         1-based index of the band number in imgfile to use for collecting stats
-      segfile : string
-        Path to segmented file. Will collect stats in imgfile for each segment
-        in this file.
+      segfile : str or gdal.Dataset
+        Path to segmented file or an open GDAL dataset. Will collect stats 
+        in imgfile for each segment in this file.
       statsSelection : list of tuples.
         One tuple for each statistic to be included. Each tuple is either 2
         or 3 elements::
@@ -1007,9 +1007,9 @@ def calcPerSegmentSpatialStatsTiled(imgfile, imgbandnum, segfile,
         Path to input file for collecting statistics from
       imgbandnum : int
         1-based index of the band number in imgfile to use for collecting stats
-      segfile : string
-        Path to segmented file. Will collect stats in imgfile for each segment
-        in this file.
+      segfile : str or gdal.Dataset
+        Path to segmented file or an open GDAL Dataset. Will collect stats 
+        in imgfile for each segment in this file.
       colNamesAndTypes : list of ``(colName, colType)`` tuples
         This defines the names, types and order of the output RAT columns.
         ``colName`` should be a string containing the name of the RAT column to be

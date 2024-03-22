@@ -46,6 +46,9 @@ def getCmdargs():
         help="Name of Job Definition to use for the stitch job. (default=%(default)s)")
     p.add_argument("--stats", help="path to json file specifying stats in format:" +
         "bucket:path/in/bucket.json")
+    p.add_argument("--nogdalstats", action="store_true", default=False,
+        help="don't calculate GDAL's statistics or write a colour table. " + 
+            "Can't be used with --stats.")
     p.add_argument("--minSegmentSize", type=int, default=50, required=False,
         help="Segment size for segmentation (default=%(default)s)")
     p.add_argument("--numClusters", type=int, default=60, required=False,
@@ -121,6 +124,8 @@ def main():
         '--overlapsize', str(cmdargs.overlapsize)]
     if cmdargs.stats is not None:
         cmd.extend(['--stats', cmdargs.stats])
+    if cmdargs.nogdalstats:
+        cmd.append('--nogdalstats')
 
     response = batch.submit_job(jobName="pyshepseg_stitch",
         jobQueue=cmdargs.jobqueue,

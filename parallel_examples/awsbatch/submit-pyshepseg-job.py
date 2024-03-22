@@ -45,6 +45,9 @@ def getCmdargs():
     p.add_argument("--stats", help="path to json file specifying stats in format:" +
         "bucket:path/in/bucket.json. Contents must be a list of [img, band, " +
         "statsSelection] tuples.")
+    p.add_argument("--nogdalstats", action="store_true", default=False,
+        help="don't calculate GDAL's statistics or write a colour table. " + 
+            "Can't be used with --stats.")
     p.add_argument("--minSegmentSize", type=int, default=50, required=False,
         help="Segment size for segmentation (default=%(default)s)")
     p.add_argument("--numClusters", type=int, default=60, required=False,
@@ -79,6 +82,8 @@ def main():
         '--spectDistPcntile', str(cmdargs.spectDistPcntile)]
     if cmdargs.stats is not None:
         cmd.extend(['--stats', cmdargs.stats])
+    if cmd.nogdalstats:
+        cmd.append('--nogdalstats')
 
     # submit the prepare job
     response = batch.submit_job(jobName="pyshepseg_prepare",
