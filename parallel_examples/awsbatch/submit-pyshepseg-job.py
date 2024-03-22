@@ -82,7 +82,7 @@ def main():
         '--spectDistPcntile', str(cmdargs.spectDistPcntile)]
     if cmdargs.stats is not None:
         cmd.extend(['--stats', cmdargs.stats])
-    if cmd.nogdalstats:
+    if cmdargs.nogdalstats:
         cmd.append('--nogdalstats')
 
     # submit the prepare job
