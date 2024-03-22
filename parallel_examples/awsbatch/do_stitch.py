@@ -9,13 +9,17 @@ Uplaods the resulting segmentation to S3.
 
 import io
 import os
+import json
 import pickle
+import resource
 import argparse
 import tempfile
 import shutil
 import boto3
-from pyshepseg import tiling
+from pyshepseg import tiling, tilingstats, utils
 from osgeo import gdal
+
+gdal.UseExceptions()
 
 
 def getCmdargs():
@@ -33,6 +37,11 @@ def getCmdargs():
         help="name of pickle with the result of the preparation")
     p.add_argument("--overlapsize", required=True, type=int,
         help="Tile Overlap to use. (default=%(default)s)")
+    p.add_argument("--stats", help="path to json file specifying stats in format:" +
+        "bucket:path/in/bucket.json")
+    p.add_argument("--nogdalstats", action="store_true", default=False,
+        help="don't calculate GDAL's statistics or write a colour table. " + 
+            "Can't be used with --stats.")
 
     cmdargs = p.parse_args()
 
@@ -75,6 +84,33 @@ def main():
         inDs, localOutfile, tileFilenames, dataFromPickle['tileInfo'], 
         cmdargs.overlapsize, tempDir)
 
+    # open for the creation of stats
+    localDs = gdal.Open(localOutfile, gdal.GA_Update)
+
+    if not cmdargs.nogdalstats:
+        # need the histogram for stats
+        hist = tiling.calcHistogramTiled(localDs, maxSegId, writeToRat=True)
+
+        band = localDs.GetRasterBand(1)
+        utils.estimateStatsFromHisto(band, hist)
+        utils.writeRandomColourTable(band, maxSegId + 1)
+
+    # now do any stats the user has asked for
+    if cmdargs.stats is not None:
+
+        bucket, stats = cmdargs.stats.split(':')
+        with io.BytesIO() as fileobj:
+            s3.download_fileobj(bucket, stats, fileobj)
+            fileobj.seek(0)
+
+            dataForStats = json.load(fileobj)
+            for img, bandnum, selection in dataForStats:
+                tilingstats.calcPerSegmentStatsTiled(img, bandnum, 
+                    localDs, selection)
+
+    # ensure closed before uploading
+    del localDs
+
     # upload the KEA file
     s3.upload_file(localOutfile, cmdargs.bucket, cmdargs.outfile)
 
@@ -88,6 +124,8 @@ def main():
 
     # cleanup
     shutil.rmtree(tempDir)
+    maxMem = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    print('Max Mem Usage', maxMem)
 
 
 if __name__ == '__main__':

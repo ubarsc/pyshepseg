@@ -33,6 +33,8 @@ from . import shepseg
 
 from osgeo import gdal
 
+gdal.UseExceptions()
+
 DEFAULT_MINOVERVIEWDIM = 100
 DEFAULT_OVERVIEWLEVELS = [4, 8, 16, 32, 64, 128, 256, 512]
 

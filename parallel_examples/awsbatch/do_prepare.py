@@ -11,6 +11,7 @@ other jobs required to do the tiled segmentation.
 
 import io
 import pickle
+import resource
 import argparse
 import boto3
 from pyshepseg import tiling
@@ -35,7 +36,7 @@ def getCmdargs():
         help="Tile Overlap to use. (default=%(default)s)")
     p.add_argument("--pickle", required=True,
         help="name of pickle to save result of preparation into")
-    p.add_argument("--region", default="eu-central-1",
+    p.add_argument("--region", default="us-west-2",
         help="Region to run the jobs in. (default=%(default)s)")
     p.add_argument("--jobqueue", default="PyShepSegBatchProcessingJobQueue",
         help="Name of Job Queue to use. (default=%(default)s)")
@@ -43,6 +44,19 @@ def getCmdargs():
         help="Name of Job Definition to use for tile jobs. (default=%(default)s)")
     p.add_argument("--jobdefnstitch", default="PyShepSegBatchJobDefinitionStitch",
         help="Name of Job Definition to use for the stitch job. (default=%(default)s)")
+    p.add_argument("--stats", help="path to json file specifying stats in format:" +
+        "bucket:path/in/bucket.json")
+    p.add_argument("--nogdalstats", action="store_true", default=False,
+        help="don't calculate GDAL's statistics or write a colour table. " + 
+            "Can't be used with --stats.")
+    p.add_argument("--minSegmentSize", type=int, default=50, required=False,
+        help="Segment size for segmentation (default=%(default)s)")
+    p.add_argument("--numClusters", type=int, default=60, required=False,
+        help="Number of clusters for segmentation (default=%(default)s)")
+    p.add_argument("--maxSpectDiff", required=False, default='auto',
+        help="Maximum spectral difference for segmentation (default=%(default)s)")
+    p.add_argument("--spectDistPcntile", type=int, default=50, required=False,
+        help="Spectral Distance Percentile for segmentation (default=%(default)s)")
 
     cmdargs = p.parse_args()
     # turn string of bands into list of ints
@@ -71,7 +85,8 @@ def main():
     inDs, bandNumbers, kmeansObj, subsamplePcnt, imgNullVal, tileInfo = (
         tiling.doTiledShepherdSegmentation_prepare(inPath, 
         bandNumbers=cmdargs.bands, tileSize=cmdargs.tilesize, 
-        overlapSize=cmdargs.overlapsize))
+        overlapSize=cmdargs.overlapsize, 
+        numClusters=cmdargs.numClusters))
 
     # pickle the required input data that each of the tiles will need
     colRowList = sorted(tileInfo.tiles.keys(), key=lambda x: (x[1], x[0]))
@@ -89,7 +104,10 @@ def main():
     containerOverrides = {
         "command": ['/usr/bin/python3', '/ubarscsw/bin/do_tile.py',
         '--bucket', cmdargs.bucket, '--pickle', cmdargs.pickle,
-        '--infile', cmdargs.infile]}
+        '--infile', cmdargs.infile, 
+        '--minSegmentSize', str(cmdargs.minSegmentSize),
+        '--maxSpectDiff', cmdargs.maxSpectDiff, 
+        '--spectDistPcntile', str(cmdargs.spectDistPcntile)]}
     response = batch.submit_job(jobName="pyshepseg_tiles",
         jobQueue=cmdargs.jobqueue,
         jobDefinition=cmdargs.jobdefntile,
@@ -100,17 +118,24 @@ def main():
 
     # now submit a dependent job with the stitching
     # this one only runs when the array jobs are all done
-    containerOverrides = {
-        "command": ['/usr/bin/python3', '/ubarscsw/bin/do_stitch.py',
+    cmd = ['/usr/bin/python3', '/ubarscsw/bin/do_stitch.py',
         '--bucket', cmdargs.bucket, '--outfile', cmdargs.outfile,
         '--infile', cmdargs.infile, '--pickle', cmdargs.pickle,
-        '--overlapsize', str(cmdargs.overlapsize)]}
+        '--overlapsize', str(cmdargs.overlapsize)]
+    if cmdargs.stats is not None:
+        cmd.extend(['--stats', cmdargs.stats])
+    if cmdargs.nogdalstats:
+        cmd.append('--nogdalstats')
+
     response = batch.submit_job(jobName="pyshepseg_stitch",
         jobQueue=cmdargs.jobqueue,
         jobDefinition=cmdargs.jobdefnstitch,
         dependsOn=[{'jobId': tilesJobId}],
-        containerOverrides=containerOverrides)
+        containerOverrides={
+            "command": cmd})
     print('Stitching Job Id', response['jobId'])
+    maxMem = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    print('Max Mem Usage', maxMem)
 
 
 if __name__ == '__main__':

@@ -36,6 +36,8 @@ from osgeo import gdal
 from . import shepseg
 from . import tiling
 
+gdal.UseExceptions()
+
 
 def subsetImage(inname, outname, tlx, tly, newXsize, newYsize, outformat,
         creationOptions=[], origSegIdColName=None, maskImage=None):
