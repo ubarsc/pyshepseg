@@ -28,8 +28,8 @@ def getCmdargs():
         help="Path in --bucket to use as input file")
     p.add_argument("--outfile", required=True,
         help="Path in --bucket to use as output file (.kea)")
-    p.add_argument("-b", "--bands", default="3,4,5", 
-        help="Comma seperated list of bands to use. 1-based. (default=%(default)s)")
+    p.add_argument("-b", "--bands",
+        help="Comma seperated list of bands to use. 1-based. Uses all bands by default.")
     p.add_argument("--tilesize", required=True, type=int,
         help="Tile Size to use. (default=%(default)s)")
     p.add_argument("--overlapsize", required=True, type=int,
@@ -59,8 +59,9 @@ def getCmdargs():
         help="Spectral Distance Percentile for segmentation (default=%(default)s)")
 
     cmdargs = p.parse_args()
-    # turn string of bands into list of ints
-    cmdargs.bands = [int(x) for x in cmdargs.bands.split(',')]
+    if cmdargs.bands is not None:
+        # turn string of bands into list of ints
+        cmdargs.bands = [int(x) for x in cmdargs.bands.split(',')]
 
     return cmdargs
 

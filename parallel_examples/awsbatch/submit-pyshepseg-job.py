@@ -26,8 +26,8 @@ def getCmdargs():
         help="Path in --bucket to use as input file")
     p.add_argument("--outfile", required=True,
         help="Path in --bucket to use as output file (.kea)")
-    p.add_argument("-b", "--bands", default="3,4,5", 
-        help="Comma seperated list of bands to use. 1-based. (default=%(default)s)")
+    p.add_argument("-b", "--bands",
+        help="Comma seperated list of bands to use. 1-based. Uses all bands by default.")
     p.add_argument("--jobqueue", default="PyShepSegBatchProcessingJobQueue",
         help="Name of Job Queue to use. (default=%(default)s)")
     p.add_argument("--jobdefnprepare", default="PyShepSegBatchJobDefinitionTile",
@@ -71,7 +71,7 @@ def main():
         '--region', cmdargs.region,
         '--bucket', cmdargs.bucket, '--pickle', PICKLE_NAME,
         '--infile', cmdargs.infile, '--outfile', cmdargs.outfile,
-        '--bands', cmdargs.bands, '--tilesize', str(cmdargs.tilesize), 
+        '--tilesize', str(cmdargs.tilesize), 
         '--overlapsize', str(cmdargs.overlapsize),
         '--jobqueue', cmdargs.jobqueue, 
         '--jobdefntile', cmdargs.jobdefntile,
@@ -80,6 +80,8 @@ def main():
         '--numClusters', str(cmdargs.numClusters),
         '--maxSpectDiff', cmdargs.maxSpectDiff,
         '--spectDistPcntile', str(cmdargs.spectDistPcntile)]
+    if cmdargs.bands is not None:
+        cmd.extend(['--bands', cmdargs.bands])
     if cmdargs.stats is not None:
         cmd.extend(['--stats', cmdargs.stats])
     if cmdargs.nogdalstats:
