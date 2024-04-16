@@ -26,13 +26,38 @@ Resources:
       GroupDescription: EC2 Security Group for instances launched in the VPC by Batch
       VpcId:
         Ref: VPC
-  Subnet:
+  Subnet1:
     Type: AWS::EC2::Subnet
     Properties:
       CidrBlock: 10.0.0.0/24
       VpcId:
         Ref: VPC
+      # yes we do need public ips or NAT
+      # See https://repost.aws/knowledge-center/batch-job-stuck-runnable-status
       MapPublicIpOnLaunch: 'True'
+      AvailabilityZone: !Select 
+        - 0
+        - Fn::GetAZs: !Ref 'AWS::Region'
+  Subnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: 10.0.1.0/24
+      VpcId:
+        Ref: VPC
+      MapPublicIpOnLaunch: 'True'
+      AvailabilityZone: !Select 
+        - 1
+        - Fn::GetAZs: !Ref 'AWS::Region'
+  Subnet3:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: 10.0.2.0/24
+      VpcId:
+        Ref: VPC
+      MapPublicIpOnLaunch: 'True'
+      AvailabilityZone: !Select 
+        - 2
+        - Fn::GetAZs: !Ref 'AWS::Region'
   Route:
     Type: AWS::EC2::Route
     Properties:
@@ -41,13 +66,47 @@ Resources:
       DestinationCidrBlock: 0.0.0.0/0
       GatewayId:
         Ref: InternetGateway
-  SubnetRouteTableAssociation:
+  # Allow S3 traffic to go through an internet gateway
+  S3GatewayEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcEndpointType: 'Gateway'
+      VpcId: !Ref VPC
+      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.s3'
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal: '*'
+            Action: 
+               - 's3:*Object'
+               - 's3:ListBucket'
+            Resource: 
+               - 'arn:aws:s3:::*/*'
+               - 'arn:aws:s3:::*'
+      RouteTableIds:
+        - !Ref RouteTable
+  SubnetRouteTableAssociation1:
     Type: AWS::EC2::SubnetRouteTableAssociation
     Properties:
       RouteTableId:
         Ref: RouteTable
       SubnetId:
-        Ref: Subnet
+        Ref: Subnet1
+  SubnetRouteTableAssociation2:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId:
+        Ref: RouteTable
+      SubnetId:
+        Ref: Subnet2
+  SubnetRouteTableAssociation3:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId:
+        Ref: RouteTable
+      SubnetId:
+        Ref: Subnet3
   IamInstanceProfile:
     Type: AWS::IAM::InstanceProfile
     Properties:
@@ -157,7 +216,9 @@ Resources:
         #- a1.medium
         - optimal
         Subnets:
-        - Ref: Subnet
+        - Ref: Subnet1
+        - Ref: Subnet2
+        - Ref: Subnet3
         SecurityGroupIds:
         - Ref: SecurityGroup
         InstanceRole:
