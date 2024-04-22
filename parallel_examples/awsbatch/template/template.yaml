@@ -238,7 +238,7 @@ Resources:
            - DeviceName: /dev/xvda
              Ebs:
                VolumeType: gp2
-               VolumeSize: 64
+               VolumeSize: 1024
                DeleteOnTermination: true
        
 Outputs:
