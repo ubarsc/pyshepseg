@@ -179,7 +179,7 @@ Resources:
       ContainerProperties:
         Image: !Join ['', [!GetAtt BatchRepository.RepositoryUri, ":latest"]]
         Vcpus: 1
-        Memory: 8000
+        Memory: 16000
       RetryStrategy:
         Attempts: 1
   # Job for stitching tiles together 
@@ -211,7 +211,7 @@ Resources:
         Type: EC2
         MinvCpus: 0
         DesiredvCpus: 0
-        MaxvCpus: 32
+        MaxvCpus: 1024
         InstanceTypes:
         #- a1.medium
         - optimal

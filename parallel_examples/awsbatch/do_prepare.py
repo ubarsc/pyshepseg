@@ -31,9 +31,9 @@ def getCmdargs():
     p.add_argument("-b", "--bands",
         help="Comma seperated list of bands to use. 1-based. Uses all bands by default.")
     p.add_argument("--tilesize", required=True, type=int,
-        help="Tile Size to use. (default=%(default)s)")
+        help="Tile Size to use.")
     p.add_argument("--overlapsize", required=True, type=int,
-        help="Tile Overlap to use. (default=%(default)s)")
+        help="Tile Overlap to use.")
     p.add_argument("--pickle", required=True,
         help="name of pickle to save result of preparation into")
     p.add_argument("--region", default="us-west-2",
