@@ -26,13 +26,38 @@ Resources:
       GroupDescription: EC2 Security Group for instances launched in the VPC by Batch
       VpcId:
         Ref: VPC
-  Subnet:
+  Subnet1:
     Type: AWS::EC2::Subnet
     Properties:
       CidrBlock: 10.0.0.0/24
       VpcId:
         Ref: VPC
+      # yes we do need public ips or NAT
+      # See https://repost.aws/knowledge-center/batch-job-stuck-runnable-status
       MapPublicIpOnLaunch: 'True'
+      AvailabilityZone: !Select 
+        - 0
+        - Fn::GetAZs: !Ref 'AWS::Region'
+  Subnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: 10.0.1.0/24
+      VpcId:
+        Ref: VPC
+      MapPublicIpOnLaunch: 'True'
+      AvailabilityZone: !Select 
+        - 1
+        - Fn::GetAZs: !Ref 'AWS::Region'
+  Subnet3:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: 10.0.2.0/24
+      VpcId:
+        Ref: VPC
+      MapPublicIpOnLaunch: 'True'
+      AvailabilityZone: !Select 
+        - 2
+        - Fn::GetAZs: !Ref 'AWS::Region'
   Route:
     Type: AWS::EC2::Route
     Properties:
@@ -41,30 +66,71 @@ Resources:
       DestinationCidrBlock: 0.0.0.0/0
       GatewayId:
         Ref: InternetGateway
-  SubnetRouteTableAssociation:
+  # Allow S3 traffic to go through an internet gateway
+  S3GatewayEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcEndpointType: 'Gateway'
+      VpcId: !Ref VPC
+      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.s3'
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal: '*'
+            Action: 
+               - 's3:*Object'
+               - 's3:ListBucket'
+            Resource: 
+               - 'arn:aws:s3:::*/*'
+               - 'arn:aws:s3:::*'
+      RouteTableIds:
+        - !Ref RouteTable
+  SubnetRouteTableAssociation1:
     Type: AWS::EC2::SubnetRouteTableAssociation
     Properties:
       RouteTableId:
         Ref: RouteTable
       SubnetId:
-        Ref: Subnet
-  BatchServiceRole:
-    Type: AWS::IAM::Role
+        Ref: Subnet1
+  SubnetRouteTableAssociation2:
+    Type: AWS::EC2::SubnetRouteTableAssociation
     Properties:
-      AssumeRolePolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-        - Effect: Allow
-          Principal:
-            Service: batch.amazonaws.com
-          Action: sts:AssumeRole
-      ManagedPolicyArns:
-      - arn:aws:iam::aws:policy/service-role/AWSBatchServiceRole
+      RouteTableId:
+        Ref: RouteTable
+      SubnetId:
+        Ref: Subnet2
+  SubnetRouteTableAssociation3:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId:
+        Ref: RouteTable
+      SubnetId:
+        Ref: Subnet3
   IamInstanceProfile:
     Type: AWS::IAM::InstanceProfile
     Properties:
       Roles:
       - Ref: EcsInstanceRole
+  SubmitJobsManagedPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      Description: Policy for allowing web site to submit Batch jobs
+      Path: /
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Action: 'batch:SubmitJob'
+          Resource:
+            # can't use resources directly as causes a circular dependency
+            # but we know what the names will be
+            #- !Ref BatchProcessingJobDefinitionTile
+            #- !Ref BatchProcessingJobDefinitionStitch
+            #- !Ref BatchProcessingJobQueue
+            - !Sub 'arn:aws:batch:${AWS::Region}:${AWS::AccountId}:job-definition/PyShepSegBatchJobDefinitionTile:*'
+            - !Sub 'arn:aws:batch:${AWS::Region}:${AWS::AccountId}:job-definition/PyShepSegBatchJobDefinitionStitch:*'
+            - !Sub 'arn:aws:batch:${AWS::Region}:${AWS::AccountId}:job-queue/PyShepSegBatchProcessingJobQueue'
   EcsInstanceRole:
     Type: AWS::IAM::Role
     Properties:
@@ -80,6 +146,30 @@ Resources:
       - arn:aws:iam::aws:policy/service-role/AmazonEC2ContainerServiceforEC2Role
       - arn:aws:iam::aws:policy/AmazonS3FullAccess
       - arn:aws:iam::aws:policy/service-role/AWSBatchServiceEventTargetRole
+      - !Ref SubmitJobsManagedPolicy
+  BatchRepository:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: pyshepseg
+      LifecyclePolicy:
+        LifecyclePolicyText: |
+          {
+            "rules": [
+                {
+                    "rulePriority": 1,
+                    "description": "Expire images older than 1 day",
+                    "selection": {
+                        "tagStatus": "untagged",
+                        "countType": "sinceImagePushed",
+                        "countUnit": "days",
+                        "countNumber": 1
+                    },
+                    "action": {
+                        "type": "expire"
+                    }
+                }
+            ]
+          }
   # Job for doing individual tiles
   BatchProcessingJobDefinitionTile:
     Type: AWS::Batch::JobDefinition
@@ -87,15 +177,9 @@ Resources:
       Type: container
       JobDefinitionName: PyShepSegBatchJobDefinitionTile
       ContainerProperties:
-        Image:
-          Fn::Join:
-          - ''
-          - - Ref: AWS::AccountId
-            - .dkr.ecr.
-            - Ref: AWS::Region
-            - ".amazonaws.com/ubarsc_parallel_seg:latest"
+        Image: !Join ['', [!GetAtt BatchRepository.RepositoryUri, ":latest"]]
         Vcpus: 1
-        Memory: 4000
+        Memory: 16000
       RetryStrategy:
         Attempts: 1
   # Job for stitching tiles together 
@@ -105,13 +189,7 @@ Resources:
       Type: container
       JobDefinitionName: PyShepSegBatchJobDefinitionStitch
       ContainerProperties:
-        Image:
-          Fn::Join:
-          - ''
-          - - Ref: AWS::AccountId
-            - .dkr.ecr.
-            - Ref: AWS::Region
-            - ".amazonaws.com/ubarsc_parallel_seg:latest"
+        Image: !Join ['', [!GetAtt BatchRepository.RepositoryUri, ":latest"]]
         Vcpus: 1
         Memory: 8000
       RetryStrategy:
@@ -133,18 +211,35 @@ Resources:
         Type: EC2
         MinvCpus: 0
         DesiredvCpus: 0
-        MaxvCpus: 32
+        MaxvCpus: 1024
         InstanceTypes:
         #- a1.medium
         - optimal
         Subnets:
-        - Ref: Subnet
+        - Ref: Subnet1
+        - Ref: Subnet2
+        - Ref: Subnet3
         SecurityGroupIds:
         - Ref: SecurityGroup
         InstanceRole:
           Ref: IamInstanceProfile
-      ServiceRole:
-        Ref: BatchServiceRole
+        LaunchTemplate:
+          LaunchTemplateId: !Ref LaunchTemplate
+          Version: !GetAtt LaunchTemplate.LatestVersionNumber
+  # Launch template - increase default storage available
+  # https://repost.aws/knowledge-center/batch-job-failure-disk-space
+  # https://docs.aws.amazon.com/batch/latest/userguide/launch-templates.html
+  # Probably don't need this for all job types, but that would mean different queues
+  LaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateData:
+         BlockDeviceMappings:
+           - DeviceName: /dev/xvda
+             Ebs:
+               VolumeType: gp2
+               VolumeSize: 1024
+               DeleteOnTermination: true
        
 Outputs:
   ComputeEnvironmentArn:

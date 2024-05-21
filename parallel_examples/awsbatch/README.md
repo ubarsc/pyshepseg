@@ -5,6 +5,13 @@ to run the tiled segmentation in parallel on AWS Batch.
 
 ## Contents
 
+`submit-pyshepseg-job.py`
+
+Can be run to submit a tile segmentation to AWS Batch. CloudFormation and 
+Docker Image must have been run beforehand.
+
+See the output of `submit-pyshepseg-job.py --help` for more information.
+
 ### CloudFormation
 
 `template/template.yaml`
@@ -33,13 +40,10 @@ AWS Batch requires a Docker image to be pushed to AWS ECR.
 Contains instructions for creating a Docker Image with the required software
 to perform the tiled segmentation.
 
-`build_docker.sh`
+`Makefile`
 
-Builds the Docker Image from Dockerfile
-
-`push_to_ecr.sh`
-
-Pushes the Docker Image to a repository on AWS ECR called "ubarsc_parallel_seg". Note this 
+Builds the Docker Image from Dockerfile and pushes the Docker Image to a 
+repository on AWS ECR called "ubarsc_parallel_seg". Note this 
 repository is NOT created by the CloudFormation script above.
 
 ### Supporting Scripts

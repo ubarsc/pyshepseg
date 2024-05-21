@@ -70,6 +70,8 @@ from .guardeddecorators import jitclass
 
 from . import shepseg
 
+gdal.UseExceptions()
+
 DFLT_TEMPFILES_DRIVER = 'KEA'
 DFLT_TEMPFILES_EXT = 'kea'
 
@@ -659,7 +661,7 @@ def doTiledShepherdSegmentation_finalize(inDs, outfile, tileFilenames, tileInfo,
     doTiledShepherdSegmentation_doOne() has completed for a given tiled
     segmentation.
 
-    Returns a tuple with (axSegId, hasEmptySegments).
+    Returns a tuple with (maxSegId, hasEmptySegments).
 
     """
         
