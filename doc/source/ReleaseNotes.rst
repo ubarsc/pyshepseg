@@ -1,6 +1,16 @@
 Pyshepseg Release Notes
 =======================
 
+Version 2.0.1 (2024-05-21)
+--------------------------
+
+New Features:
+  * Many fixes and improvements to the AWS Batch support. Most notably,
+    statistics can now be calculated before the "stitch" job finishes.
+
+Bug Fixes:
+  * Fix tiling code with recent scipy (>1.9.0).
+
 Version 2.0.0 (2023-01-04)
 --------------------------
 
