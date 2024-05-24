@@ -33,12 +33,19 @@ def getCmdargs():
         help="Path in --bucket to use as input file")
     p.add_argument("--outfile", required=True,
         help="Path in --bucket to use as output file (.kea)")
+    p.add_argument("--tileprefix", required=True,
+        help="Unique prefix to save the output tiles with.")
     p.add_argument("--pickle", required=True,
         help="name of pickle with the result of the preparation")
     p.add_argument("--overlapsize", required=True, type=int,
         help="Tile Overlap to use. (default=%(default)s)")
     p.add_argument("--stats", help="path to json file specifying stats in format:" +
-        "bucket:path/in/bucket.json")
+        "bucket:path/in/bucket.json. Contents must be a list of [img, band, " +
+        "statsSelection] tuples.")
+    p.add_argument("--spatialstats", help="path to json file specifying spatial " +
+        "stats in format: bucket:path/in/bucket.jso. Contents must be a list of " +
+        "[img, band, [list of (colName, colType) tuples], name-of-userfunc, param]" +
+        " tuples.")
     p.add_argument("--nogdalstats", action="store_true", default=False,
         help="don't calculate GDAL's statistics or write a colour table. " + 
             "Can't be used with --stats.")
@@ -72,7 +79,8 @@ def main():
     # Note: this needs to match do_tile.py.
     tileFilenames = {}
     for col, row in dataFromPickle['colRowList']:
-        filename = '/vsis3/' + cmdargs.bucket + '/' + 'tile_{}_{}.{}'.format(col, row, 'tif')
+        filename = '/vsis3/' + cmdargs.bucket + '/' + '{}_{}_{}.{}'.format(
+            cmdargs.tileprefix, col, row, 'tif')
         tileFilenames[(col, row)] = filename    
 
     # save the KEA file to the local path first
@@ -98,15 +106,35 @@ def main():
     # now do any stats the user has asked for
     if cmdargs.stats is not None:
 
-        bucket, stats = cmdargs.stats.split(':')
+        bucket, statsKey = cmdargs.stats.split(':')
         with io.BytesIO() as fileobj:
-            s3.download_fileobj(bucket, stats, fileobj)
+            s3.download_fileobj(bucket, statsKey, fileobj)
             fileobj.seek(0)
 
             dataForStats = json.load(fileobj)
             for img, bandnum, selection in dataForStats:
+                print(img, bandnum, selection)
                 tilingstats.calcPerSegmentStatsTiled(img, bandnum, 
                     localDs, selection)
+
+    if cmdargs.spatialstats is not None:
+        bucket, spatialstatsKey = cmdargs.spatialstats.split(':')
+        with io.BytesIO() as fileobj:
+            s3.download_fileobj(bucket, spatialstatsKey, fileobj)
+            fileobj.seek(0)
+
+            dataForStats = json.load(fileobj)
+            for img, bandnum, colInfo, userFuncName, param in dataForStats:
+                print(img, bandnum, colInfo, userFuncName, params)
+                if (not userFunc.startswith('userFunc') 
+                        or not hasattr(tilingstats, userFuncName)):
+                    raise ValueError("'userFunc' must be a function starting " +
+                        "with 'userFunc' in the tilingstats module")
+
+                userFunc = getattr(tilingstats, userFuncName)
+                tilingstats.calcPerSegmentSpatialStatsTiled(img, bandnum, 
+                    localDs, colInfo, userFunc, param)
+                    
 
     # ensure closed before uploading
     del localDs
@@ -116,6 +144,11 @@ def main():
 
     # cleanup temp files from S3
     objs = [{'Key': cmdargs.pickle}]
+    if cmdargs.stats is not None:
+        objs.append({'Key': statsKey)
+    if cmdargs.spatialstats is not None:
+        objs.append({'Key': spatialstatsKey)
+
     for col, row in tileFilenames:
         filename = 'tile_{}_{}.{}'.format(col, row, 'tif')
         objs.append({'Key': filename})
