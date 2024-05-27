@@ -92,6 +92,17 @@ def main():
         inDs, localOutfile, tileFilenames, dataFromPickle['tileInfo'], 
         cmdargs.overlapsize, tempDir)
 
+    # clean up files to release space
+    objs = []
+    for col, row in tileFilenames:
+        filename = '{}_{}_{}.{}'.format(cmdargs.tileprefix, col, row, 'tif')
+        objs.append({'Key': filename})
+
+    # workaround 1000 at a time limit
+    while len(objs) > 0:
+        s3.delete_objects(Bucket=cmdargs.bucket, Delete={'Objects': objs[0:1000]})
+        del objs[0:1000]
+
     # open for the creation of stats
     localDs = gdal.Open(localOutfile, gdal.GA_Update)
 
@@ -125,16 +136,15 @@ def main():
 
             dataForStats = json.load(fileobj)
             for img, bandnum, colInfo, userFuncName, param in dataForStats:
-                print(img, bandnum, colInfo, userFuncName, params)
-                if (not userFunc.startswith('userFunc') 
-                        or not hasattr(tilingstats, userFuncName)):
+                print(img, bandnum, colInfo, userFuncName, param)
+                if (not userFuncName.startswith('userFunc') or
+                        not hasattr(tilingstats, userFuncName)):
                     raise ValueError("'userFunc' must be a function starting " +
                         "with 'userFunc' in the tilingstats module")
 
                 userFunc = getattr(tilingstats, userFuncName)
                 tilingstats.calcPerSegmentSpatialStatsTiled(img, bandnum, 
                     localDs, colInfo, userFunc, param)
-                    
 
     # ensure closed before uploading
     del localDs
@@ -145,13 +155,9 @@ def main():
     # cleanup temp files from S3
     objs = [{'Key': cmdargs.pickle}]
     if cmdargs.stats is not None:
-        objs.append({'Key': statsKey)
+        objs.append({'Key': statsKey})
     if cmdargs.spatialstats is not None:
-        objs.append({'Key': spatialstatsKey)
-
-    for col, row in tileFilenames:
-        filename = 'tile_{}_{}.{}'.format(col, row, 'tif')
-        objs.append({'Key': filename})
+        objs.append({'Key': spatialstatsKey})
 
     s3.delete_objects(Bucket=cmdargs.bucket, Delete={'Objects': objs})
 

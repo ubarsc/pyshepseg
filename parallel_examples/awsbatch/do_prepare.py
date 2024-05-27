@@ -128,6 +128,7 @@ def main():
     # this one only runs when the array jobs are all done
     cmd = ['/usr/bin/python3', '/ubarscsw/bin/do_stitch.py',
         '--bucket', cmdargs.bucket, '--outfile', cmdargs.outfile,
+        '--tileprefix', cmdargs.tileprefix,
         '--infile', cmdargs.infile, '--pickle', cmdargs.pickle,
         '--overlapsize', str(cmdargs.overlapsize)]
     if cmdargs.stats is not None:
