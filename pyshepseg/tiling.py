@@ -454,7 +454,8 @@ def doTiledShepherdSegmentation(infile, outfile, tileSize=DFLT_TILESIZE,
         right and bottom edges of the input image may end up slightly
         larger than tileSize to ensure there are no small tiles.
       overlapSize : int
-        Number of pixels to overlap tiles (??? should give more precise detail....)
+        Number of pixels to overlap tiles. The overlap area is a rectangle,
+        this many pixels wide, which is covered by both adjacent tiles.
       minSegmentSize : int
         Minimum number of pixels in a segment
       numClusters : int
