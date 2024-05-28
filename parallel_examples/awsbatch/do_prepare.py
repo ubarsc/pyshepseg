@@ -34,6 +34,8 @@ def getCmdargs():
         help="Tile Size to use.")
     p.add_argument("--overlapsize", required=True, type=int,
         help="Tile Overlap to use.")
+    p.add_argument("--tileprefix", default='tile',
+        help="Unique prefix to save the output tiles with. (default=%(default)s)")
     p.add_argument("--pickle", required=True,
         help="name of pickle to save result of preparation into")
     p.add_argument("--region", default="us-west-2",
@@ -45,10 +47,15 @@ def getCmdargs():
     p.add_argument("--jobdefnstitch", default="PyShepSegBatchJobDefinitionStitch",
         help="Name of Job Definition to use for the stitch job. (default=%(default)s)")
     p.add_argument("--stats", help="path to json file specifying stats in format:" +
-        "bucket:path/in/bucket.json")
+        "bucket:path/in/bucket.json. Contents must be a list of [img, band, " +
+        "statsSelection] tuples.")
+    p.add_argument("--spatialstats", help="path to json file specifying spatial " +
+        "stats in format: bucket:path/in/bucket.jso. Contents must be a list of " +
+        "[img, band, [list of (colName, colType) tuples], name-of-userfunc, param]" +
+        " tuples.")
     p.add_argument("--nogdalstats", action="store_true", default=False,
         help="don't calculate GDAL's statistics or write a colour table. " + 
-            "Can't be used with --stats.")
+            "Can't be used with --stats or --spatialstats.")
     p.add_argument("--minSegmentSize", type=int, default=50, required=False,
         help="Segment size for segmentation (default=%(default)s)")
     p.add_argument("--numClusters", type=int, default=60, required=False,
@@ -105,7 +112,7 @@ def main():
     containerOverrides = {
         "command": ['/usr/bin/python3', '/ubarscsw/bin/do_tile.py',
         '--bucket', cmdargs.bucket, '--pickle', cmdargs.pickle,
-        '--infile', cmdargs.infile, 
+        '--infile', cmdargs.infile, '--tileprefix', cmdargs.tileprefix,
         '--minSegmentSize', str(cmdargs.minSegmentSize),
         '--maxSpectDiff', cmdargs.maxSpectDiff, 
         '--spectDistPcntile', str(cmdargs.spectDistPcntile)]}
@@ -121,10 +128,13 @@ def main():
     # this one only runs when the array jobs are all done
     cmd = ['/usr/bin/python3', '/ubarscsw/bin/do_stitch.py',
         '--bucket', cmdargs.bucket, '--outfile', cmdargs.outfile,
+        '--tileprefix', cmdargs.tileprefix,
         '--infile', cmdargs.infile, '--pickle', cmdargs.pickle,
         '--overlapsize', str(cmdargs.overlapsize)]
     if cmdargs.stats is not None:
         cmd.extend(['--stats', cmdargs.stats])
+    if cmdargs.spatialstats is not None:
+        cmd.extend(['--spatialstats', cmdargs.spatialstats])
     if cmdargs.nogdalstats:
         cmd.append('--nogdalstats')
 

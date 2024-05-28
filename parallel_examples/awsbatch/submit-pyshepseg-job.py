@@ -26,6 +26,8 @@ def getCmdargs():
         help="Path in --bucket to use as input file")
     p.add_argument("--outfile", required=True,
         help="Path in --bucket to use as output file (.kea)")
+    p.add_argument("--tileprefix",
+        help="Unique prefix to save the output tiles with.")
     p.add_argument("-b", "--bands",
         help="Comma seperated list of bands to use. 1-based. Uses all bands by default.")
     p.add_argument("--jobqueue", default="PyShepSegBatchProcessingJobQueue",
@@ -45,9 +47,13 @@ def getCmdargs():
     p.add_argument("--stats", help="path to json file specifying stats in format:" +
         "bucket:path/in/bucket.json. Contents must be a list of [img, band, " +
         "statsSelection] tuples.")
+    p.add_argument("--spatialstats", help="path to json file specifying spatial " +
+        "stats in format: bucket:path/in/bucket.jso. Contents must be a list of " +
+        "[img, band, [list of (colName, colType) tuples], name-of-userfunc, param]" +
+        " tuples.")
     p.add_argument("--nogdalstats", action="store_true", default=False,
         help="don't calculate GDAL's statistics or write a colour table. " + 
-            "Can't be used with --stats.")
+            "Can't be used with --stats or --spatialstats.")
     p.add_argument("--minSegmentSize", type=int, default=50, required=False,
         help="Segment size for segmentation (default=%(default)s)")
     p.add_argument("--numClusters", type=int, default=60, required=False,
@@ -84,8 +90,12 @@ def main():
         cmd.extend(['--bands', cmdargs.bands])
     if cmdargs.stats is not None:
         cmd.extend(['--stats', cmdargs.stats])
+    if cmdargs.spatialstats is not None:
+        cmd.extend(['--spatialstats', cmdargs.spatialstats])
     if cmdargs.nogdalstats:
         cmd.append('--nogdalstats')
+    if cmdargs.tileprefix is not None:
+        cmd.extend(['--tileprefix', cmdargs.tileprefix])
 
     # submit the prepare job
     response = batch.submit_job(jobName="pyshepseg_prepare",

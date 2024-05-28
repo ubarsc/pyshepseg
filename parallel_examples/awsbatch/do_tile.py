@@ -38,6 +38,8 @@ def getCmdargs():
         help="S3 Bucket to use")
     p.add_argument("--infile", required=True,
         help="Path in --bucket to use as input file")
+    p.add_argument("--tileprefix", required=True,
+        help="Unique prefix to save the output tiles with.")
     p.add_argument("--pickle", required=True,
         help="name of pickle with the result of the preparation")
     p.add_argument("--minSegmentSize", type=int, default=50, required=False,
@@ -80,7 +82,8 @@ def main():
     # - they must match. Potentially a database or similar
     # could have been used to notify of the names of tiles 
     # but this would add more complexity.
-    filename = 'tile_{}_{}.{}'.format(col, row, 'tif')
+    filename = '{}_{}_{}.{}'.format(cmdargs.tileprefix, 
+        col, row, 'tif')
     filename = os.path.join(tempDir, filename)
 
     # test if int
