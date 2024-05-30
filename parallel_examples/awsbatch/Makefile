@@ -18,7 +18,7 @@ default: all
 # grab the current pyshepseg source tree and make it available to the 
 # docker COPY command
 dist:
-	cd ../../;python3 setup.py sdist --formats=gztar
+	cd ../../;python3 -m build .
 	cp ../../dist/pyshepseg-$(PYSHEPSEG_VER).tar.gz .
 
 # Login to ECR, build package and push to ECR

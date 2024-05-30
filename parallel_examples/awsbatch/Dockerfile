@@ -42,7 +42,7 @@ COPY pyshepseg-$PYSHEPSEG_VER.tar.gz /tmp
 # install RIOS
 RUN cd /tmp && tar xf pyshepseg-$PYSHEPSEG_VER.tar.gz \
     && cd pyshepseg-$PYSHEPSEG_VER \
-    && pip install . \
+    && DEB_PYTHON_INSTALL_LAYOUT=deb_system pip install . \
     && cd .. && rm -rf pyshepseg-$PYSHEPSEG_VER pyshepseg-$PYSHEPSEG_VER.tar.gz
 
 
