@@ -1,0 +1,40 @@
+# The installation requires pip>=23.0. If not, it will fail in rather
+# cryptic ways (depending exactly what options are used).
+#
+
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pyshepseg"
+dynamic = ["version"]
+authors = [
+  {name = "Sam Gillingham"},
+  {name = "Neil Flood"}
+]
+description = "Python implementation of the image segmentation algorithm described by Shepherd et al"
+readme = "README.md"
+license = {file = "LICENSE.txt"}
+
+dependencies = [
+    "numba",
+    "scikit-learn"
+]
+
+[project.scripts]
+pyshepseg_run_seg = "pyshepseg.cmdline.run_seg:main"
+pyshepseg_tiling = "pyshepseg.cmdline.tiling:main"
+pyshepseg_subset = "pyshepseg.cmdline.subset:main"
+pyshepseg_runtests = "pyshepseg.cmdline.runtests:main"
+pyshepseg_variograms = "pyshepseg.cmdline.variograms:main"
+
+[tool.setuptools]
+packages = ["pyshepseg", "pyshepseg.cmdline"]
+
+[tool.setuptools.dynamic]
+version = {attr = "pyshepseg.__version__"}
+
+[project.urls]
+Repository = "https://github.com/ubarsc/pyshepseg.git"
+Homepage = "https://www.pyshepseg.org"

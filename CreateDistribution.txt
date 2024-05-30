@@ -1,4 +1,5 @@
-How to create a distribution of pyshepseg. 
+How to create a distribution of pyshepseg. You will need the 'build' module
+installed ("conda install build" or "pip install build").
 
 1. Ensure that you have fetched and committed everything which needs to go in.
 2. Change the version number in the pyshepseg/__init__.py. Version number
@@ -7,19 +8,26 @@ How to create a distribution of pyshepseg.
    change logs since the last release, and noting what has been done. 
    DON'T FORGET TO COMMIT THIS, BEFORE THE NEXT STEP!!!!
 4. Push the changes to github with "git push". 
+
+   In practice, steps 2-3 are usually done as a single pull request, and
+   merged, rather than pushed directly, but I am skipping all the detail
+   of how to do a PR.
 5. Check out a clean copy of the repository into /tmp or
    somewhere similar and 'cd' into it.
-6. Create the distribution tarball, using
-    python setup.py sdist --formats=zip
-   This creates a zip file, under a subdirectory called dist
-7. Create a checksums this, e.g.
-       sha256sum pyshepseg-1.2.3.zip > pyshepseg-1.2.3.zip.sha256
+6. Create the distribution tar.gz, using
+       python -m build .
+   This creates a tar.gz file, under a subdirectory called dist
+       e.g. pyshepseg-1.2.3.tar.gz
+7. Create a checksum of this, e.g.
+       sha256sum pyshepseg-1.2.3.tar.gz > pyshepseg-1.2.3.tar.gz.sha256
 8. Go to the https://github.com/ubarsc/pyshepseg/releases page, and create a 
    new release by pressing "Draft a new release". 
    You should fill in the following:
        Tag version: pyshepseg-A.B.C
        Release Title: Version A.B.C
-       Upload files: Add the zip file and the checksum.
+       Description: Add a brief description (a few lines at most) explaining
+                    the key points about this release.
+       Upload files: Add the tar.gz file and the checksum.
        Click "Publish release"
        
 
