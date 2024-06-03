@@ -75,7 +75,6 @@ def main():
     if cmdargs.tileprefix is not None:
         pickleName = '{}_pyshepseg_tiling.pkl'.format(cmdargs.tileprefix)
 
-
     cmd = ['/usr/bin/python3', '/ubarscsw/bin/do_prepare.py',
         '--region', cmdargs.region,
         '--bucket', cmdargs.bucket, '--pickle', pickleName,
