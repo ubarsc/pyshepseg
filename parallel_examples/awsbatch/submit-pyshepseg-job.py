@@ -14,9 +14,6 @@ is dependent on all the do_tile.py jobs finishing.
 import argparse
 import boto3
 
-# name of pickle to save to S3 with the info needed for each tile
-PICKLE_NAME = 'pyshepseg_tiling.pkl'
-
 
 def getCmdargs():
     p = argparse.ArgumentParser()
@@ -73,9 +70,15 @@ def main():
     
     batch = boto3.client('batch', region_name=cmdargs.region)
 
+    pickleName = 'pyshepseg_tiling.pkl'
+    # make unique also if tiles are
+    if cmdargs.tileprefix is not None:
+        pickleName = '{}_pyshepseg_tiling.pkl'.format(cmdargs.tileprefix)
+
+
     cmd = ['/usr/bin/python3', '/ubarscsw/bin/do_prepare.py',
         '--region', cmdargs.region,
-        '--bucket', cmdargs.bucket, '--pickle', PICKLE_NAME,
+        '--bucket', cmdargs.bucket, '--pickle', pickleName,
         '--infile', cmdargs.infile, '--outfile', cmdargs.outfile,
         '--tilesize', str(cmdargs.tilesize), 
         '--overlapsize', str(cmdargs.overlapsize),
