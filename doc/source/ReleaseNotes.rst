@@ -1,6 +1,19 @@
 Pyshepseg Release Notes
 =======================
 
+Version 2.0.2 (2024-06-12)
+--------------------------
+
+New Features:
+  * Setup is now fully controlled by pyproject.toml, with no setup.py
+  * Add support for spatial stats within AWS Batch
+  * Add --tileprefix in AWS Batch so all temporary S3 files are unique. 
+    This allows multiple concurrent runs.
+
+Bug fixes:
+  * Add guard against subsampling >100% of the data
+  * Fix console_scripts syntax
+
 Version 2.0.1 (2024-05-21)
 --------------------------
 
