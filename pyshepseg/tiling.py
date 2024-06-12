@@ -68,13 +68,6 @@ from numba.core import types
 from numba.typed import Dict
 from .guardeddecorators import jitclass
 
-HAVE_RIOS = False
-try:
-    from rios import calcstats, cuiprogress
-    HAVE_RIOS = True
-except ImportError:
-    pass
-
 from . import shepseg
 
 gdal.UseExceptions()
@@ -434,7 +427,7 @@ def doTiledShepherdSegmentation(infile, outfile, tileSize=DFLT_TILESIZE,
         verbose=False, simpleTileRecode=False, outputDriver='KEA',
         creationOptions=[], spectDistPcntile=50, kmeansObj=None,
         tempfilesDriver=DFLT_TEMPFILES_DRIVER, tempfilesExt=DFLT_TEMPFILES_EXT,
-        tempfilesCreationOptions=[], docalcstats=HAVE_RIOS):
+        tempfilesCreationOptions=[], docalcstats=True):
     """
     Run the Shepherd segmentation algorithm in a memory-efficient
     manner, suitable for large raster files. Runs the segmentation
@@ -676,7 +669,7 @@ def doTiledShepherdSegmentation_doOne(inDs, filename, tileInfo, col, row,
 
 def doTiledShepherdSegmentation_finalize(inDs, outfile, tileFilenames, tileInfo, 
         overlapSize, tempDir, simpleTileRecode=False, outputDriver='KEA', 
-        creationOptions=[], verbose=False, docalcstats=HAVE_RIOS):
+        creationOptions=[], verbose=False, writeToRat=True):
     """
     Do the stitching of tiles and check for empty segments. Call after every 
     doTiledShepherdSegmentation_doOne() has completed for a given tiled
@@ -688,20 +681,13 @@ def doTiledShepherdSegmentation_finalize(inDs, outfile, tileFilenames, tileInfo,
     Returns a tuple with (maxSegId, hasEmptySegments, outDs).
 
     """
-    if docalcstats and not HAVE_RIOS:
-        msg = "RIOS not installed, statistics cannot be calculated"
-        raise PyShepSegTilingError(msg)
         
     maxSegId, outDs = stitchTiles(inDs, outfile, tileFilenames, tileInfo, overlapSize,
         tempDir, simpleTileRecode, outputDriver, creationOptions, verbose)
 
     hasEmptySegments = checkForEmptySegments(outfile, maxSegId, overlapSize,
-        writeToRat=docalcstats)
+        writeToRat=writeToRat)
 
-    if docalcstats:
-        progress = cuiprogress.SilentProgress()
-        calcstats.addPyramid(outDs, progress)
-    
     return maxSegId, hasEmptySegments, outDs
 
 

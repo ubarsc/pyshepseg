@@ -107,6 +107,7 @@ def main():
         band = localDs.GetRasterBand(1)
         utils.estimateStatsFromHisto(band, hist)
         utils.writeRandomColourTable(band, maxSegId + 1)
+        utils.addOverviews(localDs)
 
     # now do any stats the user has asked for
     if cmdargs.stats is not None:
