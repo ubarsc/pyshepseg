@@ -427,7 +427,7 @@ def doTiledShepherdSegmentation(infile, outfile, tileSize=DFLT_TILESIZE,
         verbose=False, simpleTileRecode=False, outputDriver='KEA',
         creationOptions=[], spectDistPcntile=50, kmeansObj=None,
         tempfilesDriver=DFLT_TEMPFILES_DRIVER, tempfilesExt=DFLT_TEMPFILES_EXT,
-        tempfilesCreationOptions=[], docalcstats=True):
+        tempfilesCreationOptions=[], writeHistogram=True):
     """
     Run the Shepherd segmentation algorithm in a memory-efficient
     manner, suitable for large raster files. Runs the segmentation
@@ -497,8 +497,8 @@ def doTiledShepherdSegmentation(infile, outfile, tileSize=DFLT_TILESIZE,
         File extension to use for temporary raster files
       tempfilesCreationOptions : list of str
         GDAL creation options to use for temporary raster files
-      docalcstats: bool
-        Whether to calculate statistics and overviews using RIOS
+      writeHistogram: bool
+        Whether to write histogram to file
 
     Returns
     -------
@@ -536,7 +536,7 @@ def doTiledShepherdSegmentation(infile, outfile, tileSize=DFLT_TILESIZE,
         
     maxSegId, hasEmptySegments, outDs = doTiledShepherdSegmentation_finalize(inDs, 
         outfile, tileFilenames, tileInfo, overlapSize, tempDir, simpleTileRecode, 
-        outputDriver, creationOptions, verbose, docalcstats)
+        outputDriver, creationOptions, verbose, writeHistogram)
 
     shutil.rmtree(tempDir)
     
@@ -669,7 +669,7 @@ def doTiledShepherdSegmentation_doOne(inDs, filename, tileInfo, col, row,
 
 def doTiledShepherdSegmentation_finalize(inDs, outfile, tileFilenames, tileInfo, 
         overlapSize, tempDir, simpleTileRecode=False, outputDriver='KEA', 
-        creationOptions=[], verbose=False, writeToRat=True):
+        creationOptions=[], verbose=False, writeHistogram=True):
     """
     Do the stitching of tiles and check for empty segments. Call after every 
     doTiledShepherdSegmentation_doOne() has completed for a given tiled
@@ -686,7 +686,7 @@ def doTiledShepherdSegmentation_finalize(inDs, outfile, tileFilenames, tileInfo,
         tempDir, simpleTileRecode, outputDriver, creationOptions, verbose)
 
     hasEmptySegments = checkForEmptySegments(outfile, maxSegId, overlapSize,
-        writeToRat=writeToRat)
+        writeToRat=writeHistogram)
 
     return maxSegId, hasEmptySegments, outDs
 
