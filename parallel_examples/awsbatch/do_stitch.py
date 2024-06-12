@@ -88,9 +88,9 @@ def main():
 
     # do the stitching. Note maxSegId and hasEmptySegments not used here
     # but ideally they would be saved somewhere also.
-    (maxSegId, hasEmptySegments) = tiling.doTiledShepherdSegmentation_finalize(
+    (maxSegId, hasEmptySegments, localDs) = tiling.doTiledShepherdSegmentation_finalize(
         inDs, localOutfile, tileFilenames, dataFromPickle['tileInfo'], 
-        cmdargs.overlapsize, tempDir)
+        cmdargs.overlapsize, tempDir, True)
 
     # clean up files to release space
     objs = []
@@ -103,13 +103,7 @@ def main():
         s3.delete_objects(Bucket=cmdargs.bucket, Delete={'Objects': objs[0:1000]})
         del objs[0:1000]
 
-    # open for the creation of stats
-    localDs = gdal.Open(localOutfile, gdal.GA_Update)
-
     if not cmdargs.nogdalstats:
-        # need the histogram for stats
-        hist = tiling.calcHistogramTiled(localDs, maxSegId, writeToRat=True)
-
         band = localDs.GetRasterBand(1)
         utils.estimateStatsFromHisto(band, hist)
         utils.writeRandomColourTable(band, maxSegId + 1)
