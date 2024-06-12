@@ -90,7 +90,7 @@ def main():
     # but ideally they would be saved somewhere also.
     (maxSegId, hasEmptySegments, localDs) = tiling.doTiledShepherdSegmentation_finalize(
         inDs, localOutfile, tileFilenames, dataFromPickle['tileInfo'], 
-        cmdargs.overlapsize, tempDir, True)
+        cmdargs.overlapsize, tempDir, writeHistogram=True)
 
     # clean up files to release space
     objs = []
@@ -105,6 +105,12 @@ def main():
 
     if not cmdargs.nogdalstats:
         band = localDs.GetRasterBand(1)
+        # Histogram should be already written by doTiledShepherdSegmentation_finalize
+        # above
+        rat = band.GetDefaultRAT()
+        histIdx = rat.GetColOfUsage(gdal.GFU_PixelCount)
+        hist = rat.ReadAsArray(histIdx)
+
         utils.estimateStatsFromHisto(band, hist)
         utils.writeRandomColourTable(band, maxSegId + 1)
         utils.addOverviews(localDs)
