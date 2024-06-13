@@ -88,6 +88,7 @@ def main():
 
     # do the stitching. Note maxSegId and hasEmptySegments not used here
     # but ideally they would be saved somewhere also.
+    # Ensure histogram written to local file so we can do the statistics
     (maxSegId, hasEmptySegments, localDs) = tiling.doTiledShepherdSegmentation_finalize(
         inDs, localOutfile, tileFilenames, dataFromPickle['tileInfo'], 
         cmdargs.overlapsize, tempDir, writeHistogram=True)

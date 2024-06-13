@@ -685,13 +685,13 @@ def doTiledShepherdSegmentation_finalize(inDs, outfile, tileFilenames, tileInfo,
     maxSegId, outDs = stitchTiles(inDs, outfile, tileFilenames, tileInfo, overlapSize,
         tempDir, simpleTileRecode, outputDriver, creationOptions, verbose)
 
-    hasEmptySegments = checkForEmptySegments(outfile, maxSegId, overlapSize,
+    hasEmptySegments = checkForEmptySegments(outDs, maxSegId, overlapSize,
         writeToRat=writeHistogram)
 
     return maxSegId, hasEmptySegments, outDs
 
 
-def checkForEmptySegments(outfile, maxSegId, overlapSize, writeToRat=False):
+def checkForEmptySegments(outDs, maxSegId, overlapSize, writeToRat=False):
     """
     Check the final segmentation for any empty segments. These
     can be problematic later, and should be avoided. Prints a
@@ -699,8 +699,8 @@ def checkForEmptySegments(outfile, maxSegId, overlapSize, writeToRat=False):
 
     Parameters
     ----------
-      outfile : str
-        File name of segmentation image to check
+      outDs : gdal.Dataset
+        Open Dataset of output raster
       maxSegId : shepseg.SegIdType
         Maximum segment ID used
       overlapSize : int
@@ -712,7 +712,7 @@ def checkForEmptySegments(outfile, maxSegId, overlapSize, writeToRat=False):
         True if there are segment ID numbers with no pixels
 
     """
-    hist = calcHistogramTiled(outfile, maxSegId, writeToRat=writeToRat)
+    hist = calcHistogramTiled(outDs, maxSegId, writeToRat=writeToRat)
     emptySegIds = numpy.where(hist[1:] == 0)[0]
     numEmptySeg = len(emptySegIds)
     hasEmptySegments = (numEmptySeg > 0)
