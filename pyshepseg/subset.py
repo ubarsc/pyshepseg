@@ -52,8 +52,8 @@ def subsetImage(inname, outname, tlx, tly, newXsize, newYsize, outformat,
 
     Parameters
     ----------
-      inname : str
-        Filename of input raster
+      inname : str or gdal.Dataset
+        Filename of input raster, or open gdal Dataset object
       outname : str
         Filename of output raster
       tlx, tly : int
@@ -77,7 +77,11 @@ def subsetImage(inname, outname, tlx, tly, newXsize, newYsize, outformat,
         of the output subset
 
     """
-    inds = gdal.Open(inname)
+    if isinstance(inname, gdal.Dataset):
+        inds = inname
+    else:
+        inds = gdal.Open(inname, gdal.GA_Update)
+    
     inband = inds.GetRasterBand(1)
 
     if (tlx + newXsize) > inband.XSize or (tly + newYsize) > inband.YSize:

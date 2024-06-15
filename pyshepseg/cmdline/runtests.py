@@ -98,13 +98,13 @@ def main():
         numClusters=numClusters, fixedKMeansInit=True, fourConnected=False)
     
     # some columns that test the stats
-    (meanColNames, stdColNames) = makeRATcolumns(segResults, outsegfile, imagefile)
+    (meanColNames, stdColNames) = makeRATcolumns(segResults, imagefile)
     
     # some columns that test the spatial stats
-    (eastingCol, northingCol) = makeSpatialRATColumns(outsegfile, imagefile)
+    (eastingCol, northingCol) = makeSpatialRATColumns(segResults, imagefile)
 
     # check the segmentation via the non-spatial stats
-    pcntMatch = checkSegmentation(imagefile, outsegfile, meanColNames,
+    pcntMatch = checkSegmentation(imagefile, segResults.outDs, meanColNames,
         stdColNames)
 
     print("Segment match on {}% of pixels".format(pcntMatch))
@@ -113,21 +113,23 @@ def main():
         errorStatus = 1
 
     # check the spatial cols
-    if not checkSpatialColumns(outsegfile, eastingCol, northingCol):
+    if not checkSpatialColumns(segResults.outDs, eastingCol, northingCol):
         print('Mean coordinates of segments differ')
         errorStatus = 1
         
     print("Checking subset functionality")
-    if not checkSubset(outsegfile, subset_segfile):
+    if not checkSubset(segResults.outDs, subset_segfile):
         print('Unable to match new values from subset')
         errorStatus = 1
 
     print("Adding colour table to {}".format(outsegfile))
-    utils.writeColorTableFromRatColumns(outsegfile, meanColNames[0], 
+    utils.writeColorTableFromRatColumns(segResults.outDs, meanColNames[0], 
         meanColNames[1], meanColNames[2])
 
     if not cmdargs.keep:
         print("Removing generated data")
+        # ensure dataset closed
+        del segResults
         for fn in tmpdatafiles:
             drvr = gdal.IdentifyDriver(fn)
             drvr.Delete(fn)
@@ -270,18 +272,20 @@ def readSeg(segfile, xoff=0, yoff=0, win_xsize=None, win_ysize=None):
     Open and read the given segfile. Return an image array of the 
     segment ID values
     """
-    ds = gdal.Open(segfile)
+    if isinstance(segfile, gdal.Dataset):
+        ds = segfile
+    else:
+        ds = gdal.Open(segfile)
+    
     band = ds.GetRasterBand(1)
     seg = band.ReadAsArray(xoff, yoff, win_xsize, win_ysize).astype(shepseg.SegIdType)
     return seg
 
 
-def makeRATcolumns(segResults, outsegfile, imagefile):
+def makeRATcolumns(segResults, imagefile):
     """
     Add some columns to the RAT, with useful per-segment statistics
     """
-    # Calculate Histogram column for segfile
-    tiling.calcHistogramTiled(outsegfile, segResults.maxSegId, writeToRat=True)
 
     # Calculate per-segment mean and stddev for all bands, and store in the RAT
     meanColNames = []
@@ -292,13 +296,13 @@ def makeRATcolumns(segResults, outsegfile, imagefile):
         meanColNames.append(meanCol)
         stdColNames.append(stdCol)
         statsSelection = [(meanCol, "mean"), (stdCol, "stddev")]
-        tilingstats.calcPerSegmentStatsTiled(imagefile, (i + 1), outsegfile, 
+        tilingstats.calcPerSegmentStatsTiled(imagefile, (i + 1), segResults.outDs, 
             statsSelection)
     
     return (meanColNames, stdColNames)
 
 
-def makeSpatialRATColumns(segfile, imagefile):
+def makeSpatialRATColumns(segResults, imagefile):
     """
     Create some RAT columns for checking the spatial stats 
     functionality. 
@@ -317,7 +321,7 @@ def makeSpatialRATColumns(segfile, imagefile):
     colNamesAndTypes = [(eastingCol, gdal.GFT_Real), 
                 (northingCol, gdal.GFT_Real)]
     # call calcPerSegmentSpatialStatsTiled to do the stats
-    tilingstats.calcPerSegmentSpatialStatsTiled(imagefile, 1, segfile,
+    tilingstats.calcPerSegmentSpatialStatsTiled(imagefile, 1, segResults.outDs,
            colNamesAndTypes, tilingstats.userFuncMeanCoord, transform)
     
     # return the names of the columns
@@ -439,7 +443,10 @@ def readColumn(segfile, colName):
     Read the given column from the given segmentation image file.
     Return an array of the column values. 
     """
-    ds = gdal.Open(segfile)
+    if isinstance(segfile, gdal.Dataset):
+        ds = segfile
+    else:
+        ds = gdal.Open(segfile)
     band = ds.GetRasterBand(1)
     attrTbl = band.GetDefaultRAT()
     numCols = attrTbl.GetColumnCount()
