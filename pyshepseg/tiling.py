@@ -114,7 +114,8 @@ class TiledSegmentationResult(object):
         merging of segments across tiles has produced inconsistent
         numbering. A warning message will also have been printed.
       outDs: gdal.Dataset
-        Open GDAL dataset object to the output file
+        Open GDAL dataset object to the output file. May not be set -
+        see the returnGDALDS parameter to doTiledShepherdSegmentation.
 
     """
     def __init__(self):
@@ -427,7 +428,7 @@ def doTiledShepherdSegmentation(infile, outfile, tileSize=DFLT_TILESIZE,
         verbose=False, simpleTileRecode=False, outputDriver='KEA',
         creationOptions=[], spectDistPcntile=50, kmeansObj=None,
         tempfilesDriver=DFLT_TEMPFILES_DRIVER, tempfilesExt=DFLT_TEMPFILES_EXT,
-        tempfilesCreationOptions=[], writeHistogram=True):
+        tempfilesCreationOptions=[], writeHistogram=True, returnGDALDS=False):
     """
     Run the Shepherd segmentation algorithm in a memory-efficient
     manner, suitable for large raster files. Runs the segmentation
@@ -499,6 +500,9 @@ def doTiledShepherdSegmentation(infile, outfile, tileSize=DFLT_TILESIZE,
         GDAL creation options to use for temporary raster files
       writeHistogram: bool
         Whether to write histogram to file
+      returnGDALDS: bool
+        Whether to set the outDs member of TiledSegmentationResult
+        when returning. If set, this will be open in update mode.
 
     Returns
     -------
@@ -548,7 +552,8 @@ def doTiledShepherdSegmentation(infile, outfile, tileSize=DFLT_TILESIZE,
     tiledSegResult.maxSpectralDiff = segResult.maxSpectralDiff
     tiledSegResult.kmeans = kmeansObj
     tiledSegResult.hasEmptySegments = hasEmptySegments
-    tiledSegResult.outDs = outDs
+    if returnGDALDS:
+        tiledSegResult.outDs = outDs
     
     return tiledSegResult
 
