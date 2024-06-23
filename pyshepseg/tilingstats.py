@@ -504,7 +504,9 @@ statIDdict = {
     'percentile': STATID_PERCENTILE,
     'pixcount': STATID_PIXCOUNT
 }
-NOPARAM = -1
+STATSSELFAST_DTYPE = numpy.uint32
+STATSSELFAST_NULLVAL = numpy.iinfo(STATSSELFAST_DTYPE).max
+NOPARAM = STATSSELFAST_NULLVAL
 
 # Array indexes for the fast stat selection array
 STATSEL_GLOBALCOLINDEX = 0
@@ -552,7 +554,7 @@ def makeFastStatsSelection(colIndexList, statsSelection):
 
     """
     numStats = len(colIndexList)
-    statsSelection_fast = numpy.empty((numStats, 5), dtype=numpy.uint32)
+    statsSelection_fast = numpy.empty((numStats, 5), dtype=STATSSELFAST_DTYPE)
     
     intCount = 0
     floatCount = 0
@@ -1160,7 +1162,7 @@ def createUserColumnsSpatial(colNamesAndTypes, attrTbl, existingColNames):
         statsSelection_fast[i, STATSEL_GLOBALCOLINDEX] = colNdx
         # not used
         statsSelection_fast[i, STATSEL_PARAM] = NOPARAM
-        statsSelection_fast[i, STATSEL_STATID] = -1
+        statsSelection_fast[i, STATSEL_STATID] = STATSSELFAST_NULLVAL
                 
         if colType == gdal.GFT_Integer:
             statsSelection_fast[i, STATSEL_COLARRAYINDEX] = n_intCols
