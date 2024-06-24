@@ -113,6 +113,9 @@ class TiledSegmentationResult(object):
         This is an error condition, probably indicating that the
         merging of segments across tiles has produced inconsistent
         numbering. A warning message will also have been printed.
+      outDs: gdal.Dataset
+        Open GDAL dataset object to the output file. May not be set -
+        see the returnGDALDS parameter to doTiledShepherdSegmentation.
 
     """
     def __init__(self):
@@ -123,6 +126,7 @@ class TiledSegmentationResult(object):
         self.maxSpectralDiff = None
         self.kmeans = None
         self.hasEmptySegments = None
+        self.outDs = None
 
 
 def fitSpectralClustersWholeFile(inDs, bandNumbers, numClusters=60, 
@@ -424,7 +428,7 @@ def doTiledShepherdSegmentation(infile, outfile, tileSize=DFLT_TILESIZE,
         verbose=False, simpleTileRecode=False, outputDriver='KEA',
         creationOptions=[], spectDistPcntile=50, kmeansObj=None,
         tempfilesDriver=DFLT_TEMPFILES_DRIVER, tempfilesExt=DFLT_TEMPFILES_EXT,
-        tempfilesCreationOptions=[]):
+        tempfilesCreationOptions=[], writeHistogram=True, returnGDALDS=False):
     """
     Run the Shepherd segmentation algorithm in a memory-efficient
     manner, suitable for large raster files. Runs the segmentation
@@ -494,6 +498,11 @@ def doTiledShepherdSegmentation(infile, outfile, tileSize=DFLT_TILESIZE,
         File extension to use for temporary raster files
       tempfilesCreationOptions : list of str
         GDAL creation options to use for temporary raster files
+      writeHistogram: bool
+        Whether to write histogram to file
+      returnGDALDS: bool
+        Whether to set the outDs member of TiledSegmentationResult
+        when returning. If set, this will be open in update mode.
 
     Returns
     -------
@@ -529,9 +538,9 @@ def doTiledShepherdSegmentation(infile, outfile, tileSize=DFLT_TILESIZE,
 
         tileNum += 1
         
-    maxSegId, hasEmptySegments = doTiledShepherdSegmentation_finalize(inDs, 
+    maxSegId, hasEmptySegments, outDs = doTiledShepherdSegmentation_finalize(inDs, 
         outfile, tileFilenames, tileInfo, overlapSize, tempDir, simpleTileRecode, 
-        outputDriver, creationOptions, verbose)
+        outputDriver, creationOptions, verbose, writeHistogram)
 
     shutil.rmtree(tempDir)
     
@@ -543,6 +552,8 @@ def doTiledShepherdSegmentation(infile, outfile, tileSize=DFLT_TILESIZE,
     tiledSegResult.maxSpectralDiff = segResult.maxSpectralDiff
     tiledSegResult.kmeans = kmeansObj
     tiledSegResult.hasEmptySegments = hasEmptySegments
+    if returnGDALDS:
+        tiledSegResult.outDs = outDs
     
     return tiledSegResult
 
@@ -558,6 +569,10 @@ def doTiledShepherdSegmentation_prepare(infile, tileSize=DFLT_TILESIZE,
     object.
 
     See doTiledShepherdSegmentation() for detailed parameter descriptions.
+    
+    Parameters
+    ----------
+
 
     Returns a tuple with: (datasetObj, bandNumbers, kmeansObj, subsamplePcnt, 
     imgNullVal, tileInfo)
@@ -659,25 +674,29 @@ def doTiledShepherdSegmentation_doOne(inDs, filename, tileInfo, col, row,
 
 def doTiledShepherdSegmentation_finalize(inDs, outfile, tileFilenames, tileInfo, 
         overlapSize, tempDir, simpleTileRecode=False, outputDriver='KEA', 
-        creationOptions=[], verbose=False):
+        creationOptions=[], verbose=False, writeHistogram=True):
     """
     Do the stitching of tiles and check for empty segments. Call after every 
     doTiledShepherdSegmentation_doOne() has completed for a given tiled
     segmentation.
 
-    Returns a tuple with (maxSegId, hasEmptySegments).
+    See doTiledShepherdSegmentation() for detailed descriptions of
+    parameters.
+
+    Returns a tuple with (maxSegId, hasEmptySegments, outDs).
 
     """
         
-    maxSegId = stitchTiles(inDs, outfile, tileFilenames, tileInfo, overlapSize,
+    maxSegId, outDs = stitchTiles(inDs, outfile, tileFilenames, tileInfo, overlapSize,
         tempDir, simpleTileRecode, outputDriver, creationOptions, verbose)
 
-    hasEmptySegments = checkForEmptySegments(outfile, maxSegId, overlapSize)
-    
-    return maxSegId, hasEmptySegments
+    hasEmptySegments = checkForEmptySegments(outDs, maxSegId, overlapSize,
+        writeToRat=writeHistogram)
+
+    return maxSegId, hasEmptySegments, outDs
 
 
-def checkForEmptySegments(outfile, maxSegId, overlapSize):
+def checkForEmptySegments(outDs, maxSegId, overlapSize, writeToRat=False):
     """
     Check the final segmentation for any empty segments. These
     can be problematic later, and should be avoided. Prints a
@@ -685,8 +704,8 @@ def checkForEmptySegments(outfile, maxSegId, overlapSize):
 
     Parameters
     ----------
-      outfile : str
-        File name of segmentation image to check
+      outDs : gdal.Dataset
+        Open Dataset of output raster
       maxSegId : shepseg.SegIdType
         Maximum segment ID used
       overlapSize : int
@@ -698,7 +717,7 @@ def checkForEmptySegments(outfile, maxSegId, overlapSize):
         True if there are segment ID numbers with no pixels
 
     """
-    hist = calcHistogramTiled(outfile, maxSegId, writeToRat=False)
+    hist = calcHistogramTiled(outDs, maxSegId, writeToRat=writeToRat)
     emptySegIds = numpy.where(hist[1:] == 0)[0]
     numEmptySeg = len(emptySegIds)
     hasEmptySegments = (numEmptySeg > 0)
@@ -759,6 +778,8 @@ def stitchTiles(inDs, outfile, tileFilenames, tileInfo, overlapSize,
     -------
       maxSegId : shepseg.SegIdType
         The maximum segment ID used.
+      outDs: gdal.Dataset
+        Open dataset of the output file
 
     """
     marginSize = int(overlapSize / 2)
@@ -843,7 +864,7 @@ def stitchTiles(inDs, outfile, tileFilenames, tileInfo, overlapSize,
         tileMaxSegId = tileDataTrimmed.max()
         maxSegId = max(maxSegId, tileMaxSegId)
 
-    return maxSegId
+    return maxSegId, outDs
 
 
 RIGHT_OVERLAP = 'right'
@@ -1200,7 +1221,7 @@ def calcHistogramTiled(segfile, maxSegId, writeToRat=True):
             attrTbl.CreateColumn('Histogram', gdal.GFT_Real, gdal.GFU_PixelCount)
             colNum = attrTbl.GetColumnCount() - 1
         attrTbl.WriteArray(hist, colNum)
-
+        
     return hist
 
 

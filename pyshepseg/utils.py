@@ -153,9 +153,10 @@ def writeColorTableFromRatColumns(segfile, redColName, greenColName,
 
     Parameters
     ----------
-      segfile : str
+      segfile : str or gdal.Dataset
         Filename of the completed segmentation image, with RAT columns
-        already written.
+        already written.  Can be either the file name string, or
+        an open Dataset object.
       redColName : str
         Name of the column in the RAT to use for the red color
       greenColName : str
@@ -168,7 +169,11 @@ def writeColorTableFromRatColumns(segfile, redColName, greenColName,
     colorColList = ['Red', 'Green', 'Blue']
     usageList = [gdal.GFU_Red, gdal.GFU_Green, gdal.GFU_Blue]
 
-    ds = gdal.Open(segfile, gdal.GA_Update)
+    if isinstance(segfile, gdal.Dataset):
+        ds = segfile
+    else:
+        ds = gdal.Open(segfile, gdal.GA_Update)
+
     band = ds.GetRasterBand(1)
     attrTbl = band.GetDefaultRAT()
     colNameList = [attrTbl.GetNameOfCol(i) 
