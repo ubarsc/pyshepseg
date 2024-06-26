@@ -59,6 +59,8 @@ def getCmdargs():
         help="Maximum spectral difference for segmentation (default=%(default)s)")
     p.add_argument("--spectDistPcntile", type=int, default=50, required=False,
         help="Spectral Distance Percentile for segmentation (default=%(default)s)")
+    p.add_argument("--noremove", action="store_true", default=False,
+        help="don't remove files from S3 (for debugging)")
 
     cmdargs = p.parse_args()
 
@@ -98,6 +100,8 @@ def main():
         cmd.append('--nogdalstats')
     if cmdargs.tileprefix is not None:
         cmd.extend(['--tileprefix', cmdargs.tileprefix])
+    if cmdargs.noremove:
+        cmd.append('--noremove')
 
     # submit the prepare job
     response = batch.submit_job(jobName="pyshepseg_prepare",

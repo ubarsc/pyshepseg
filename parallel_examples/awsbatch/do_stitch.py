@@ -49,6 +49,8 @@ def getCmdargs():
     p.add_argument("--nogdalstats", action="store_true", default=False,
         help="don't calculate GDAL's statistics or write a colour table. " + 
             "Can't be used with --stats.")
+    p.add_argument("--noremove", action="store_true", default=False,
+        help="don't remove files from S3 (for debugging)")
 
     cmdargs = p.parse_args()
 
@@ -93,15 +95,16 @@ def main():
         cmdargs.overlapsize, tempDir)
 
     # clean up files to release space
-    objs = []
-    for col, row in tileFilenames:
-        filename = '{}_{}_{}.{}'.format(cmdargs.tileprefix, col, row, 'tif')
-        objs.append({'Key': filename})
-
-    # workaround 1000 at a time limit
-    while len(objs) > 0:
-        s3.delete_objects(Bucket=cmdargs.bucket, Delete={'Objects': objs[0:1000]})
-        del objs[0:1000]
+    if not cmdargs.noremove:
+        objs = []
+        for col, row in tileFilenames:
+            filename = '{}_{}_{}.{}'.format(cmdargs.tileprefix, col, row, 'tif')
+            objs.append({'Key': filename})
+    
+        # workaround 1000 at a time limit
+        while len(objs) > 0:
+            s3.delete_objects(Bucket=cmdargs.bucket, Delete={'Objects': objs[0:1000]})
+            del objs[0:1000]
 
     # open for the creation of stats
     localDs = gdal.Open(localOutfile, gdal.GA_Update)
@@ -153,13 +156,14 @@ def main():
     s3.upload_file(localOutfile, cmdargs.bucket, cmdargs.outfile)
 
     # cleanup temp files from S3
-    objs = [{'Key': cmdargs.pickle}]
-    if cmdargs.stats is not None:
-        objs.append({'Key': statsKey})
-    if cmdargs.spatialstats is not None:
-        objs.append({'Key': spatialstatsKey})
-
-    s3.delete_objects(Bucket=cmdargs.bucket, Delete={'Objects': objs})
+    if not cmdargs.noremove:
+        objs = [{'Key': cmdargs.pickle}]
+        if cmdargs.stats is not None:
+            objs.append({'Key': statsKey})
+        if cmdargs.spatialstats is not None:
+            objs.append({'Key': spatialstatsKey})
+    
+        s3.delete_objects(Bucket=cmdargs.bucket, Delete={'Objects': objs})
 
     # cleanup
     shutil.rmtree(tempDir)
