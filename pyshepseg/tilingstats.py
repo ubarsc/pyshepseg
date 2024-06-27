@@ -111,27 +111,8 @@ def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile,
         valid pixels (not nodata) that were used to calculate the statistics.
 
     """
-    segds = segfile
-    if not isinstance(segds, gdal.Dataset):
-        segds = gdal.Open(segfile, gdal.GA_Update)
-    segband = segds.GetRasterBand(1)
-
-    imgds = imgfile
-    if not isinstance(imgds, gdal.Dataset):
-        imgds = gdal.Open(imgfile, gdal.GA_ReadOnly)
-    imgband = imgds.GetRasterBand(imgbandnum)
-    if (imgband.DataType == gdal.GDT_Float32 or 
-            imgband.DataType == gdal.GDT_Float64):
-        raise PyShepSegStatsError("Float image types not supported")
-        
-    if segband.XSize != imgband.XSize or segband.YSize != imgband.YSize:
-        raise PyShepSegStatsError("Images must be same size")
-        
-    if segds.GetGeoTransform() != imgds.GetGeoTransform():
-        raise PyShepSegStatsError("Images must have same spatial extent and pixel size")
-        
-    if not equalProjection(segds.GetProjection(), imgds.GetProjection()):
-        raise PyShepSegStatsError("Images must be in the same projection")
+    segds, segband, imgds, imgband = doImageAlignmentChecks(segfile, 
+        imgfile, imgbandnum)
     
     attrTbl = segband.GetDefaultRAT()
     existingColNames = [attrTbl.GetNameOfCol(i) 
@@ -182,6 +163,58 @@ def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile,
     # all pages should now be written. Raise an error if this not the case.
     if len(pagedRat) > 0:
         raise PyShepSegStatsError('Not all pixels found during processing')
+
+
+def doImageAlignmentChecks(segfile, imgfile, imgbandnum):
+    """
+    Do the checks that the segment file and image file that is being used to 
+    collect the stats actually align. We refuse to process the files if they
+    don't as it is not clear how they should be made to line up - this is up
+    to the user to get right. Also checks that imgfile is not a float image.
+
+    Parameters
+    ----------
+      segfile : str or gdal.Dataset
+        Path to segmented file or an open GDAL dataset. 
+      imgfile : string
+        Path to input file for collecting statistics from
+      imgbandnum : int
+        1-based index of the band number in imgfile to use for collecting stats
+
+    Returns
+    -------
+      segds: gdal.Dataset
+        Opened GDAL datset for the segments file
+      segband: gdal.Band
+        First Band of the segds
+      imgds: gdal.Dataset
+        Opened GDAL dataset for the image data file
+      imgband: gdal.Band
+        Requested band for the imgds
+    """
+    segds = segfile
+    if not isinstance(segds, gdal.Dataset):
+        segds = gdal.Open(segfile, gdal.GA_Update)
+    segband = segds.GetRasterBand(1)
+
+    imgds = imgfile
+    if not isinstance(imgds, gdal.Dataset):
+        imgds = gdal.Open(imgfile, gdal.GA_ReadOnly)
+    imgband = imgds.GetRasterBand(imgbandnum)
+    if (imgband.DataType == gdal.GDT_Float32 or 
+            imgband.DataType == gdal.GDT_Float64):
+        raise PyShepSegStatsError("Float image types not supported")
+
+    if segband.XSize != imgband.XSize or segband.YSize != imgband.YSize:
+        raise PyShepSegStatsError("Images must be same size")
+
+    if segds.GetGeoTransform() != imgds.GetGeoTransform():
+        raise PyShepSegStatsError("Images must have same spatial extent and pixel size")
+
+    if not equalProjection(segds.GetProjection(), imgds.GetProjection()):
+        raise PyShepSegStatsError("Images must be in the same projection")
+
+    return segds, segband, imgds, imgband
 
 
 @njit
@@ -1028,28 +1061,9 @@ def calcPerSegmentSpatialStatsTiled(imgfile, imgbandnum, segfile,
         The value to fill in for segments that have no data.
     
     """
-    segds = segfile
-    if not isinstance(segds, gdal.Dataset):
-        segds = gdal.Open(segfile, gdal.GA_Update)
-    segband = segds.GetRasterBand(1)
+    segds, segband, imgds, imgband = doImageAlignmentChecks(segfile, 
+        imgfile, imgbandnum)
 
-    imgds = imgfile
-    if not isinstance(imgds, gdal.Dataset):
-        imgds = gdal.Open(imgfile, gdal.GA_ReadOnly)
-    imgband = imgds.GetRasterBand(imgbandnum)
-    if (imgband.DataType == gdal.GDT_Float32 or 
-            imgband.DataType == gdal.GDT_Float64):
-        raise PyShepSegStatsError("Float image types not supported")
-        
-    if segband.XSize != imgband.XSize or segband.YSize != imgband.YSize:
-        raise PyShepSegStatsError("Images must be same size")
-        
-    if segds.GetGeoTransform() != imgds.GetGeoTransform():
-        raise PyShepSegStatsError("Images must have same spatial extent and pixel size")
-        
-    if not equalProjection(segds.GetProjection(), imgds.GetProjection()):
-        raise PyShepSegStatsError("Images must be in the same projection")
-    
     attrTbl = segband.GetDefaultRAT()
     existingColNames = [attrTbl.GetNameOfCol(i) 
         for i in range(attrTbl.GetColumnCount())]

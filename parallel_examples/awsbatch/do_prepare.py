@@ -111,7 +111,7 @@ def main():
 
     # now submit an array job with all the tiles
     # (can't do this before now because we don't know how many tiles)
-    arrayProperties = None
+    arrayProperties = {}
     if len(colRowList) > 1:
         # throws error if this is 1...
         arrayProperties = {'size': len(colRowList)}
