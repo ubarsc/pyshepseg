@@ -125,8 +125,8 @@ def main():
         arrayProperties['size'] = len(colRowList)
     else:
         # must fake AWS_BATCH_JOB_ARRAY_INDEX
-        containerOverrides['environment'] = {'name': 'AWS_BATCH_JOB_ARRAY_INDEX',
-            'value': '0'}
+        containerOverrides['environment'] = [{'name': 'AWS_BATCH_JOB_ARRAY_INDEX',
+            'value': '0'}]
 
     response = batch.submit_job(jobName="pyshepseg_tiles",
         jobQueue=cmdargs.jobqueue,
