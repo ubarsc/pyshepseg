@@ -21,13 +21,6 @@ from osgeo import gdal
 
 gdal.UseExceptions()
 
-# set by AWS Batch
-ARRAY_INDEX = os.getenv('AWS_BATCH_JOB_ARRAY_INDEX')
-if ARRAY_INDEX is None:
-    raise SystemExit('Must set AWS_BATCH_JOB_ARRAY_INDEX env var')
-
-ARRAY_INDEX = int(ARRAY_INDEX)
-
 
 def getCmdargs():
     """
@@ -48,8 +41,16 @@ def getCmdargs():
         help="Maximum spectral difference for segmentation (default=%(default)s)")
     p.add_argument("--spectDistPcntile", type=int, default=50, required=False,
         help="Spectral Distance Percentile for segmentation (default=%(default)s)")
+    p.add_argument("--arrayindex", type=int, 
+        help="Override AWS_BATCH_JOB_ARRAY_INDEX env var")
 
     cmdargs = p.parse_args()
+
+    if cmdargs.arrayindex is None:
+        cmdargs.arrayindex = os.getenv('AWS_BATCH_JOB_ARRAY_INDEX')
+        if cmdargs.arrayindex is None:
+            raise SystemExit('Must set AWS_BATCH_JOB_ARRAY_INDEX env var or ' +
+                'specify --arrayindex')
 
     return cmdargs
 
@@ -75,7 +76,7 @@ def main():
     tempDir = tempfile.mkdtemp()
 
     # work out which tile we are processing
-    col, row = dataFromPickle['colRowList'][ARRAY_INDEX]
+    col, row = dataFromPickle['colRowList'][cmdargs.arrayindex]
 
     # work out a filename to save with the output of this tile
     # Note: this filename format is repeated in do_stitch.py
