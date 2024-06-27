@@ -41,9 +41,9 @@ RUN cd /tmp \
 ENV RIOS_VERSION=2.0.3
 RUN cd /tmp \
     && wget -q https://github.com/ubarsc/rios/releases/download/rios-${RIOS_VERSION}/rios-${RIOS_VERSION}.tar.gz \
-    && tar xf rios-${RIOS_VERSION} \
+    && tar xf rios-${RIOS_VERSION}.tar.gz \
     && cd rios-${RIOS_VERSION} \
-    && pip install . \
+    && DEB_PYTHON_INSTALL_LAYOUT=deb_system pip install . \
     && cd .. \
     && rm -rf rios-${RIOS_VERSION} rios-${RIOS_VERSION}.tar.gz
 
