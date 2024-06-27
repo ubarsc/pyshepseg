@@ -111,11 +111,6 @@ def main():
 
     # now submit an array job with all the tiles
     # (can't do this before now because we don't know how many tiles)
-    arrayProperties = {}
-    if len(colRowList) > 1:
-        # throws error if this is 1...
-        arrayProperties = {'size': len(colRowList)}
-    
     containerOverrides = {
         "command": ['/usr/bin/python3', '/ubarscsw/bin/do_tile.py',
         '--bucket', cmdargs.bucket, '--pickle', cmdargs.pickle,
@@ -123,6 +118,16 @@ def main():
         '--minSegmentSize', str(cmdargs.minSegmentSize),
         '--maxSpectDiff', cmdargs.maxSpectDiff, 
         '--spectDistPcntile', str(cmdargs.spectDistPcntile)]}
+
+    arrayProperties = {}
+    if len(colRowList) > 1:
+        # throws error if this is 1...
+        arrayProperties = {'size': len(colRowList)}
+    else:
+        # must fake AWS_BATCH_JOB_ARRAY_INDEX
+        containerOverrides['environment'] = {'name': 'AWS_BATCH_JOB_ARRAY_INDEX',
+            'value': '0'}
+
     response = batch.submit_job(jobName="pyshepseg_tiles",
         jobQueue=cmdargs.jobqueue,
         jobDefinition=cmdargs.jobdefntile,
