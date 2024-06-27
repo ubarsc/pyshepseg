@@ -122,7 +122,7 @@ def main():
     arrayProperties = {}
     if len(colRowList) > 1:
         # throws error if this is 1...
-        arrayProperties['size'] = len(colRowList)}
+        arrayProperties['size'] = len(colRowList)
     else:
         # must fake AWS_BATCH_JOB_ARRAY_INDEX
         containerOverrides['environment'] = {'name': 'AWS_BATCH_JOB_ARRAY_INDEX',
