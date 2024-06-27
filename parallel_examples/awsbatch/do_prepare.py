@@ -111,6 +111,11 @@ def main():
 
     # now submit an array job with all the tiles
     # (can't do this before now because we don't know how many tiles)
+    arrayProperties = None
+    if len(colRowList) > 1:
+        # throws error if this is 1...
+        arrayProperties = {'size': len(colRowList)}
+    
     containerOverrides = {
         "command": ['/usr/bin/python3', '/ubarscsw/bin/do_tile.py',
         '--bucket', cmdargs.bucket, '--pickle', cmdargs.pickle,
@@ -121,7 +126,7 @@ def main():
     response = batch.submit_job(jobName="pyshepseg_tiles",
         jobQueue=cmdargs.jobqueue,
         jobDefinition=cmdargs.jobdefntile,
-        arrayProperties={'size': len(colRowList)},
+        arrayProperties=arrayProperties,
         containerOverrides=containerOverrides)
     tilesJobId = response['jobId']
     print('Tiles Job Id', tilesJobId)
