@@ -17,7 +17,7 @@ RUN sed -i "s/http:\/\/archive./http:\/\/${AWS_REGION_ENV}.ec2.archive./g" /etc/
 RUN apt-get update
 RUN apt-get upgrade -y
 RUN apt-get install -y python3-gdal python3-boto3 python3-sklearn \
-		python3-numba wget g++ cmake libhdf5-dev libgdal-dev python3-pip
+		python3-numba wget g++ cmake libhdf5-dev libgdal-dev python3-pip unzip
 
 ENV SW_VOLUME=/ubarscsw
 RUN mkdir $SW_VOLUME
@@ -39,13 +39,20 @@ RUN cd /tmp \
     && rm -rf kealib-${KEALIB_VERSION} kealib-${KEALIB_VERSION}.tar.gz
     
 ENV RIOS_VERSION=2.0.3
+#RUN cd /tmp \
+#    && wget -q https://github.com/ubarsc/rios/releases/download/rios-${RIOS_VERSION}/rios-${RIOS_VERSION}.tar.gz \
+#    && tar xf rios-${RIOS_VERSION}.tar.gz \
+#    && cd rios-${RIOS_VERSION} \
+#    && DEB_PYTHON_INSTALL_LAYOUT=deb_system pip install . \
+#    && cd .. \
+#    && rm -rf rios-${RIOS_VERSION} rios-${RIOS_VERSION}.tar.gz
 RUN cd /tmp \
-    && wget -q https://github.com/ubarsc/rios/releases/download/rios-${RIOS_VERSION}/rios-${RIOS_VERSION}.tar.gz \
-    && tar xf rios-${RIOS_VERSION}.tar.gz \
-    && cd rios-${RIOS_VERSION} \
+    && wget -q https://github.com/ubarsc/rios/archive/refs/heads/master.zip \
+    && unzip master.zip \
+    && cd rios-master \
     && DEB_PYTHON_INSTALL_LAYOUT=deb_system pip install . \
     && cd .. \
-    && rm -rf rios-${RIOS_VERSION} rios-${RIOS_VERSION}.tar.gz
+    && rm -rf rios-master rios-master.zip
 
 COPY pyshepseg-$PYSHEPSEG_VER.tar.gz /tmp
 # install pyshegseg
@@ -69,14 +76,14 @@ ENV CPL_VSIL_CURL_ALLOWED_EXTENSIONS=".tif,.TIF,.tiff,.vrt,.zip"
 ENV VSI_CACHE=True
 ENV VSI_CACHE_SIZE=1024000000
 ENV GDAL_HTTP_MAX_RETRY=10
-ENV GDAL_HTTP_MAX_RETRY=3
+ENV GDAL_HTTP_MAX_DELAY=3
 ENV CPL_ZIP_ENCODING=UTF-8
 
 COPY do_prepare.py $SW_VOLUME/bin
 COPY do_tile.py $SW_VOLUME/bin
 COPY do_stitch.py $SW_VOLUME/bin
 
-RUN apt-get remove -y wget g++ cmake
+RUN apt-get remove -y wget g++ cmake unzip
 RUN apt-get autoremove -y && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 USER $SERVICEUSER

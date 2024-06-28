@@ -50,6 +50,7 @@ HAVE_RIOS = False
 try:
     from rios import applier
     from rios import ratapplier
+    HAVE_RIOS = True
 except ImportError:
     pass
 
@@ -278,18 +279,25 @@ def calcPerSegmentStatsTiledRIOS(imgfile, imgbandnum, segfile,
     segSize = attrTbl.ReadAsArray(histColNdx).astype(numpy.uint32)
     
     # close all files so they can be opened in RIOS
+    del attrTbl
     del segband
     del segds
     del imgband
     del imgds
+
+    controls = applier.ApplierControls()
+    controls.selectInputImageLayers([imgbandnum])
+    #controls.setWindowSize(tiling.TILESIZE, tiling.TILESIZE)
     
     # now create a new temporary file for saving the new columns too
-    tempFileMgr = applier.TempfileManager()
+    tempFileMgr = applier.TempfileManager(controls.tempdir)
     tempKEA = tempFileMgr.mktempfile(prefix='pyshepseg_tilingstats_', suffix='.kea')
     keaDriver = gdal.GetDriverByName('KEA')
     tempKEADS = keaDriver.Create(tempKEA, 10, 10, 1, gdal.GDT_UInt32)
     tempKEABand = tempKEADS.GetRasterBand(1)
     tempKEAAttrTbl = tempKEABand.GetDefaultRAT()
+    # make same size as original
+    tempKEAAttrTbl.SetRowCount(segSize.size)
     
     # Create columns (should be non in temp file)
     colIndexList = createStatColumns(statsSelection, tempKEAAttrTbl, [])
@@ -303,12 +311,9 @@ def calcPerSegmentStatsTiledRIOS(imgfile, imgbandnum, segfile,
     # we don't actually write any outputs
     outputs = applier.FilenameAssociations()
     
-    controls = applier.ApplierControls()
-    controls.selectInputImageLayers([imgbandnum])
-    controls.setWindowSize(tiling.TILESIZE)
-    
     if numReadWorkers > 0:
-        conc = applier.ConcurrencyStyle(numReadWorkers=numReadWorkers)
+        conc = applier.ConcurrencyStyle(numReadWorkers=numReadWorkers,
+            readBufferPopTimeout=30)
         controls.setConcurrencyStyle(conc)
         
     otherArgs = applier.OtherInputs()
@@ -335,7 +340,7 @@ def calcPerSegmentStatsTiledRIOS(imgfile, imgbandnum, segfile,
         raise PyShepSegStatsError('Not all pixels found during processing')
         
     # now merge the stats from the tempfile band info segfile
-    ratapplier.copyRat(tempKEA, segfile)
+    ratapplier.copyRAT(tempKEA, segfile)
 
 
 def doImageAlignmentChecks(segfile, imgfile, imgbandnum):

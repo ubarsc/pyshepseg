@@ -190,7 +190,7 @@ Resources:
       JobDefinitionName: PyShepSegBatchJobDefinitionStitch
       ContainerProperties:
         Image: !Join ['', [!GetAtt BatchRepository.RepositoryUri, ":latest"]]
-        Vcpus: 4
+        Vcpus: 2
         Memory: 8000
       RetryStrategy:
         Attempts: 1

@@ -119,6 +119,9 @@ def main():
         utils.writeRandomColourTable(band, maxSegId + 1)
         utils.addOverviews(localDs)
 
+    # ensure dataset is closed so we can open it again in RIOS
+    del localDs
+
     # now do any stats the user has asked for
     if cmdargs.stats is not None:
 
@@ -131,7 +134,7 @@ def main():
             for img, bandnum, selection in dataForStats:
                 print(img, bandnum, selection)
                 tilingstats.calcPerSegmentStatsTiledRIOS(img, bandnum, 
-                    localDs, selection, numReadWorkers=4)
+                    localOutfile, selection, numReadWorkers=4)
 
     if cmdargs.spatialstats is not None:
         bucket, spatialstatsKey = cmdargs.spatialstats.split(':')
