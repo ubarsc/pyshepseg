@@ -130,8 +130,8 @@ def main():
             dataForStats = json.load(fileobj)
             for img, bandnum, selection in dataForStats:
                 print(img, bandnum, selection)
-                tilingstats.calcPerSegmentStatsTiled(img, bandnum, 
-                    localDs, selection)
+                tilingstats.calcPerSegmentStatsTiledRIOS(img, bandnum, 
+                    localDs, selection, numReadWorkers=4)
 
     if cmdargs.spatialstats is not None:
         bucket, spatialstatsKey = cmdargs.spatialstats.split(':')

@@ -46,6 +46,13 @@ from .guardeddecorators import jitclass
 from . import tiling
 from . import shepseg
 
+HAVE_RIOS = False
+try:
+    from rios import applier
+    from rios import ratapplier
+except ImportError:
+    pass
+
 gdal.UseExceptions()
 osr.UseExceptions()
 
@@ -110,6 +117,9 @@ def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile,
         The 'pixcount' statName can be used to find the number of
         valid pixels (not nodata) that were used to calculate the statistics.
 
+      missingStatsValue : int or float
+        What to set for segments that have no valid pixels in imgile
+
     """
     segds, segband, imgds, imgband = doImageAlignmentChecks(segfile, 
         imgfile, imgbandnum)
@@ -163,6 +173,169 @@ def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile,
     # all pages should now be written. Raise an error if this not the case.
     if len(pagedRat) > 0:
         raise PyShepSegStatsError('Not all pixels found during processing')
+
+
+def rioscalcPerSegmentStatsTiled(info, inputs, outputs, otherArgs):
+    """
+    Called be RIOS from inside calcPerSegmentStatsTiledRIOS. Do 
+    accumulation of statistics
+    """
+    accumulateSegDict(otherArgs.segDict, otherArgs.noDataDict, 
+        otherArgs.imgNullVal, inputs.segfile[0], inputs.imgfile[0])
+    calcStatsForCompletedSegs(otherArgs.segDict, otherArgs.noDataDict, 
+        otherArgs.missingStatsValue, otherArgs.pagedRat, 
+        otherArgs.statsSelection_fast, otherArgs.segSize, 
+        otherArgs.numIntCols, otherArgs.numFloatCols)
+    
+    writeCompletePages(otherArgs.pagedRat, otherArgs.attrTbl, 
+        otherArgs.statsSelection_fast)
+
+
+def calcPerSegmentStatsTiledRIOS(imgfile, imgbandnum, segfile, 
+            statsSelection, numReadWorkers=0, missingStatsValue=-9999):
+    """
+    Calculate selected per-segment statistics for the given band 
+    of the imgfile, against the given segment raster file. 
+    Calculated statistics are written to the segfile raster 
+    attribute table (RAT), so this file format must support RATs. 
+    
+    Calculations are carried out in a memory-efficient way, allowing 
+    very large rasters to be processed. Raster data is handled in 
+    small tiles, attribute table is handled in fixed-size chunks. 
+    
+    Parameters
+    ----------
+      imgfile : string
+        Path to input file for collecting statistics from
+      imgbandnum : int
+        1-based index of the band number in imgfile to use for collecting stats
+      segfile : str
+        Path to segmented file. Will collect stats 
+        in imgfile for each segment in this file.
+      statsSelection : list of tuples.
+        One tuple for each statistic to be included. Each tuple is either 2
+        or 3 elements::
+        
+          (columnName, statName)
+        
+        or ::
+        
+          (columnName, statName, parameter)
+        
+        The columnName is a string, used to name the column in the 
+        output RAT. 
+        The statName is a string used to identify which statistic 
+        is to be calculated. Available options are::
+        
+          'min', 'max', 'mean', 'stddev', 'median', 'mode', 'percentile', 'pixcount'
+        
+        The 'percentile' statistic requires the 3-element form, with 
+        the 3rd element being the percentile to be calculated.
+
+        For example::
+        
+          [('Band1_Mean', 'mean'),
+           ('Band1_stdDev', 'stddev'),
+           ('Band1_LQ', 'percentile', 25),
+           ('Band1_UQ', 'percentile', 75)]
+        
+        would create 4 columns, for the per-segment mean and 
+        standard deviation of the given band, and the lower and upper 
+        quartiles, with corresponding column names.
+
+        Any pixels that are set to the nodata value of imgfile (if set)
+        are ignored in the stats calculations. If there are no pixels
+        that aren't the nodata value then the value passed in as
+        missingStatsValue is put into the RAT for the requested
+        statistics.
+        The 'pixcount' statName can be used to find the number of
+        valid pixels (not nodata) that were used to calculate the statistics.
+        
+      numReadWorkers : int
+        Number of concurrent read workers that RIOS will use.
+      missingStatsValue : int or float
+        What to set for segments that have no valid pixels in imgile
+
+    """
+    if not HAVE_RIOS:
+        raise PyShepSegStatsError('RIOS needs to be installed for this function')
+    
+    segds, segband, imgds, imgband = doImageAlignmentChecks(segfile, 
+        imgfile, imgbandnum)
+    
+    attrTbl = segband.GetDefaultRAT()
+    existingColNames = [attrTbl.GetNameOfCol(i) 
+        for i in range(attrTbl.GetColumnCount())]
+        
+    # Note: may be None if no value set
+    imgNullVal = imgband.GetNoDataValue()
+    if imgNullVal is not None:
+        # cast to the same type we are using for imagery
+        # (GDAL records this value as double)
+        imgNullVal = tiling.numbaTypeForImageType(imgNullVal)
+        
+    histColNdx = checkHistColumn(existingColNames)
+    segSize = attrTbl.ReadAsArray(histColNdx).astype(numpy.uint32)
+    
+    # close all files so they can be opened in RIOS
+    del segband
+    del segds
+    del imgband
+    del imgds
+    
+    # now create a new temporary file for saving the new columns too
+    tempFileMgr = applier.TempfileManager()
+    tempKEA = tempFileMgr.mktempfile(prefix='pyshepseg_tilingstats_', suffix='.kea')
+    keaDriver = gdal.GetDriverByName('KEA')
+    tempKEADS = keaDriver.Create(tempKEA, 10, 10, 1, gdal.GDT_UInt32)
+    tempKEABand = tempKEADS.GetRasterBand(1)
+    tempKEAAttrTbl = tempKEABand.GetDefaultRAT()
+    
+    # Create columns (should be non in temp file)
+    colIndexList = createStatColumns(statsSelection, tempKEAAttrTbl, [])
+    (statsSelection_fast, numIntCols, numFloatCols) = (
+        makeFastStatsSelection(colIndexList, statsSelection))
+        
+    inputs = applier.FilenameAssociations()
+    inputs.segfile = segfile
+    inputs.imgfile = imgfile
+    
+    # we don't actually write any outputs
+    outputs = applier.FilenameAssociations()
+    
+    controls = applier.ApplierControls()
+    controls.selectInputImageLayers([imgbandnum])
+    controls.setWindowSize(tiling.TILESIZE)
+    
+    if numReadWorkers > 0:
+        conc = applier.ConcurrencyStyle(numReadWorkers=numReadWorkers)
+        controls.setConcurrencyStyle(conc)
+        
+    otherArgs = applier.OtherInputs()
+    otherArgs.segDict = createSegDict()
+    otherArgs.pagedRat = tiling.createPagedRat()
+    otherArgs.noDataDict = createNoDataDict()
+    otherArgs.attrTbl = tempKEAAttrTbl
+    otherArgs.imgNullVal = imgNullVal
+    otherArgs.missingStatsValue = missingStatsValue
+    otherArgs.statsSelection_fast = statsSelection_fast
+    otherArgs.segSize = segSize
+    otherArgs.numIntCols = numIntCols
+    otherArgs.numFloatCols = numFloatCols
+        
+    applier.apply(rioscalcPerSegmentStatsTiled, inputs, outputs, 
+        controls=controls, otherArgs=otherArgs)
+        
+    del tempKEAAttrTbl
+    del tempKEABand
+    del tempKEADS
+
+    # all pages should now be written. Raise an error if this not the case.
+    if len(otherArgs.pagedRat) > 0:
+        raise PyShepSegStatsError('Not all pixels found during processing')
+        
+    # now merge the stats from the tempfile band info segfile
+    ratapplier.copyRat(tempKEA, segfile)
 
 
 def doImageAlignmentChecks(segfile, imgfile, imgbandnum):

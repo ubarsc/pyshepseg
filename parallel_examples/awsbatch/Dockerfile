@@ -37,9 +37,18 @@ RUN cd /tmp \
     && make install \
     && cd ../.. \
     && rm -rf kealib-${KEALIB_VERSION} kealib-${KEALIB_VERSION}.tar.gz
+    
+ENV RIOS_VERSION=2.0.3
+RUN cd /tmp \
+    && wget -q https://github.com/ubarsc/rios/releases/download/rios-${RIOS_VERSION}/rios-${RIOS_VERSION}.tar.gz \
+    && tar xf rios-${RIOS_VERSION}.tar.gz \
+    && cd rios-${RIOS_VERSION} \
+    && DEB_PYTHON_INSTALL_LAYOUT=deb_system pip install . \
+    && cd .. \
+    && rm -rf rios-${RIOS_VERSION} rios-${RIOS_VERSION}.tar.gz
 
 COPY pyshepseg-$PYSHEPSEG_VER.tar.gz /tmp
-# install RIOS
+# install pyshegseg
 RUN cd /tmp && tar xf pyshepseg-$PYSHEPSEG_VER.tar.gz \
     && cd pyshepseg-$PYSHEPSEG_VER \
     && DEB_PYTHON_INSTALL_LAYOUT=deb_system pip install . \
@@ -73,9 +82,9 @@ RUN apt-get autoremove -y && apt-get clean && rm -rf /var/lib/apt/lists/*
 USER $SERVICEUSER
 
 # a few quick tests
-#RUN gdal_translate --formats | grep KEA
 RUN python3 -c 'from osgeo import gdal;assert(gdal.GetDriverByName("KEA") is not None)'
 RUN python3 -c 'from pyshepseg import tiling'
+RUN python3 -c 'from rios import applier'
 
 # export the volume
 VOLUME $SW_VOLUME
