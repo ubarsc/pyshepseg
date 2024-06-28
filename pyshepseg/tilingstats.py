@@ -287,7 +287,7 @@ def calcPerSegmentStatsTiledRIOS(imgfile, imgbandnum, segfile,
 
     controls = applier.ApplierControls()
     controls.selectInputImageLayers([imgbandnum])
-    #controls.setWindowSize(tiling.TILESIZE, tiling.TILESIZE)
+    # controls.setWindowSize(tiling.TILESIZE, tiling.TILESIZE)
     
     # now create a new temporary file for saving the new columns too
     tempFileMgr = applier.TempfileManager(controls.tempdir)

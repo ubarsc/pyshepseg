@@ -152,10 +152,7 @@ def main():
 
                 userFunc = getattr(tilingstats, userFuncName)
                 tilingstats.calcPerSegmentSpatialStatsTiled(img, bandnum, 
-                    localDs, colInfo, userFunc, param)
-
-    # ensure closed before uploading
-    del localDs
+                    localOutfile, colInfo, userFunc, param)
 
     # upload the KEA file
     s3.upload_file(localOutfile, cmdargs.bucket, cmdargs.outfile)
