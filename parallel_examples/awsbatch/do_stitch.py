@@ -51,6 +51,9 @@ def getCmdargs():
             "Can't be used with --stats.")
     p.add_argument("--noremove", action="store_true", default=False,
         help="don't remove files from S3 (for debugging)")
+    p.add_argument("--statsreadworkers", type=int, default=0, 
+        help="Number or RIOS readworkers to use while calculating stats. " + 
+            "(default=%(default)s)")
 
     cmdargs = p.parse_args()
 
@@ -134,7 +137,8 @@ def main():
             for img, bandnum, selection in dataForStats:
                 print(img, bandnum, selection)
                 tilingstats.calcPerSegmentStatsTiledRIOS(img, bandnum, 
-                    localOutfile, selection, numReadWorkers=4)
+                    localOutfile, selection, 
+                    numReadWorkers=cmdargs.statsreadworkers)
 
     if cmdargs.spatialstats is not None:
         bucket, spatialstatsKey = cmdargs.spatialstats.split(':')

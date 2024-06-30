@@ -191,7 +191,7 @@ Resources:
       ContainerProperties:
         Image: !Join ['', [!GetAtt BatchRepository.RepositoryUri, ":latest"]]
         Vcpus: 2
-        Memory: 8000
+        Memory: 24000
       RetryStrategy:
         Attempts: 1
   BatchProcessingJobQueue:

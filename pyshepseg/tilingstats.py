@@ -286,8 +286,8 @@ def calcPerSegmentStatsTiledRIOS(imgfile, imgbandnum, segfile,
     del imgds
 
     controls = applier.ApplierControls()
-    controls.selectInputImageLayers([imgbandnum])
-    # controls.setWindowSize(tiling.TILESIZE, tiling.TILESIZE)
+    controls.selectInputImageLayers([imgbandnum], imgfile)
+    controls.setWindowSize(tiling.TILESIZE, tiling.TILESIZE)
     
     # now create a new temporary file for saving the new columns too
     tempFileMgr = applier.TempfileManager(controls.tempdir)
@@ -312,6 +312,7 @@ def calcPerSegmentStatsTiledRIOS(imgfile, imgbandnum, segfile,
     outputs = applier.FilenameAssociations()
     
     if numReadWorkers > 0:
+        print('using numReadWorkers', numReadWorkers)
         conc = applier.ConcurrencyStyle(numReadWorkers=numReadWorkers,
             readBufferPopTimeout=30)
         controls.setConcurrencyStyle(conc)
@@ -340,6 +341,7 @@ def calcPerSegmentStatsTiledRIOS(imgfile, imgbandnum, segfile,
         raise PyShepSegStatsError('Not all pixels found during processing')
         
     # now merge the stats from the tempfile band info segfile
+    print('copying RAT')
     ratapplier.copyRAT(tempKEA, segfile)
 
 
