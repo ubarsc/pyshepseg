@@ -299,7 +299,7 @@ def calcPerSegmentStatsTiledRIOS(imgfile, imgbandnum, segfile,
     # make same size as original
     tempKEAAttrTbl.SetRowCount(segSize.size)
     
-    # Create columns (should be non in temp file)
+    # Create columns (should be temp file)
     colIndexList = createStatColumns(statsSelection, tempKEAAttrTbl, [])
     (statsSelection_fast, numIntCols, numFloatCols) = (
         makeFastStatsSelection(colIndexList, statsSelection))
@@ -1308,6 +1308,176 @@ def calcPerSegmentSpatialStatsTiled(imgfile, imgbandnum, segfile,
     if len(pagedRat) > 0:
         raise PyShepSegStatsError('Not all pixels found during processing')
         
+
+def rioscalcPerSegmentSpatialStatsTiled(info, inputs, outputs, otherArgs):
+    """
+    Called be RIOS from inside calcPerSegmentSpatialStatsTiledRIOS. Do 
+    accumulation of statistics
+    """
+    leftPix, topLine = info.getPixColRow(0, 0)
+    
+    accumulateSegDict(otherArgs.segDict, otherArgs.noDataDict, 
+        otherArgs.imgNullVal, inputs.segfile[0], inputs.imgfile[0],
+        topLine, leftPix)
+    calcStatsForCompletedSegsSpatial(otherArgs.segDict, otherArgs.noDataDict, 
+        otherArgs.missingStatsValue, otherArgs.pagedRat, 
+        otherArgs.segSize, otherArgs.userFunc, otherArgs.userParam,
+        otherArgs.statsSelection_fast, otherArgs.intArr, otherArgs.floatArr,
+        otherArgs.imgNullVal)
+    
+    writeCompletePages(otherArgs.pagedRat, otherArgs.attrTbl, 
+        otherArgs.statsSelection_fast)
+
+
+def calcPerSegmentSpatialStatsTiledRIOS(imgfile, imgbandnum, segfile,
+        colNamesAndTypes, userFunc, userParam=None, numReadWorkers=0, 
+        missingStatsValue=-9999):
+    """
+    Similar to the :func:`calcPerSegmentStatsTiledRIOS` function 
+    but allows the user to calculate spatial statistics on the data
+    for each segment. This is done by recording the location and value
+    for each pixel within the segment. Once all the pixels are found
+    for a segment the ``userFunc`` is called with the following parameters:
+    
+    ::
+    
+        pts, imgNullVal, intArr, floatArr, userParam
+        
+    where ``pts`` is List of :class:`SegPoint` objects. If 2D Numpy tile is prefered the
+    ``userFunc`` can call :func:`convertPtsInto2DArray`. ``intArray`` is a 
+    1D numpy array which all the integer output values are to be put (in the 
+    same order given in ``colNamesAndTypes``). ``floatArr`` is a 1D numpy array 
+    which all the floating point output values are to be put (in the same order
+    given in ``colNamesAndTypes``). These arrays are initialised with 
+    ``missingStatsValue`` so the function can skip any that it doesn't have
+    values for. ``userParam`` is the same value passed to 
+    this function and needs to be a type understood by Numba. 
+    
+    Parameters
+    ----------
+      imgfile : string
+        Path to input file for collecting statistics from
+      imgbandnum : int
+        1-based index of the band number in imgfile to use for collecting stats
+      segfile : str or gdal.Dataset
+        Path to segmented file or an open GDAL Dataset. Will collect stats 
+        in imgfile for each segment in this file.
+      colNamesAndTypes : list of ``(colName, colType)`` tuples
+        This defines the names, types and order of the output RAT columns.
+        ``colName`` should be a string containing the name of the RAT column to be
+        created and ``colType`` should be one of ``gdal.GFT_Integer`` or 
+        ``gdal.GFT_Real`` and this controls the type of the column to be created.
+        Note that the order of columns given in this parameter is important as
+        this dicates the order of the ``intArray`` and ``floatArr`` parameters to 
+        ``userFunc``.
+      userFunc : a Numba function (ie decorated with @jit or @njit).
+        See above for description
+      userParam : anything that can be passed to a Numba function
+        This includes: arrays, scalars and @jitclass decorated classes.
+      numReadWorkers : int
+        Number of concurrent read workers that RIOS will use.
+      missingStatsValue : int
+        The value to fill in for segments that have no data.
+    
+    """
+    if not HAVE_RIOS:
+        raise PyShepSegStatsError('RIOS needs to be installed for this function')
+    
+    segds, segband, imgds, imgband = doImageAlignmentChecks(segfile, 
+        imgfile, imgbandnum)
+
+    attrTbl = segband.GetDefaultRAT()
+    existingColNames = [attrTbl.GetNameOfCol(i) 
+        for i in range(attrTbl.GetColumnCount())]
+        
+    # Note: may be None if no value set
+    imgNullVal = imgband.GetNoDataValue()
+    if imgNullVal is not None:
+        # cast to the same type we are using for imagery
+        # (GDAL records this value as double)
+        imgNullVal = tiling.numbaTypeForImageType(imgNullVal)
+    else:
+        # because we need to mask out parts of tiles not part of the
+        # segment we need the no data value set
+        raise PyShepSegStatsError("NoData value must be set on imgfile")
+        
+    if 'targetoptions' not in userFunc.__dict__:
+        raise PyShepSegStatsError("userFunc must be @jit or @njit decorated")
+        
+    if len(colNamesAndTypes) == 0:
+        raise PyShepSegStatsError("Must specify one or more columns")
+    
+    histColNdx = checkHistColumn(existingColNames)
+    segSize = attrTbl.ReadAsArray(histColNdx).astype(numpy.uint32)
+    
+    # close all files so they can be opened in RIOS
+    del attrTbl
+    del segband
+    del segds
+    del imgband
+    del imgds
+
+    controls = applier.ApplierControls()
+    controls.selectInputImageLayers([imgbandnum], imgfile)
+    controls.setWindowSize(tiling.TILESIZE, tiling.TILESIZE)
+    
+    # now create a new temporary file for saving the new columns too
+    tempFileMgr = applier.TempfileManager(controls.tempdir)
+    tempKEA = tempFileMgr.mktempfile(prefix='pyshepseg_tilingstatsspatial_', suffix='.kea')
+    keaDriver = gdal.GetDriverByName('KEA')
+    tempKEADS = keaDriver.Create(tempKEA, 10, 10, 1, gdal.GDT_UInt32)
+    tempKEABand = tempKEADS.GetRasterBand(1)
+    tempKEAAttrTbl = tempKEABand.GetDefaultRAT()
+    # make same size as original
+    tempKEAAttrTbl.SetRowCount(segSize.size)
+    
+    # Create columns, as required (in temp file)
+    n_intCols, n_floatCols, statsSelection_fast = createUserColumnsSpatial(
+        colNamesAndTypes, tempKEAAttrTbl, [])
+        
+    inputs = applier.FilenameAssociations()
+    inputs.segfile = segfile
+    inputs.imgfile = imgfile
+    
+    # we don't actually write any outputs
+    outputs = applier.FilenameAssociations()
+
+    if numReadWorkers > 0:
+        print('using numReadWorkers', numReadWorkers)
+        conc = applier.ConcurrencyStyle(numReadWorkers=numReadWorkers,
+            readBufferPopTimeout=30)
+        controls.setConcurrencyStyle(conc)
+
+    otherArgs = applier.OtherInputs()
+    otherArgs.segDict = createSegSpatialDataDict()
+    otherArgs.pagedRat = tiling.createPagedRat()
+    otherArgs.noDataDict = createNoDataDict()
+    otherArgs.attrTbl = tempKEAAttrTbl
+    otherArgs.imgNullVal = imgNullVal
+    otherArgs.missingStatsValue = missingStatsValue
+    otherArgs.statsSelection_fast = statsSelection_fast
+    otherArgs.segSize = segSize
+    # create temprorary arrays for userfunc
+    otherArgs.intArr = numpy.empty(n_intCols, dtype=numpy.int32)
+    otherArgs.floatArr = numpy.empty(n_floatCols, dtype=numpy.float64)
+    otherArgs.userFunc = userFunc
+    otherArgs.userParam = userParam
+
+    applier.apply(rioscalcPerSegmentStatsTiled, inputs, outputs, 
+        controls=controls, otherArgs=otherArgs)
+        
+    del tempKEAAttrTbl
+    del tempKEABand
+    del tempKEADS
+            
+    # all pages should now be written. Raise an error if this not the case.
+    if len(otherArgs.pagedRat) > 0:
+        raise PyShepSegStatsError('Not all pixels found during processing')
+
+    # now merge the stats from the tempfile band info segfile
+    print('copying RAT')
+    ratapplier.copyRAT(tempKEA, segfile)
+
 
 def createUserColumnsSpatial(colNamesAndTypes, attrTbl, existingColNames):
     """
