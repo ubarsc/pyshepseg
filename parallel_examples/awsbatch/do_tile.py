@@ -47,10 +47,12 @@ def getCmdargs():
     cmdargs = p.parse_args()
 
     if cmdargs.arrayindex is None:
-        cmdargs.arrayindex = os.getenv('AWS_BATCH_JOB_ARRAY_INDEX')
-        if cmdargs.arrayindex is None:
+        arrayindex = os.getenv('AWS_BATCH_JOB_ARRAY_INDEX')
+        if arrayindex is None:
             raise SystemExit('Must set AWS_BATCH_JOB_ARRAY_INDEX env var or ' +
                 'specify --arrayindex')
+        else:
+            cmdargs.arrayindex = int(arrayindex)
 
     return cmdargs
 

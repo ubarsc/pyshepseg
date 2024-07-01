@@ -51,6 +51,9 @@ def getCmdargs():
             "Can't be used with --stats.")
     p.add_argument("--noremove", action="store_true", default=False,
         help="don't remove files from S3 (for debugging)")
+    p.add_argument("--statsreadworkers", type=int, default=0, 
+        help="Number or RIOS readworkers to use while calculating stats. " + 
+            "(default=%(default)s)")
 
     cmdargs = p.parse_args()
 
@@ -119,6 +122,9 @@ def main():
         utils.writeRandomColourTable(band, maxSegId + 1)
         utils.addOverviews(localDs)
 
+    # ensure dataset is closed so we can open it again in RIOS
+    del localDs
+
     # now do any stats the user has asked for
     if cmdargs.stats is not None:
 
@@ -130,8 +136,9 @@ def main():
             dataForStats = json.load(fileobj)
             for img, bandnum, selection in dataForStats:
                 print(img, bandnum, selection)
-                tilingstats.calcPerSegmentStatsTiled(img, bandnum, 
-                    localDs, selection)
+                tilingstats.calcPerSegmentStatsTiledRIOS(img, bandnum, 
+                    localOutfile, selection, 
+                    numReadWorkers=cmdargs.statsreadworkers)
 
     if cmdargs.spatialstats is not None:
         bucket, spatialstatsKey = cmdargs.spatialstats.split(':')
@@ -148,11 +155,9 @@ def main():
                         "with 'userFunc' in the tilingstats module")
 
                 userFunc = getattr(tilingstats, userFuncName)
-                tilingstats.calcPerSegmentSpatialStatsTiled(img, bandnum, 
-                    localDs, colInfo, userFunc, param)
-
-    # ensure closed before uploading
-    del localDs
+                tilingstats.calcPerSegmentSpatialStatsTiledRIOS(img, bandnum, 
+                    localOutfile, colInfo, userFunc, param,
+                    numReadWorkers=cmdargs.statsreadworkers)
 
     # upload the KEA file
     s3.upload_file(localOutfile, cmdargs.bucket, cmdargs.outfile)
