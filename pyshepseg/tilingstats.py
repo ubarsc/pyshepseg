@@ -1316,7 +1316,7 @@ def rioscalcPerSegmentSpatialStatsTiled(info, inputs, outputs, otherArgs):
     """
     leftPix, topLine = info.getPixColRow(0, 0)
     
-    accumulateSegDict(otherArgs.segDict, otherArgs.noDataDict, 
+    accumulateSegSpatial(otherArgs.segDict, otherArgs.noDataDict, 
         otherArgs.imgNullVal, inputs.segfile[0], inputs.imgfile[0],
         topLine, leftPix)
     calcStatsForCompletedSegsSpatial(otherArgs.segDict, otherArgs.noDataDict, 
@@ -1445,7 +1445,7 @@ def calcPerSegmentSpatialStatsTiledRIOS(imgfile, imgbandnum, segfile,
     if numReadWorkers > 0:
         print('using numReadWorkers', numReadWorkers)
         conc = applier.ConcurrencyStyle(numReadWorkers=numReadWorkers,
-            readBufferPopTimeout=30)
+            readBufferPopTimeout=30, readBufferInsertTimeout=30)
         controls.setConcurrencyStyle(conc)
 
     otherArgs = applier.OtherInputs()
@@ -1463,7 +1463,7 @@ def calcPerSegmentSpatialStatsTiledRIOS(imgfile, imgbandnum, segfile,
     otherArgs.userFunc = userFunc
     otherArgs.userParam = userParam
 
-    applier.apply(rioscalcPerSegmentStatsTiled, inputs, outputs, 
+    applier.apply(rioscalcPerSegmentSpatialStatsTiled, inputs, outputs, 
         controls=controls, otherArgs=otherArgs)
         
     del tempKEAAttrTbl
