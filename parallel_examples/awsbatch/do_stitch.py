@@ -155,8 +155,9 @@ def main():
                         "with 'userFunc' in the tilingstats module")
 
                 userFunc = getattr(tilingstats, userFuncName)
-                tilingstats.calcPerSegmentSpatialStatsTiled(img, bandnum, 
-                    localOutfile, colInfo, userFunc, param)
+                tilingstats.calcPerSegmentSpatialStatsTiledRIOS(img, bandnum, 
+                    localOutfile, colInfo, userFunc, param,
+                    numReadWorkers=cmdargs.statsreadworkers)
 
     # upload the KEA file
     s3.upload_file(localOutfile, cmdargs.bucket, cmdargs.outfile)
