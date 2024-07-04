@@ -286,7 +286,9 @@ def calcPerSegmentStatsTiledRIOS(imgfile, imgbandnum, segfile,
     del imgds
 
     controls = applier.ApplierControls()
-    controls.selectInputImageLayers([imgbandnum], imgfile)
+    controls.selectInputImageLayers([imgbandnum], 'imgfile')
+    # RIOS default is 256x256. This leads to too many incomplete
+    # segments and increases memory use dramatically. 
     controls.setWindowSize(tiling.TILESIZE, tiling.TILESIZE)
     
     # now create a new temporary file for saving the new columns too
@@ -329,8 +331,9 @@ def calcPerSegmentStatsTiledRIOS(imgfile, imgbandnum, segfile,
     otherArgs.numIntCols = numIntCols
     otherArgs.numFloatCols = numFloatCols
         
-    applier.apply(rioscalcPerSegmentStatsTiled, inputs, outputs, 
+    rtn = applier.apply(rioscalcPerSegmentStatsTiled, inputs, outputs, 
         controls=controls, otherArgs=otherArgs)
+    print(rtn.timings.formatReport())
         
     del tempKEAAttrTbl
     del tempKEABand
@@ -341,7 +344,6 @@ def calcPerSegmentStatsTiledRIOS(imgfile, imgbandnum, segfile,
         raise PyShepSegStatsError('Not all pixels found during processing')
         
     # now merge the stats from the tempfile band info segfile
-    print('copying RAT')
     ratapplier.copyRAT(tempKEA, segfile)
 
 
@@ -1418,7 +1420,9 @@ def calcPerSegmentSpatialStatsTiledRIOS(imgfile, imgbandnum, segfile,
     del imgds
 
     controls = applier.ApplierControls()
-    controls.selectInputImageLayers([imgbandnum], imgfile)
+    controls.selectInputImageLayers([imgbandnum], 'imgfile')
+    # RIOS default is 256x256. This leads to too many incomplete
+    # segments and increases memory use dramatically. 
     controls.setWindowSize(tiling.TILESIZE, tiling.TILESIZE)
     
     # now create a new temporary file for saving the new columns too
@@ -1463,8 +1467,9 @@ def calcPerSegmentSpatialStatsTiledRIOS(imgfile, imgbandnum, segfile,
     otherArgs.userFunc = userFunc
     otherArgs.userParam = userParam
 
-    applier.apply(rioscalcPerSegmentSpatialStatsTiled, inputs, outputs, 
+    rtn = applier.apply(rioscalcPerSegmentSpatialStatsTiled, inputs, outputs, 
         controls=controls, otherArgs=otherArgs)
+    print(rtn.timings.formatReport())
         
     del tempKEAAttrTbl
     del tempKEABand
@@ -1475,7 +1480,6 @@ def calcPerSegmentSpatialStatsTiledRIOS(imgfile, imgbandnum, segfile,
         raise PyShepSegStatsError('Not all pixels found during processing')
 
     # now merge the stats from the tempfile band info segfile
-    print('copying RAT')
     ratapplier.copyRAT(tempKEA, segfile)
 
 
