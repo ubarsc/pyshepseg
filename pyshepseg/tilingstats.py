@@ -209,10 +209,6 @@ def calcPerSegmentStatsRIOS(imgfile, imgbandnum, segfile,
     Note that only 0 compute workers is supported and 
     computeWorkerKind must be set to CW_NONE.   
     
-    Calculations are carried out in a memory-efficient way, allowing 
-    very large rasters to be processed. Raster data is handled in 
-    small tiles, attribute table is handled in fixed-size chunks. 
-    
     Parameters
     ----------
       imgfile : string
@@ -261,8 +257,8 @@ def calcPerSegmentStatsRIOS(imgfile, imgbandnum, segfile,
         The 'pixcount' statName can be used to find the number of
         valid pixels (not nodata) that were used to calculate the statistics.
         
-      numReadWorkers : int
-        Number of concurrent read workers that RIOS will use.
+      concurrencyStyle : rios.applier.ConcurrencyStyle
+        Concurrency parameters for RIOS
       missingStatsValue : int or float
         What to set for segments that have no valid pixels in imgile
 
@@ -1394,8 +1390,8 @@ def calcPerSegmentSpatialStatsRIOS(imgfile, imgbandnum, segfile,
         See above for description
       userParam : anything that can be passed to a Numba function
         This includes: arrays, scalars and @jitclass decorated classes.
-      numReadWorkers : int
-        Number of concurrent read workers that RIOS will use.
+      concurrencyStyle : rios.applier.ConcurrencyStyle
+        Concurrency parameters for RIOS
       missingStatsValue : int
         The value to fill in for segments that have no data.
     
