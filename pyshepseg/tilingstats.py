@@ -176,9 +176,9 @@ def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile,
         raise PyShepSegStatsError('Not all pixels found during processing')
 
 
-def rioscalcPerSegmentStatsTiled(info, inputs, outputs, otherArgs):
+def calcPerSegmentStats_riosFunc(info, inputs, outputs, otherArgs):
     """
-    Called be RIOS from inside calcPerSegmentStatsTiledRIOS. Do 
+    Called by RIOS from inside calcPerSegmentStatsRIOS. Do 
     accumulation of statistics
     """
     accumulateSegDict(otherArgs.segDict, otherArgs.noDataDict, 
@@ -192,13 +192,22 @@ def rioscalcPerSegmentStatsTiled(info, inputs, outputs, otherArgs):
         otherArgs.statsSelection_fast)
 
 
-def calcPerSegmentStatsTiledRIOS(imgfile, imgbandnum, segfile, 
-            statsSelection, numReadWorkers=0, missingStatsValue=-9999):
+def calcPerSegmentStatsRIOS(imgfile, imgbandnum, segfile, 
+            statsSelection, concurrencyStyle=None, 
+            missingStatsValue=-9999):
     """
     Calculate selected per-segment statistics for the given band 
     of the imgfile, against the given segment raster file. 
     Calculated statistics are written to the segfile raster 
     attribute table (RAT), so this file format must support RATs. 
+    
+    This function uses RIOS to perform the reading so it works in
+    a memory-efficient way. Also, the number of read workers can 
+    be varied by passing an instance of rios.applier.ConcurrencyStyle
+    which may be helpful when reading from data sources with high 
+    latency (ie S3). RIOS timeouts can also be changed using this method.
+    Note that only 0 compute workers is supported and 
+    computeWorkerKind must be set to CW_NONE.   
     
     Calculations are carried out in a memory-efficient way, allowing 
     very large rasters to be processed. Raster data is handled in 
@@ -313,11 +322,12 @@ def calcPerSegmentStatsTiledRIOS(imgfile, imgbandnum, segfile,
     # we don't actually write any outputs
     outputs = applier.FilenameAssociations()
     
-    if numReadWorkers > 0:
-        print('using numReadWorkers', numReadWorkers)
-        conc = applier.ConcurrencyStyle(numReadWorkers=numReadWorkers,
-            readBufferPopTimeout=30)
-        controls.setConcurrencyStyle(conc)
+    if concurrencyStyle is not None:
+        if concurrencyStyle.numComputeWorkers > 0:
+            raise PyShepSegStatsError('numComputeWorkers must be zero')
+        if concurrencyStyle.computeWorkerKind != applier.CW_NONE:
+            raise PyShepSegStatsError('computeWorkerKind must be CW_NONE')
+        controls.setConcurrencyStyle(concurrencyStyle)
         
     otherArgs = applier.OtherInputs()
     otherArgs.segDict = createSegDict()
@@ -331,7 +341,7 @@ def calcPerSegmentStatsTiledRIOS(imgfile, imgbandnum, segfile,
     otherArgs.numIntCols = numIntCols
     otherArgs.numFloatCols = numFloatCols
         
-    rtn = applier.apply(rioscalcPerSegmentStatsTiled, inputs, outputs, 
+    rtn = applier.apply(calcPerSegmentStats_riosFunc, inputs, outputs, 
         controls=controls, otherArgs=otherArgs)
     print(rtn.timings.formatReport())
         
@@ -1311,9 +1321,9 @@ def calcPerSegmentSpatialStatsTiled(imgfile, imgbandnum, segfile,
         raise PyShepSegStatsError('Not all pixels found during processing')
         
 
-def rioscalcPerSegmentSpatialStatsTiled(info, inputs, outputs, otherArgs):
+def calcPerSegmentSpatialStats_riosFunc(info, inputs, outputs, otherArgs):
     """
-    Called be RIOS from inside calcPerSegmentSpatialStatsTiledRIOS. Do 
+    Called by RIOS from inside calcPerSegmentSpatialStatsRIOS. Do 
     accumulation of statistics
     """
     leftPix, topLine = info.getPixColRow(0, 0)
@@ -1331,8 +1341,8 @@ def rioscalcPerSegmentSpatialStatsTiled(info, inputs, outputs, otherArgs):
         otherArgs.statsSelection_fast)
 
 
-def calcPerSegmentSpatialStatsTiledRIOS(imgfile, imgbandnum, segfile,
-        colNamesAndTypes, userFunc, userParam=None, numReadWorkers=0, 
+def calcPerSegmentSpatialStatsRIOS(imgfile, imgbandnum, segfile,
+        colNamesAndTypes, userFunc, userParam=None, concurrencyStyle=None, 
         missingStatsValue=-9999):
     """
     Similar to the :func:`calcPerSegmentStatsTiledRIOS` function 
@@ -1355,6 +1365,14 @@ def calcPerSegmentSpatialStatsTiledRIOS(imgfile, imgbandnum, segfile,
     values for. ``userParam`` is the same value passed to 
     this function and needs to be a type understood by Numba. 
     
+    This function uses RIOS to perform the reading so it works in
+    a memory-efficient way. Also, the number of read workers can 
+    be varied by passing an instance of rios.applier.ConcurrencyStyle
+    which may be helpful when reading from data sources with high 
+    latency (ie S3). RIOS timeouts can also be changed using this method.
+    Note that only 0 compute workers is supported and 
+    computeWorkerKind must be set to CW_NONE.   
+
     Parameters
     ----------
       imgfile : string
@@ -1446,11 +1464,12 @@ def calcPerSegmentSpatialStatsTiledRIOS(imgfile, imgbandnum, segfile,
     # we don't actually write any outputs
     outputs = applier.FilenameAssociations()
 
-    if numReadWorkers > 0:
-        print('using numReadWorkers', numReadWorkers)
-        conc = applier.ConcurrencyStyle(numReadWorkers=numReadWorkers,
-            readBufferPopTimeout=30, readBufferInsertTimeout=30)
-        controls.setConcurrencyStyle(conc)
+    if concurrencyStyle is not None:
+        if concurrencyStyle.numComputeWorkers > 0:
+            raise PyShepSegStatsError('numComputeWorkers must be zero')
+        if concurrencyStyle.computeWorkerKind != applier.CW_NONE:
+            raise PyShepSegStatsError('computeWorkerKind must be CW_NONE')
+        controls.setConcurrencyStyle(concurrencyStyle)
 
     otherArgs = applier.OtherInputs()
     otherArgs.segDict = createSegSpatialDataDict()
@@ -1467,7 +1486,7 @@ def calcPerSegmentSpatialStatsTiledRIOS(imgfile, imgbandnum, segfile,
     otherArgs.userFunc = userFunc
     otherArgs.userParam = userParam
 
-    rtn = applier.apply(rioscalcPerSegmentSpatialStatsTiled, inputs, outputs, 
+    rtn = applier.apply(calcPerSegmentSpatialStats_riosFunc, inputs, outputs, 
         controls=controls, otherArgs=otherArgs)
     print(rtn.timings.formatReport())
         

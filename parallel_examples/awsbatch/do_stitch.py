@@ -18,6 +18,7 @@ import shutil
 import boto3
 from pyshepseg import tiling, tilingstats, utils
 from osgeo import gdal
+from rios import applier
 
 gdal.UseExceptions()
 
@@ -124,6 +125,10 @@ def main():
 
     # ensure dataset is closed so we can open it again in RIOS
     del localDs
+    
+    # TODO: timeouts
+    concurrencyStyle = applier.ConcurrencyStyle(
+        numReadWorkers=cmdargs.statsreadworkers)
 
     # now do any stats the user has asked for
     if cmdargs.stats is not None:
@@ -136,9 +141,8 @@ def main():
             dataForStats = json.load(fileobj)
             for img, bandnum, selection in dataForStats:
                 print(img, bandnum, selection)
-                tilingstats.calcPerSegmentStatsTiledRIOS(img, bandnum, 
-                    localOutfile, selection, 
-                    numReadWorkers=cmdargs.statsreadworkers)
+                tilingstats.calcPerSegmentStatsRIOS(img, bandnum, 
+                    localOutfile, selection, concurrencyStyle)
 
     if cmdargs.spatialstats is not None:
         bucket, spatialstatsKey = cmdargs.spatialstats.split(':')
@@ -155,9 +159,8 @@ def main():
                         "with 'userFunc' in the tilingstats module")
 
                 userFunc = getattr(tilingstats, userFuncName)
-                tilingstats.calcPerSegmentSpatialStatsTiledRIOS(img, bandnum, 
-                    localOutfile, colInfo, userFunc, param,
-                    numReadWorkers=cmdargs.statsreadworkers)
+                tilingstats.calcPerSegmentSpatialStatsRIOS(img, bandnum, 
+                    localOutfile, colInfo, userFunc, param, concurrencyStyle)
 
     # upload the KEA file
     s3.upload_file(localOutfile, cmdargs.bucket, cmdargs.outfile)
