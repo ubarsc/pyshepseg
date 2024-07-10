@@ -66,6 +66,9 @@ def getCmdargs():
         help="Spectral Distance Percentile for segmentation (default=%(default)s)")
     p.add_argument("--noremove", action="store_true", default=False,
         help="don't remove files from S3 (for debugging)")
+    p.add_argument("--statsreadworkers", type=int, default=0, 
+        help="Number or RIOS readworkers to use while calculating stats. " + 
+            "(default=%(default)s)")
 
     cmdargs = p.parse_args()
     if cmdargs.bands is not None:
@@ -142,7 +145,8 @@ def main():
         '--bucket', cmdargs.bucket, '--outfile', cmdargs.outfile,
         '--tileprefix', cmdargs.tileprefix,
         '--infile', cmdargs.infile, '--pickle', cmdargs.pickle,
-        '--overlapsize', str(cmdargs.overlapsize)]
+        '--overlapsize', str(cmdargs.overlapsize),
+        '--statsreadworkers', str(cmdargs.statsreadworkers)]
     if cmdargs.stats is not None:
         cmd.extend(['--stats', cmdargs.stats])
     if cmdargs.spatialstats is not None:

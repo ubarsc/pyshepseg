@@ -61,6 +61,9 @@ def getCmdargs():
         help="Spectral Distance Percentile for segmentation (default=%(default)s)")
     p.add_argument("--noremove", action="store_true", default=False,
         help="don't remove files from S3 (for debugging)")
+    p.add_argument("--statsreadworkers", type=int, default=0, 
+        help="Number or RIOS readworkers to use while calculating stats. " + 
+            "(default=%(default)s)")
 
     cmdargs = p.parse_args()
 
@@ -89,7 +92,8 @@ def main():
         '--minSegmentSize', str(cmdargs.minSegmentSize),
         '--numClusters', str(cmdargs.numClusters),
         '--maxSpectDiff', cmdargs.maxSpectDiff,
-        '--spectDistPcntile', str(cmdargs.spectDistPcntile)]
+        '--spectDistPcntile', str(cmdargs.spectDistPcntile),
+        '--statsreadworkers', str(cmdargs.statsreadworkers)]
     if cmdargs.bands is not None:
         cmd.extend(['--bands', cmdargs.bands])
     if cmdargs.stats is not None:
