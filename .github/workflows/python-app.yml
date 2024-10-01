@@ -19,11 +19,10 @@ jobs:
     - uses: conda-incubator/setup-miniconda@v2
       with:
         miniforge-version: latest
-        miniforge-variant: Mambaforge
     - name: Install dependencies
       shell: bash -l {0}
       run: |
-        conda install flake8 numba scikit-learn gdal
+        conda install flake8 numba scikit-learn gdal libgdal-kea
     - name: Lint with flake8
       shell: bash -l {0}
       run: |
