@@ -1,6 +1,18 @@
 Pyshepseg Release Notes
 =======================
 
+Version 2.0.3 (2024-12-06)
+--------------------------
+
+New Features:
+  * Support numpy 2.0
+  * Use multiple RIOS readworkers while calculating statistics if recent RIOS available.
+
+Bug fixes:
+  * Allow GDAL dataset to be returned from doTiledShepherdSegmentation and histogram to be written to file by default. 
+  * More functions now support receiving a GDAL dataset as input
+  * Add --noremove option to tiling jobs
+
 Version 2.0.2 (2024-06-12)
 --------------------------
 
