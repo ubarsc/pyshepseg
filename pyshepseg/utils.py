@@ -64,12 +64,12 @@ def estimateStatsFromHisto(bandObj, hist):
     gtmiddle = hist.cumsum() >= middlenum
     medianVal = gtmiddle.nonzero()[0][0]
     
-    bandObj.SetMetadataItem("STATISTICS_MINIMUM", repr(minVal))
-    bandObj.SetMetadataItem("STATISTICS_MAXIMUM", repr(maxVal))
-    bandObj.SetMetadataItem("STATISTICS_MEAN", repr(meanVal))
-    bandObj.SetMetadataItem("STATISTICS_STDDEV", repr(stdDevVal))
-    bandObj.SetMetadataItem("STATISTICS_MODE", repr(modeVal))
-    bandObj.SetMetadataItem("STATISTICS_MEDIAN", repr(medianVal))
+    bandObj.SetMetadataItem("STATISTICS_MINIMUM", str(minVal))
+    bandObj.SetMetadataItem("STATISTICS_MAXIMUM", str(maxVal))
+    bandObj.SetMetadataItem("STATISTICS_MEAN", str(meanVal))
+    bandObj.SetMetadataItem("STATISTICS_STDDEV", str(stdDevVal))
+    bandObj.SetMetadataItem("STATISTICS_MODE", str(modeVal))
+    bandObj.SetMetadataItem("STATISTICS_MEDIAN", str(medianVal))
     bandObj.SetMetadataItem("STATISTICS_SKIPFACTORX", "1")
     bandObj.SetMetadataItem("STATISTICS_SKIPFACTORY", "1")
     bandObj.SetMetadataItem("STATISTICS_HISTOBINFUNCTION", "direct")
