@@ -37,6 +37,7 @@ gdal.UseExceptions()
 
 DEFAULT_MINOVERVIEWDIM = 100
 DEFAULT_OVERVIEWLEVELS = [4, 8, 16, 32, 64, 128, 256, 512]
+gdalFloatTypes = set([gdal.GDT_Float32, gdal.GDT_Float64])
 
 
 def estimateStatsFromHisto(bandObj, hist):
@@ -64,10 +65,25 @@ def estimateStatsFromHisto(bandObj, hist):
     gtmiddle = hist.cumsum() >= middlenum
     medianVal = gtmiddle.nonzero()[0][0]
     
+    if bandObj.DataType in gdalFloatTypes:
+        # convert values away from numpy scalars as they have a repr()
+        # in the form np.float... Band is float so conver to floats
+        minVal = float(minVal)
+        maxVal = float(maxVal)
+        modeVal = float(modeVal)
+        medianVal = float(medianVal)
+    else:
+        # convert to ints
+        minVal = int(minVal)
+        maxVal = int(maxVal)
+        modeVal = int(modeVal)
+        medianVal = int(medianVal)
+    # mean and standard deviation stay as floats
+    
     bandObj.SetMetadataItem("STATISTICS_MINIMUM", repr(minVal))
     bandObj.SetMetadataItem("STATISTICS_MAXIMUM", repr(maxVal))
-    bandObj.SetMetadataItem("STATISTICS_MEAN", repr(meanVal))
-    bandObj.SetMetadataItem("STATISTICS_STDDEV", repr(stdDevVal))
+    bandObj.SetMetadataItem("STATISTICS_MEAN", repr(float(meanVal)))
+    bandObj.SetMetadataItem("STATISTICS_STDDEV", repr(float(stdDevVal)))
     bandObj.SetMetadataItem("STATISTICS_MODE", repr(modeVal))
     bandObj.SetMetadataItem("STATISTICS_MEDIAN", repr(medianVal))
     bandObj.SetMetadataItem("STATISTICS_SKIPFACTORX", "1")
