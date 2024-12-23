@@ -42,7 +42,7 @@ Installation
 ------------
 
 This package can be installed from conda-forge and is the recommended approach. 
-Once you have installed `Conda <conda.pydata.org/miniconda.html#miniconda>`_ run 
+Once you have installed `Conda <https://github.com/conda-forge/miniforge>`_ run 
 the following commands to install ``pyshepseg`` into a new environment:
 
 ::
