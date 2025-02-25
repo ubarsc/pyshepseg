@@ -100,7 +100,8 @@ def main():
     # did they supply a kmeans path?
     kmeansObj = None
     if cmdargs.kmeans is not None:
-        kmeansObj = pickle.load(cmdargs.kmeans)
+        with open(cmdargs.kmeans, 'rb') as f:
+            kmeansObj = pickle.load(f)
 
     # run the initial part of the tiled segmentation
     inDs, bandNumbers, kmeansObj, subsamplePcnt, imgNullVal, tileInfo = (
