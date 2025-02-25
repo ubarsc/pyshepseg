@@ -69,6 +69,9 @@ def getCmdargs():
     p.add_argument("--statsreadworkers", type=int, default=0, 
         help="Number or RIOS readworkers to use while calculating stats. " + 
             "(default=%(default)s)")
+    p.add_argument("--kmeans", 
+        help="If specified, this should be a path to a pickled kmeans object to do " +
+            "the segmentation with. --numClusters will be ignored in this case. ")
 
     cmdargs = p.parse_args()
     if cmdargs.bands is not None:
@@ -93,13 +96,19 @@ def main():
     # Note: input file is assumed to be a format that works with /vsi filesystems
     # ie: GTiff.
     inPath = '/vsis3/' + cmdargs.bucket + '/' + cmdargs.infile
+    
+    # did they supply a kmeans path?
+    kmeansObj = None
+    if cmdargs.kmeans is not None:
+        kmeansObj = pickle.load(cmdargs.kmeans)
 
     # run the initial part of the tiled segmentation
     inDs, bandNumbers, kmeansObj, subsamplePcnt, imgNullVal, tileInfo = (
         tiling.doTiledShepherdSegmentation_prepare(inPath, 
         bandNumbers=cmdargs.bands, tileSize=cmdargs.tilesize, 
         overlapSize=cmdargs.overlapsize, 
-        numClusters=cmdargs.numClusters))
+        numClusters=cmdargs.numClusters,
+        kmeansObj=kmeansObj))
 
     # pickle the required input data that each of the tiles will need
     colRowList = sorted(tileInfo.tiles.keys(), key=lambda x: (x[1], x[0]))
