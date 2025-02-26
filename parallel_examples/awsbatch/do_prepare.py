@@ -50,7 +50,7 @@ def getCmdargs():
         "bucket:path/in/bucket.json. Contents must be a list of [img, band, " +
         "statsSelection] tuples.")
     p.add_argument("--spatialstats", help="path to json file specifying spatial " +
-        "stats in format: bucket:path/in/bucket.jso. Contents must be a list of " +
+        "stats in format: bucket:path/in/bucket.json. Contents must be a list of " +
         "[img, band, [list of (colName, colType) tuples], name-of-userfunc, param]" +
         " tuples.")
     p.add_argument("--nogdalstats", action="store_true", default=False,
@@ -71,7 +71,8 @@ def getCmdargs():
             "(default=%(default)s)")
     p.add_argument("--kmeans", 
         help="If specified, this should be a path to a pickled kmeans object to do " +
-            "the segmentation with. --numClusters will be ignored in this case. ")
+            "the segmentation with (in format:bucket:path/in/bucket.pkl). " +
+            "--numClusters will be ignored in this case. ")
 
     cmdargs = p.parse_args()
     if cmdargs.bands is not None:
@@ -100,8 +101,11 @@ def main():
     # did they supply a kmeans path?
     kmeansObj = None
     if cmdargs.kmeans is not None:
-        with open(cmdargs.kmeans, 'rb') as f:
-            kmeansObj = pickle.load(f)
+        bucket, kmeansKey = cmdargs.kmeans.split(':')
+        with io.BytesIO() as fileobj:
+            s3.download_fileobj(bucket, kmeansKey, fileobj)
+            fileobj.seek(0)
+            kmeansObj = pickle.load(fileobj)
 
     # run the initial part of the tiled segmentation
     inDs, bandNumbers, kmeansObj, subsamplePcnt, imgNullVal, tileInfo = (
