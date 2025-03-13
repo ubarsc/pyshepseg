@@ -50,7 +50,7 @@ def getCmdargs():
         "bucket:path/in/bucket.json. Contents must be a list of [img, band, " +
         "statsSelection] tuples.")
     p.add_argument("--spatialstats", help="path to json file specifying spatial " +
-        "stats in format: bucket:path/in/bucket.jso. Contents must be a list of " +
+        "stats in format: bucket:path/in/bucket.json. Contents must be a list of " +
         "[img, band, [list of (colName, colType) tuples], name-of-userfunc, param]" +
         " tuples.")
     p.add_argument("--nogdalstats", action="store_true", default=False,
@@ -69,6 +69,10 @@ def getCmdargs():
     p.add_argument("--statsreadworkers", type=int, default=0, 
         help="Number or RIOS readworkers to use while calculating stats. " + 
             "(default=%(default)s)")
+    p.add_argument("--kmeans", 
+        help="If specified, this should be a path to a pickled kmeans object to do " +
+            "the segmentation with (in format:bucket:path/in/bucket.pkl). " +
+            "--numClusters will be ignored in this case. ")
 
     cmdargs = p.parse_args()
     if cmdargs.bands is not None:
@@ -93,13 +97,23 @@ def main():
     # Note: input file is assumed to be a format that works with /vsi filesystems
     # ie: GTiff.
     inPath = '/vsis3/' + cmdargs.bucket + '/' + cmdargs.infile
+    
+    # did they supply a kmeans path?
+    kmeansObj = None
+    if cmdargs.kmeans is not None:
+        bucket, kmeansKey = cmdargs.kmeans.split(':')
+        with io.BytesIO() as fileobj:
+            s3.download_fileobj(bucket, kmeansKey, fileobj)
+            fileobj.seek(0)
+            kmeansObj = pickle.load(fileobj)
 
     # run the initial part of the tiled segmentation
     inDs, bandNumbers, kmeansObj, subsamplePcnt, imgNullVal, tileInfo = (
         tiling.doTiledShepherdSegmentation_prepare(inPath, 
         bandNumbers=cmdargs.bands, tileSize=cmdargs.tilesize, 
         overlapSize=cmdargs.overlapsize, 
-        numClusters=cmdargs.numClusters))
+        numClusters=cmdargs.numClusters,
+        kmeansObj=kmeansObj))
 
     # pickle the required input data that each of the tiles will need
     colRowList = sorted(tileInfo.tiles.keys(), key=lambda x: (x[1], x[0]))
