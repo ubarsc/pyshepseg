@@ -157,7 +157,8 @@ def main():
                 userFuncArr = userFuncName.split('.')
                 if len(userFuncArr) < 2:
                     raise ValueError("'userFunc' must be a fully qualified function " +
-                        "name. ie pyshepseg.tilingstats.userFuncVariogram")
+                        "name. ie. modulename.function_name. " +
+                        "eg. pyshepseg.tilingstats.userFuncVariogram")
                         
                 moduleName = '.'.join(userFuncArr[:-1])
                 funcName = userFuncArr[-1]
