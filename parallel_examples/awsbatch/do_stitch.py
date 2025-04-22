@@ -15,6 +15,7 @@ import resource
 import argparse
 import tempfile
 import shutil
+import importlib
 import boto3
 from pyshepseg import tiling, tilingstats, utils
 from osgeo import gdal
@@ -153,12 +154,20 @@ def main():
             dataForStats = json.load(fileobj)
             for img, bandnum, colInfo, userFuncName, param in dataForStats:
                 print(img, bandnum, colInfo, userFuncName, param)
-                if (not userFuncName.startswith('userFunc') or
-                        not hasattr(tilingstats, userFuncName)):
-                    raise ValueError("'userFunc' must be a function starting " +
-                        "with 'userFunc' in the tilingstats module")
-
-                userFunc = getattr(tilingstats, userFuncName)
+                userFuncArr = userFuncName.split('.')
+                if len(userFuncArr) < 2:
+                    raise ValueError("'userFunc' must be a fully qualified function " +
+                        "name. ie pyshepseg.tilingstats.userFuncVariogram")
+                        
+                moduleName = '.'.join(userFuncArr[:-1])
+                funcName = userFuncArr[-1]
+                mod = importlib.import_module(moduleName)
+                if not hasattr(mod, funcName):
+                    raise ValueError(f"Cannot find function {funcName} " +
+                        f"in module {moduleName}")
+                
+                userFunc = getattr(mod, funcName)
+                
                 tilingstats.calcPerSegmentSpatialStatsRIOS(img, bandnum, 
                     localOutfile, colInfo, userFunc, param, concurrencyStyle)
 
