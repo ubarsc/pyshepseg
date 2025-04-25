@@ -68,6 +68,7 @@ def getCmdargs():
     segGroup = p.add_argument_group("Segmentation Parameters")
     tileGroup = p.add_argument_group("Tiling Parameters")
     statsGroup = p.add_argument_group("Per-segment Statistics")
+    concGroup = p.add_argument_group("Concurrency")
 
     segGroup.add_argument("-n", "--nclusters", default=60, type=int,
         help="Number of clusters (default=%(default)s)")
@@ -118,6 +119,12 @@ def getCmdargs():
         "the per-segment mean has been calculated for each band, and this "+
         "is used to derive a colour. Band numbers are used in the order "+
         "red,green,blue"))
+
+    concGroup.add_argument("--concurrencytype", default=tiling.CONC_NONE,
+        choices=[tiling.CONC_NONE, tiling.CONC_THREADS, tiling.CONC_FARGATE],
+        help="Type of concurrency to use in tiled segmentation (default=%(default)s)")
+    concGroup.add_argument("--numworkers", default=0, type=int,
+        help="Number of workers for concurrent segmentation (default=%(default)s)")
 
     cmdargs = p.parse_args()
     
@@ -171,6 +178,9 @@ def main():
     creationOptions = []
     if cmdargs.format in GDAL_DRIVER_CREATION_OPTIONS:
         creationOptions = GDAL_DRIVER_CREATION_OPTIONS[cmdargs.format]
+
+    concurrencyCfg = tiling.ConcurrencyConfig(cmdargs.concurrencytype,
+        cmdargs.numworkers)
     
     tiledSegResult = tiling.doTiledShepherdSegmentation(cmdargs.infile, cmdargs.outfile, 
             tileSize=cmdargs.tilesize, overlapSize=cmdargs.overlapsize, 
@@ -180,22 +190,11 @@ def main():
             fixedKMeansInit=cmdargs.fixedkmeansinit, 
             fourConnected=not cmdargs.eightway, verbose=cmdargs.verbose,
             simpleTileRecode=cmdargs.simplerecode, outputDriver=cmdargs.format,
-            creationOptions=creationOptions)
+            creationOptions=creationOptions, concurrencyCfg=concurrencyCfg)
 
-    # Do histogram, stats and colour table on final output file. 
+    # Do a colour table on final output file. 
     outDs = gdal.Open(cmdargs.outfile, gdal.GA_Update)
-
-    t0 = time.time()
-    hist = tiling.calcHistogramTiled(outDs, tiledSegResult.maxSegId, writeToRat=True)
-    if cmdargs.verbose:
-        print('Done histogram: {:.2f} seconds'.format(time.time() - t0))
-
     band = outDs.GetRasterBand(1)
-
-    t0 = time.time()
-    utils.estimateStatsFromHisto(band, hist)
-    if cmdargs.verbose:
-        print('Done global stats: {:.2f} seconds'.format(time.time() - t0))
 
     if cmdargs.colortablebands is None:
         utils.writeRandomColourTable(band, tiledSegResult.maxSegId + 1)

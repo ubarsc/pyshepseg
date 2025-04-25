@@ -50,25 +50,21 @@ whole area.
 # CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION 
 # WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-# Just in case anyone is trying to use this with Python-2
-from __future__ import print_function, division
-
-import sys
 import os
 import time
 import shutil
 import tempfile
+import threading
+import queue
+from concurrent import futures
+from multiprocessing import cpu_count
 
 import numpy
 from osgeo import gdal
 import scipy.stats
 
-from numba import njit
-from numba.core import types
-from numba.typed import Dict
-from .guardeddecorators import jitclass
-
 from . import shepseg
+from . import utils
 
 gdal.UseExceptions()
 
@@ -82,12 +78,16 @@ DFLT_CHUNKSIZE = 100000
 
 TILESIZE = 1024
 
-# This type is used for all numba jit-ed data which is supposed to 
-# match the data type of the imagery pixels. Int64 should be enough
-# to hold any integer type, signed or unsigned, up to uint32. 
-numbaTypeForImageType = types.int64
-# This is the numba equivalent type of shepseg.SegIdType
-segIdNumbaType = types.uint32
+# Different concurrency types
+CONC_NONE = "CONC_NONE"
+CONC_THREADS = "CONC_THREADS"
+CONC_FARGATE = "CONC_FARGATE"
+
+# The two orientations of the overlap region
+HORIZONTAL = 0
+VERTICAL = 1
+RIGHT_OVERLAP = 'right'
+BOTTOM_OVERLAP = 'bottom'
 
 
 class TiledSegmentationResult(object):
@@ -428,7 +428,8 @@ def doTiledShepherdSegmentation(infile, outfile, tileSize=DFLT_TILESIZE,
         verbose=False, simpleTileRecode=False, outputDriver='KEA',
         creationOptions=[], spectDistPcntile=50, kmeansObj=None,
         tempfilesDriver=DFLT_TEMPFILES_DRIVER, tempfilesExt=DFLT_TEMPFILES_EXT,
-        tempfilesCreationOptions=[], writeHistogram=True, returnGDALDS=False):
+        tempfilesCreationOptions=[], writeHistogram=True, returnGDALDS=False,
+        concurrencyCfg=None):
     """
     Run the Shepherd segmentation algorithm in a memory-efficient
     manner, suitable for large raster files. Runs the segmentation
@@ -499,719 +500,601 @@ def doTiledShepherdSegmentation(infile, outfile, tileSize=DFLT_TILESIZE,
       tempfilesCreationOptions : list of str
         GDAL creation options to use for temporary raster files
       writeHistogram: bool
-        Whether to write histogram to file
+        Deprecated, and ignored. The histogram is always written.
       returnGDALDS: bool
         Whether to set the outDs member of TiledSegmentationResult
         when returning. If set, this will be open in update mode.
+      concurrencyCfg: ConcurrencyConfig
+        Configuration for segmentation concurrency. Default is None,
+        meaning no concurrency.
 
     Returns
     -------
       tileSegResult : TiledSegmentationResult
 
     """
- 
-    inDs, bandNumbers, kmeansObj, subsamplePcnt, imgNullVal, tileInfo = (
-        doTiledShepherdSegmentation_prepare(infile, tileSize, 
-        overlapSize, bandNumbers, imgNullVal, kmeansObj, verbose, numClusters, 
-        subsamplePcnt, fixedKMeansInit))
-        
-    # create a temp directory for use in splitting out tiles, overlaps etc
-    tempDir = tempfile.mkdtemp()
-    
-    tileFilenames = {}
+    if concurrencyCfg is None:
+        concurrencyCfg = ConcurrencyConfig()
 
-    colRowList = sorted(tileInfo.tiles.keys(), key=lambda x: (x[1], x[0]))
-    tileNum = 1
-    for col, row in colRowList:
-        if verbose:
-            print("\nDoing tile {} of {}: row={}, col={}".format(
-                tileNum, len(colRowList), row, col))
+    concurrencyType = concurrencyCfg.concurrencyType
+    concurrencyMgrClass = selectConcurrencyClass(concurrencyType)
+    concurrencyMgr = concurrencyMgrClass(infile, outfile, tileSize,
+        overlapSize, minSegmentSize, numClusters, bandNumbers, subsamplePcnt,
+        maxSpectralDiff, imgNullVal, fixedKMeansInit, fourConnected, verbose,
+        simpleTileRecode, outputDriver, creationOptions, spectDistPcntile,
+        kmeansObj, tempfilesDriver, tempfilesCreationOptions, writeHistogram,
+        returnGDALDS, concurrencyCfg)
 
-        filename = 'tile_{}_{}.{}'.format(col, row, tempfilesExt)
-        filename = os.path.join(tempDir, filename)
+    concurrencyMgr.initialize()
+    concurrencyMgr.segmentAllTiles()
+    concurrencyMgr.shutdown()
 
-        segResult = doTiledShepherdSegmentation_doOne(inDs, filename, tileInfo, 
-            col, row, bandNumbers, imgNullVal, kmeansObj, minSegmentSize, 
-            maxSpectralDiff, verbose, spectDistPcntile, fourConnected,
-            tempfilesDriver, tempfilesCreationOptions)
-        tileFilenames[(col, row)] = filename
-
-        tileNum += 1
-        
-    maxSegId, hasEmptySegments, outDs = doTiledShepherdSegmentation_finalize(inDs, 
-        outfile, tileFilenames, tileInfo, overlapSize, tempDir, simpleTileRecode, 
-        outputDriver, creationOptions, verbose, writeHistogram)
-
-    shutil.rmtree(tempDir)
-    
     tiledSegResult = TiledSegmentationResult()
-    tiledSegResult.maxSegId = maxSegId
-    tiledSegResult.numTileRows = tileInfo.nrows
-    tiledSegResult.numTileCols = tileInfo.ncols
-    tiledSegResult.subsamplePcnt = subsamplePcnt
-    tiledSegResult.maxSpectralDiff = segResult.maxSpectralDiff
-    tiledSegResult.kmeans = kmeansObj
-    tiledSegResult.hasEmptySegments = hasEmptySegments
+    tiledSegResult.maxSegId = concurrencyMgr.maxSegId
+    tiledSegResult.numTileRows = concurrencyMgr.tileInfo.nrows
+    tiledSegResult.numTileCols = concurrencyMgr.tileInfo.ncols
+    tiledSegResult.subsamplePcnt = concurrencyMgr.subsamplePcnt
+    tiledSegResult.maxSpectralDiff = concurrencyMgr.maxSpectralDiff
+    tiledSegResult.kmeans = concurrencyMgr.kmeansObj
+    tiledSegResult.hasEmptySegments = concurrencyMgr.hasEmptySegments
     if returnGDALDS:
-        tiledSegResult.outDs = outDs
+        tiledSegResult.outDs = concurrencyMgr.outDs
     
     return tiledSegResult
 
 
-def doTiledShepherdSegmentation_prepare(infile, tileSize=DFLT_TILESIZE, 
-        overlapSize=DFLT_OVERLAPSIZE, bandNumbers=None, imgNullVal=None, 
-        kmeansObj=None, verbose=False, numClusters=60, subsamplePcnt=None, 
-        fixedKMeansInit=False):
+def selectConcurrencyClass(concurrencyType):
     """
-    Do all the preparation for the tiled segmentation. Call this first if 
-    creating a parallel implementation, then call 
-    doTiledShepherdSegmentation_doOne() for each tile in the returned TileInfo
-    object.
-
-    See doTiledShepherdSegmentation() for detailed parameter descriptions.
-    
-    Parameters
-    ----------
-
-
-    Returns a tuple with: (datasetObj, bandNumbers, kmeansObj, subsamplePcnt, 
-    imgNullVal, tileInfo)
+    Choose the sub-class corresponding to the given concurrencyType
     """
-        
-    if verbose:
-        print("Starting tiled segmentation")
-    if (overlapSize % 2) != 0:
-        raise PyShepSegTilingError("Overlap size must be an even number")
+    concMgrClass = None
+    subclasses = SegmentationConcurrencyMgr.__subclasses__()
+    for c in subclasses:
+        if c.concurrencyType == concurrencyType:
+            concMgrClass = c
 
-    inDs = gdal.Open(infile)
+    if concMgrClass is None:
+        msg = f"Unknown concurrencyType '{concurrencyType}'"
+        raise ValueError(msg)
+    return concMgrClass
 
-    if bandNumbers is None:
-        bandNumbers = range(1, inDs.RasterCount + 1)
 
-    t0 = time.time()
-    if kmeansObj is None:
-        kmeansObj, subsamplePcnt, imgNullVal = fitSpectralClustersWholeFile(inDs, 
-            bandNumbers, numClusters, subsamplePcnt, imgNullVal, fixedKMeansInit)
-        if verbose:
-            print("KMeans of whole raster {:.2f} seconds".format(time.time() - t0))
-            print("Subsample Percentage={:.2f}".format(subsamplePcnt))
-            
-    elif imgNullVal is None:
-        # make sure we have the null value, even if they have supplied the kMeans
-        imgNullVal = getImgNullValue(inDs, bandNumbers)
-    
-    tileInfo = getTilesForFile(inDs, tileSize, overlapSize)
-    if verbose:
-        print("Found {} tiles, with {} rows and {} cols".format(
-            tileInfo.getNumTiles(), tileInfo.nrows, tileInfo.ncols))
-            
-    return inDs, bandNumbers, kmeansObj, subsamplePcnt, imgNullVal, tileInfo
-    
-    
-def doTiledShepherdSegmentation_doOne(inDs, filename, tileInfo, col, row, 
-        bandNumbers, imgNullVal, kmeansObj, minSegmentSize=50, 
-        maxSpectralDiff='auto', verbose=False, spectDistPcntile=50, 
-        fourConnected=True, tempfilesDriver=DFLT_TEMPFILES_DRIVER,
-        tempfilesCreationOptions=[]):
+class ConcurrencyConfig:
     """
-    Called from doTiledShepherdSegmentation(). Does a single tile, and is
-    split out here as a separate function so it can be called from in
-    parallel with other tiles if desired.
-
-    tileInfo is object returned from doTiledShepherdSegmentation_prepare()
-    and col, row describe the tile that this call will process.
-
-    See doTiledShepherdSegmentation() for detailed descriptions of
-    other parameters.
-
-    Return value is that from shepseg.doShepherdSegmentation().
-
+    Configuration for segmentation concurrency
     """
-
-    outDrvr = gdal.GetDriverByName(tempfilesDriver)
-
-    if outDrvr is None:
-        msg = 'This GDAL does not support driver {}'.format(tempfilesDriver)
-        raise SystemExit(msg)
+    def __init__(self, concurrencyType=CONC_NONE, numWorkers=0,
+            maxConcurrentReads=20):
+        self.concurrencyType = concurrencyType
+        self.numWorkers = numWorkers
+        self.maxConcurrentReads = maxConcurrentReads
     
-    xpos, ypos, xsize, ysize = tileInfo.getTile(col, row)
-    lyrDataList = []
-    for bandNum in bandNumbers:
-        lyr = inDs.GetRasterBand(bandNum)
-        lyrData = lyr.ReadAsArray(xpos, ypos, xsize, ysize)
-        lyrDataList.append(lyrData)
 
-    img = numpy.array(lyrDataList)
-
-    segResult = shepseg.doShepherdSegmentation(img, 
-                minSegmentSize=minSegmentSize,
-                maxSpectralDiff=maxSpectralDiff, imgNullVal=imgNullVal, 
-                fourConnected=fourConnected, kmeansObj=kmeansObj, 
-                verbose=verbose, spectDistPcntile=spectDistPcntile)
-
-    if os.path.exists(filename):
-        outDrvr.Delete(filename)
-
-    outType = gdal.GDT_UInt32
-
-    outDs = outDrvr.Create(filename, xsize, ysize, 1, outType, 
-                options=tempfilesCreationOptions)
-    outDs.SetProjection(inDs.GetProjection())
-    transform = inDs.GetGeoTransform()
-    subsetTransform = list(transform)
-    subsetTransform[0] = transform[0] + xpos * transform[1]
-    subsetTransform[3] = transform[3] + ypos * transform[5]
-    outDs.SetGeoTransform(tuple(subsetTransform))
-    b = outDs.GetRasterBand(1)
-    b.WriteArray(segResult.segimg)
-    b.SetMetadataItem('LAYER_TYPE', 'thematic')
-    b.SetNoDataValue(shepseg.SEGNULLVAL)
-
-    del outDs
-    
-    return segResult
-
-
-def doTiledShepherdSegmentation_finalize(inDs, outfile, tileFilenames, tileInfo, 
-        overlapSize, tempDir, simpleTileRecode=False, outputDriver='KEA', 
-        creationOptions=[], verbose=False, writeHistogram=True):
+class SegmentationConcurrencyMgr:
     """
-    Do the stitching of tiles and check for empty segments. Call after every 
-    doTiledShepherdSegmentation_doOne() has completed for a given tiled
-    segmentation.
-
-    See doTiledShepherdSegmentation() for detailed descriptions of
-    parameters.
-
-    Returns a tuple with (maxSegId, hasEmptySegments, outDs).
-
+    Base class for segmentation concurrency
     """
-        
-    maxSegId, outDs = stitchTiles(inDs, outfile, tileFilenames, tileInfo, overlapSize,
-        tempDir, simpleTileRecode, outputDriver, creationOptions, verbose)
-
-    hasEmptySegments = checkForEmptySegments(outDs, maxSegId, overlapSize,
-        writeToRat=writeHistogram)
-
-    return maxSegId, hasEmptySegments, outDs
-
-
-def checkForEmptySegments(outDs, maxSegId, overlapSize, writeToRat=False):
-    """
-    Check the final segmentation for any empty segments. These
-    can be problematic later, and should be avoided. Prints a
-    warning message if empty segments are found.
-
-    Parameters
-    ----------
-      outDs : gdal.Dataset
-        Open Dataset of output raster
-      maxSegId : shepseg.SegIdType
-        Maximum segment ID used
-      overlapSize : int
-        Number of pixels to use in overlaps between tiles
-
-    Returns
-    -------
-      hasEmptySegments : bool
-        True if there are segment ID numbers with no pixels
-
-    """
-    hist = calcHistogramTiled(outDs, maxSegId, writeToRat=writeToRat)
-    emptySegIds = numpy.where(hist[1:] == 0)[0]
-    numEmptySeg = len(emptySegIds)
-    hasEmptySegments = (numEmptySeg > 0)
-    if hasEmptySegments:
-        msg = [
-            "",
-            "WARNING: Found {} segments with zero pixels".format(numEmptySeg),
-            "    Segment IDs: {}".format(emptySegIds),
-            "    This is caused by inconsistent joining of segmentation",
-            "    tiles, and will probably cause trouble later on.",
-            "    It is highly recommended to re-run with a larger overlap",
-            "    size (currently {}), and if necessary a larger tile size".format(overlapSize),
-            ""
-        ]
-        print('\n'.join(msg), file=sys.stderr)
-
-    return hasEmptySegments
-
-
-def stitchTiles(inDs, outfile, tileFilenames, tileInfo, overlapSize,
-        tempDir, simpleTileRecode, outputDriver, creationOptions, verbose):
-    """
-    Recombine individual tiles into a single segment raster output 
-    file. Segment ID values are recoded to be unique across the whole
-    raster, and contiguous. 
-
-    Parameters
-    ----------
-      inDs : gdal.Dataset
-        Open Dataset of input raster
-      outfile : str
-        Filename of the final output raster
-      tileFilenames : dict
-        Dictionary of the individual tile filenames,
-        keyed by a tuple of (col, row) defining which tile it is.
-      tileInfo : TileInfo
-        Positions and sizes of all tiles across the raster.
-        As returned by getTilesForFile().
-      overlapSize : int
-        The number of pixels in the overlap between tiles.
-      tempDir : str
-        Name of directory for temporary files
-      simpleTileRecode : bool
-        If True, a simpler method will be used to recode segment IDs,
-        using just a block offset to shift ID numbers. This is useful when
-        testing, but leaves non-contiguous segment numbers. If False,
-        then a more complicated method is used which recodes and merges
-        segments which cross the boundary between tiles (this is the
-        intended normal behaviour).
-      outputDriver : str
-        Short name string of the GDAL driver to use for the output file.
-      creationOptions : list of str
-        GDAL creation options for output driver
-      verbose : bool
-        If True, print informative messages to stdout
-
-    Returns
-    -------
-      maxSegId : shepseg.SegIdType
-        The maximum segment ID used.
-      outDs: gdal.Dataset
-        Open dataset of the output file
-
-    """
-    marginSize = int(overlapSize / 2)
-
-    outDrvr = gdal.GetDriverByName(outputDriver)
-    if outDrvr is None:
-        msg = 'This GDAL does not support driver {}'.format(outputDriver)
-        raise SystemExit(msg)
-
-    if os.path.exists(outfile):
-        outDrvr.Delete(outfile)
-
-    outType = gdal.GDT_UInt32
-
-    outDs = outDrvr.Create(outfile, inDs.RasterXSize, inDs.RasterYSize, 1, 
-                outType, creationOptions)
-    outDs.SetProjection(inDs.GetProjection())
-    outDs.SetGeoTransform(inDs.GetGeoTransform())
-    outBand = outDs.GetRasterBand(1)
-    outBand.SetMetadataItem('LAYER_TYPE', 'thematic')
-    outBand.SetNoDataValue(shepseg.SEGNULLVAL)
-    
-    colRows = sorted(tileInfo.tiles.keys(), key=lambda x: (x[1], x[0]))
-    maxSegId = 0
-    
-    if verbose:
-        print("Stitching tiles together")
-    reportedRow = -1
-    for col, row in colRows:
-        if verbose and row != reportedRow:
-            print("Stitching tile row {}".format(row))
-        reportedRow = row
-
-        filename = tileFilenames[(col, row)]
-        ds = gdal.Open(filename)
-        tileData = ds.ReadAsArray()
-        xpos, ypos, xsize, ysize = tileInfo.getTile(col, row)
-        
-        top = marginSize
-        bottom = ysize - marginSize
-        left = marginSize
-        right = xsize - marginSize
-        
-        xout = xpos + marginSize
-        yout = ypos + marginSize
-
-        rightName = overlapFilename(col, row, RIGHT_OVERLAP, tempDir)
-        bottomName = overlapFilename(col, row, BOTTOM_OVERLAP, tempDir)
-        
-        if row == 0:
-            top = 0
-            yout = ypos
-
-        if row == (tileInfo.nrows - 1):
-            bottom = ysize
-            bottomName = None
-            
-        if col == 0:
-            left = 0
-            xout = xpos
-            
-        if col == (tileInfo.ncols - 1):
-            right = xsize
-            rightName = None
-        
-        if simpleTileRecode:
-            nullmask = (tileData == shepseg.SEGNULLVAL)
-            tileData += maxSegId
-            tileData[nullmask] = shepseg.SEGNULLVAL
-        else:
-            tileData = recodeTile(tileData, maxSegId, row, col, 
-                        overlapSize, tempDir, top, bottom, left, right)
-            
-        tileDataTrimmed = tileData[top:bottom, left:right]
-        outBand.WriteArray(tileDataTrimmed, xout, yout)
-
-        if rightName is not None:
-            numpy.save(rightName, tileData[:, -overlapSize:])
-        if bottomName is not None:
-            numpy.save(bottomName, tileData[-overlapSize:, :])    
-        
-        tileMaxSegId = tileDataTrimmed.max()
-        maxSegId = max(maxSegId, tileMaxSegId)
-
-    return maxSegId, outDs
-
-
-RIGHT_OVERLAP = 'right'
-BOTTOM_OVERLAP = 'bottom'
-
-
-def overlapFilename(col, row, edge, tempDir):
-    """
-    Return the temporary filename used for the overlap array
-
-    Parameters
-    ----------
-      col, row : int
-        Tile column & row numbers
-      edge : {right', 'bottom'}
-        Indicates from which edge of the given tile the overlap is taken
-
-    Returns
-    -------
-      filename : str
-        Temp numpy array filename for the overlap
-    """
-    fname = '{}_{}_{}.npy'.format(edge, col, row)
-    return os.path.join(tempDir, fname)
-
-
-# The two orientations of the overlap region
-HORIZONTAL = 0
-VERTICAL = 1
-
-
-def recodeTile(tileData, maxSegId, tileRow, tileCol, overlapSize, tempDir,
-        top, bottom, left, right):
-    """
-    Adjust the segment ID numbers in the current tile, to make them
-    globally unique (and contiguous) across the whole mosaic.
-
-    Make use of the overlapping regions of tiles above and left,
-    to identify shared segments, and recode those to segment IDs 
-    from the adjacent tiles (i.e. we change the current tile, not 
-    the adjacent ones). Non-shared segments are increased so they 
-    are larger than previous values. 
-
-    Parameters
-    ----------
-      tileData : shepseg.SegIdType ndarray (tileNrows, tileNcols)
-        The array of segment IDs for a single image tile
-      maxSegId : shepseg.SegIdType
-        The current maximum segment ID for all preceding tiles.
-      tileRow, tileCol : int
-        The row/col numbers of this tile, within the whole-mosaic
-        tile numbering scheme. (These are not pixel numbers, but tile
-        grid numbers)
-      overlapSize : int
-        Number of pixels in tile overlap
-      tempDir : str
-        Name of directory for temporary files
-      top, bottom, left, right : int
-        Pixel coordinates *within tile* of the non-overlap region of
-        the tile.
-
-    Returns
-    -------
-      newTileData : shepseg.SegIdType ndarray (tileNrows, tileNcols)
-        A copy of tileData, with new segment ID numbers.
-
-    """
-    # The A overlaps are from the current tile. The B overlaps 
-    # are the same regions from the earlier adjacent tiles, and
-    # we load them here from the saved .npy files. 
-    topOverlapA = tileData[:overlapSize, :]
-    leftOverlapA = tileData[:, :overlapSize]
-    
-    recodeDict = {}    
-
-    # Read in the bottom and right regions of the adjacent tiles
-    if tileRow > 0:
-        topOverlapFilename = overlapFilename(tileCol, tileRow - 1, 
-                                BOTTOM_OVERLAP, tempDir)
-        topOverlapB = numpy.load(topOverlapFilename)
-
-        recodeSharedSegments(tileData, topOverlapA, topOverlapB, 
-            HORIZONTAL, recodeDict)
-
-    if tileCol > 0:
-        leftOverlapFilename = overlapFilename(tileCol - 1, tileRow, 
-                                RIGHT_OVERLAP, tempDir)
-        leftOverlapB = numpy.load(leftOverlapFilename)
-
-        recodeSharedSegments(tileData, leftOverlapA, leftOverlapB, 
-            VERTICAL, recodeDict)
-    
-    (newTileData, newMaxSegId) = relabelSegments(tileData, recodeDict, 
-        maxSegId, top, bottom, left, right)
-    
-    return newTileData
-
-
-def recodeSharedSegments(tileData, overlapA, overlapB, orientation,
-        recodeDict):
-    """
-    Work out a mapping which recodes segment ID numbers from
-    the tile in tileData. Segments to be recoded are those which 
-    are in the overlap with an earlier tile, and which cross the 
-    midline of the overlap, which is where the stitchline between 
-    the tiles will fall. 
-
-    Updates recodeDict, which is a dictionary keyed on the 
-    existing segment ID numbers, where the value of each entry 
-    is the segment ID number from the earlier tile, to be used 
-    to recode the segment in the current tile. 
-
-    overlapA and overlapB are numpy arrays of pixels in the overlap
-    region in question, giving the segment ID numbers in the two tiles.
-    The values in overlapB are from the earlier tile, and those in
-    overlapA are from the current tile.
-
-    It is critically important that the overlapping region is either
-    at the top or the left of the current tile, as this means that 
-    the row and column numbers of pixels in the overlap arrays 
-    match the same pixels in the full tile. This cannot be used
-    for overlaps on the right or bottom of the current tile.
-
-    Parameters
-    ----------
-      tileData : shepseg.SegIdType ndarray (tileNrows, tileNcols)
-        Tile subset of segment ID image
-      overlapA, overlapB : shepseg.SegIdType ndarray (overlapNrows, overlapNcols)
-        Tile overlap subsets of segment ID image
-      orientation : {HORIZONTAL, VERTICAL}
-        The orientation parameter defines whether we are dealing with
-        overlap at the top (orientation == HORIZONTAL) or the left
-        (orientation == VERTICAL).
-      recodeDict : dict
-        Keys and values are both segment ID numbers. Defines the mapping
-        which recodes segment IDs. Updated in place.
-
-    """
-    # The current segment IDs just from the overlap region.
-    segIdList = numpy.unique(overlapA)
-    # Ensure that we do not include the null segment ID
-    segIdList = segIdList[segIdList!=shepseg.SEGNULLVAL]
-    
-    segSize = shepseg.makeSegSize(overlapA)
-    segLoc = shepseg.makeSegmentLocations(overlapA, segSize)
-    
-    # Find the segments which cross the stitch line
-    segsOnStitch = []
-    for segid in segIdList:
-        if crossesMidline(overlapA, segLoc[segid], orientation):
-            segsOnStitch.append(segid)
-    
-    for segid in segsOnStitch:
-        # Get the pixel row and column numbers of every pixel
-        # in this segment. Note that because we are using
-        # the top and left overlap regions, the pixel row/col 
-        # numbers in the full tile are identical to those for 
-        # the corresponding pixels in the overlap region arrays
-        segNdx = segLoc[segid].getSegmentIndices()
-        
-        # Find the most common segment ID in the corresponding
-        # pixels from the B overlap array. In principle there 
-        # should only be one, but just in case. 
-        modeObj = scipy.stats.mode(overlapB[segNdx])
-        # change in scipy 1.9.0. use keepdims=True for old behaviour
-        # but that breaks older scipy. So workaround by seeing what returned
-        if numpy.isscalar(modeObj.mode):
-            segIdFromB = modeObj.mode
-        else:
-            segIdFromB = modeObj.mode[0]
-        
-        # Now record this recoding relationship
-        recodeDict[segid] = segIdFromB
-
-
-def relabelSegments(tileData, recodeDict, maxSegId, 
-        top, bottom, left, right):
-    """
-    Recode the segment IDs in the given tileData array.
-
-    For segment IDs which are keys in recodeDict, these
-    are replaced with the corresponding entry. For all other 
-    segment IDs, they are replaced with sequentially increasing
-    ID numbers, starting from one more than the previous
-    maximum segment ID (maxSegId). 
-
-    A re-coded copy of tileData is created, the original is 
-    unchanged.
-
-    Parameters
-    ----------
-      tileData : shepseg.SegIdType ndarray (tileNrows, tileNcols)
-        Segment IDs of tile
-      recodeDict : dict
-        Keys and values are segment ID numbers. Defines mapping
-        for segment relabelling
-      maxSegId : shepseg.SegIdType
-        Maximum segment ID number
-      top, bottom, left, right : int
-        Pixel coordinates *within tile* of the non-overlap region of
-        the tile.
-
-    Returns
-    -------
-        newTileData : shepseg.SegIdType ndarray (tileNrows, tileNcols)
-          Segment IDs of tile, after relabelling
-        newMaxSegId : shepseg.SegIdType
-          New maximum segment ID after relabelling
-
-    """
-    newTileData = numpy.full(tileData.shape, shepseg.SEGNULLVAL, 
-        dtype=tileData.dtype)
-    
-    segSize = shepseg.makeSegSize(tileData)
-    segLoc = shepseg.makeSegmentLocations(tileData, segSize)
-
-    newSegId = maxSegId
-    oldSegmentIDs = segLoc.keys()
-    
-    for segid in oldSegmentIDs:
-        pixNdx = segLoc[shepseg.SegIdType(segid)].getSegmentIndices()
-        if segid in recodeDict:
-            newTileData[pixNdx] = recodeDict[segid]
-        else:
-            (segRows, segCols) = pixNdx
-            segLeft = segCols.min()
-            segTop = segRows.min()
-            # Avoid incrementing newSegId for segments which are
-            # handled in neighbouring tiles. For the left and top 
-            # margins, the segment must be entirely within the 
-            # trimmed tile, while for the right and bottom
-            # margins the segment must be at least partially
-            # within the trimmed tile. 
-            if ((segLeft >= left) and (segTop >= top) and
-                    (segLeft < right) and (segTop < bottom)):
-                newSegId += 1
-                newTileData[pixNdx] = newSegId
-    
-    return (newTileData, newSegId)
-
-
-def crossesMidline(overlap, segLoc, orientation):
-    """
-    Check whether the given segment crosses the midline of the
-    given overlap. If it does not, then it will lie entirely within
-    exactly one tile, but if it does cross, then it will need to be
-    re-coded across the midline.
-
-    Parameters
-    ----------
-      overlap : shepseg.SegIdType ndarray (overlapNrows, overlapNcols)
-        Array of segments just for this overlap region
-      segLoc : shepseg.RowColArray
-        The row/col coordinates (within the overlap array) of the
-        pixels for the segment of interest
-      orientation : {HORIZONTAL, VERTICAL}
-        Indicates the orientation of the midline
-
-    Returns
-    -------
-      crosses : bool
-        True if the given segment crosses the midline
-    
-    """
-    (nrows, ncols) = overlap.shape
-    if orientation == HORIZONTAL:
-        mid = int(nrows / 2)
-        n = 0
-    elif orientation == VERTICAL:
-        mid = int(ncols / 2)
-        n = 1
-
-    minN = segLoc.rowcols[:, n].min()
-    maxN = segLoc.rowcols[:, n].max()
-    
-    return ((minN < mid) & (maxN >= mid))
-
-
-def calcHistogramTiled(segfile, maxSegId, writeToRat=True):
-    """
-    Calculate a histogram of the given segment image file. 
-    
-    Note that we need this function because GDAL's GetHistogram
-    function does not seem to work when attempting a histogram
-    with very large numbers of entries. We want an entry for
-    every segment, rather than an approximate count for a range of 
-    segment values, and the number of segments is very large. So,
-    we need to write our own routine. 
-    
-    It works in tiles across the image, so that it can process 
-    very large images in a memory-efficient way. 
-    
-    For a raster which can easily fit into memory, a histogram
-    can be calculated directly using :func:`pyshepseg.shepseg.makeSegSize`.
-    
-    Parameters
-    ----------
-      segfile : str or gdal.Dataset
-        Segmentation image file. Can be either the file name string, or
-        an open Dataset object.
-      maxSegId : shepseg.SegIdType
-        Maximum segment ID used
-      writeToRat : bool
-        If True, the completed histogram will be written to the image
-        file's raster attribute table. If segfile was given as a Dataset
-        object, it would therefore need to have been opened with update
-        access.
-
-    Returns
-    -------
-      hist : int ndarray (numSegments+1, )
-        Histogram counts for each segment (index is segment ID number)
-
-    """
-    # This is the histogram array, indexed by segment ID. 
-    # Currently just in memory, it could be quite large, 
-    # depending on how many segments there are.
-    hist = numpy.zeros((maxSegId + 1), dtype=numpy.uint32)
-    
-    # Open the file
-    if isinstance(segfile, gdal.Dataset):
-        ds = segfile
-    else:
-        ds = gdal.Open(segfile, gdal.GA_Update)
-    segband = ds.GetRasterBand(1)
-    
-    tileSize = TILESIZE
-    (nlines, npix) = (segband.YSize, segband.XSize)
-    numXtiles = int(numpy.ceil(npix / tileSize))
-    numYtiles = int(numpy.ceil(nlines / tileSize))
-
-    for tileRow in range(numYtiles):
-        for tileCol in range(numXtiles):
-            topLine = tileRow * tileSize
-            leftPix = tileCol * tileSize
-            xsize = min(tileSize, npix - leftPix)
-            ysize = min(tileSize, nlines - topLine)
-            
-            tileData = segband.ReadAsArray(leftPix, topLine, xsize, ysize)
-            updateCounts(tileData, hist)
-
-    # Set the histogram count for the null segment to zero
-    hist[shepseg.SEGNULLVAL] = 0
-
-    if writeToRat:
-        attrTbl = segband.GetDefaultRAT()
-        numTableRows = int(maxSegId + 1)
+    concurrencyType = CONC_NONE
+
+    def __init__(self, infile, outfile, tileSize, overlapSize, minSegmentSize,
+            numClusters, bandNumbers, subsamplePcnt, maxSpectralDiff,
+            imgNullVal, fixedKMeansInit, fourConnected, verbose,
+            simpleTileRecode, outputDriver, creationOptions, spectDistPcntile,
+            kmeansObj, tempfilesDriver, tempfilesCreationOptions,
+            writeHistogram, returnGDALDS, concCfg):
+        """
+        Constructor. Just saves all its arguments to self, and does a couple
+        of quick checks.
+        """
+        self.infile = infile
+        self.outfile = outfile
+        self.tileSize = tileSize
+        self.overlapSize = overlapSize
+        self.minSegmentSize = minSegmentSize
+        self.numClusters = numClusters
+        self.bandNumbers = bandNumbers
+        self.subsamplePcnt = subsamplePcnt
+        self.maxSpectralDiff = maxSpectralDiff
+        self.imgNullVal = imgNullVal
+        self.fixedKMeansInit = fixedKMeansInit
+        self.fourConnected = fourConnected
+        self.verbose = verbose
+        self.simpleTileRecode = simpleTileRecode
+        self.outputDriver = outputDriver
+        self.creationOptions = creationOptions
+        self.spectDistPcntile = spectDistPcntile
+        self.kmeansObj = kmeansObj
+        self.tempfilesDriver = tempfilesDriver
+        self.tempfilesCreationOptions = tempfilesCreationOptions
+        self.writeHistogram = writeHistogram
+        self.returnGDALDS = returnGDALDS
+        self.concurrencyCfg = concCfg
+        if concCfg.numWorkers > 0:
+            self.readSemaphore = threading.BoundedSemaphore(
+                value=concCfg.maxConcurrentReads)
+
+        if (self.overlapSize % 2) != 0:
+            raise PyShepSegTilingError("Overlap size must be an even number")
+
+        for driverName in [tempfilesDriver, outputDriver]:
+            drvr = gdal.GetDriverByName(driverName)
+            if drvr is None:
+                msg = "This GDAL does not support driver '{}'".format(driverName)
+                raise PyShepSegTilingError(msg)
+            if driverName == tempfilesDriver:
+                self.tempfilesExt = drvr.GetMetadataItem('DMD_EXTENSION')
+
+        self.specificChecks()
+
+    def specificChecks(self):
+        """
+        Checks which are specific to the subclass. Called at the
+        end of __init__().
+        """
+
+    def initialize(self):
+        """
+        Runs initial phase of segmentation. This does not have any concurrency,
+        so is the same for every concurrencyType. The main job is to do the
+        spectral clustering, setting self.kmeansObj
+        """
+        if self.verbose:
+            print("Starting tiled segmentation")
+
+        inDs = gdal.Open(self.infile)
+
+        if self.bandNumbers is None:
+            self.bandNumbers = range(1, self.inDs.RasterCount + 1)
+
+        t0 = time.time()
+        if self.kmeansObj is None:
+            fitReturn = fitSpectralClustersWholeFile(inDs, self.bandNumbers,
+                    self.numClusters, self.subsamplePcnt, self.imgNullVal,
+                    self.fixedKMeansInit)
+            (self.kmeansObj, self.subsamplePcnt, self.imgNullVal) = fitReturn
+                
+            if self.verbose:
+                print("KMeans of whole raster {:.2f} seconds".format(time.time() - t0))
+                print("Subsample Percentage={:.2f}".format(self.subsamplePcnt))
+
+        elif self.imgNullVal is None:
+            # make sure we have the null value, even if they have supplied the kMeans
+            self.imgNullVal = getImgNullValue(self.inDs, self.bandNumbers)
+
+        self.tileInfo = getTilesForFile(inDs, self.tileSize, self.overlapSize)
+        if self.verbose:
+            print("Found {} tiles, with {} rows and {} cols".format(
+                self.tileInfo.getNumTiles(), self.tileInfo.nrows, self.tileInfo.ncols))
+
+        # Save some info on the input file to use for the output file
+        self.inXsize = inDs.RasterXSize
+        self.inYsize = inDs.RasterYSize
+        self.inProj = inDs.GetProjection()
+        self.inGeoTransform = inDs.GetGeoTransform()
+
+    def shutdown(self):
+        """
+        Any explicit shutdown operations
+        """
+
+    def startQueues(self):
+        """
+        Start in and out queues, if required
+        """
+
+    def startWorkers(self):
+        """
+        Start segmentation workers, if required
+        """
+
+    def segmentAllTiles(self):
+        """
+        Runs segmentation for all tiles in the input image, and writes the output
+        file.
+        """
+
+    def getTileSegmentation(self, col, row):
+        """
+        Get the requested tile of segmentation output
+        """
+
+    def saveCompletedTiles(self):
+        """
+        Save any completed tiles of segmentation output, if required. This
+        is used by concurrent subclasses to grab completed tiles from
+        the output queue, and hang onto them until we are ready to write them.
+        """
+        completedTile = self.popFromQue(self.outQue)
+        while completedTile is not None:
+            (col, row, segResult) = completedTile
+            self.segResultCache[(col, row)] = segResult
+            completedTile = self.popFromQue(self.outQue)
+
+    @staticmethod
+    def overlapCacheKey(col, row, edge):
+        """
+        Return the temporary cache key used for the overlap array
+
+        Parameters
+        ----------
+          col, row : int
+            Tile column & row numbers
+          edge : {right', 'bottom'}
+            Indicates from which edge of the given tile the overlap is taken
+
+        Returns
+        -------
+          cachekey : str
+            Identifying key for the overlap
+        """
+        cachekey = '{}_{}_{}'.format(edge, col, row)
+        return cachekey
+
+    def saveOverlap(self, overlapCacheKey, overlapData):
+        """
+        Save given overlap data in cache, under the given key. This may be
+        in-memory or on-disk, depending on the sub-class
+        """
+
+    def loadOverlap(self, overlapCacheKey):
+        """
+        Load the requested overlap data from cache
+        """
+
+    def stitchTiles(self):
+        """
+        Recombine individual tiles into a single segment raster output 
+        file. Segment ID values are recoded to be unique across the whole
+        raster, and contiguous.
+
+        Sets maxSegId and outDs on self.
+
+        """
+        marginSize = int(self.overlapSize / 2)
+
+        outDrvr = gdal.GetDriverByName(self.outputDriver)
+
+        if os.path.exists(self.outfile):
+            outDrvr.Delete(self.outfile)
+
+        outType = gdal.GDT_UInt32
+
+        outDs = outDrvr.Create(self.outfile, self.inXsize, self.inYsize, 1, 
+                    outType, self.creationOptions)
+        outDs.SetProjection(self.inProj)
+        outDs.SetGeoTransform(self.inGeoTransform)
+        outBand = outDs.GetRasterBand(1)
+        outBand.SetMetadataItem('LAYER_TYPE', 'thematic')
+        outBand.SetNoDataValue(shepseg.SEGNULLVAL)
+
+        tileInfoKeys = self.tileInfo.tiles.keys()
+        colRowList = sorted(tileInfoKeys, key=lambda x: (x[1], x[0]))
+        maxSegId = 0
+        histAccum = HistogramAccumulator()
+
+        if self.verbose:
+            print("Stitching tiles together")
+        reportedRow = -1
+        i = 0
+        # Currently this loop is a polling loop, checking on every iteration
+        # whether the desired tile has been done. It should be more event-driven,
+        # but am working up to that.
+        while i < len(colRowList):
+            (col, row) = colRowList[i]
+
+            if self.verbose and row != reportedRow:
+                print("Stitching tile row {}".format(row))
+            reportedRow = row
+
+            self.saveCompletedTiles()
+
+            (xpos, ypos, xsize, ysize) = self.tileInfo.getTile(col, row)
+            tileData = self.getTileSegmentation(col, row)
+
+            if tileData is not None:
+                top = marginSize
+                bottom = ysize - marginSize
+                left = marginSize
+                right = xsize - marginSize
+
+                xout = xpos + marginSize
+                yout = ypos + marginSize
+
+                rightName = self.overlapCacheKey(col, row, RIGHT_OVERLAP)
+                bottomName = self.overlapCacheKey(col, row, BOTTOM_OVERLAP)
+
+                if row == 0:
+                    top = 0
+                    yout = ypos
+
+                if row == (self.tileInfo.nrows - 1):
+                    bottom = ysize
+                    bottomName = None
+
+                if col == 0:
+                    left = 0
+                    xout = xpos
+
+                if col == (self.tileInfo.ncols - 1):
+                    right = xsize
+                    rightName = None
+
+                if self.simpleTileRecode:
+                    nullmask = (tileData == shepseg.SEGNULLVAL)
+                    tileData += maxSegId
+                    tileData[nullmask] = shepseg.SEGNULLVAL
+                else:
+                    tileData = self.recodeTile(tileData, maxSegId, row, col, 
+                                top, bottom, left, right)
+
+                tileDataTrimmed = tileData[top:bottom, left:right]
+                outBand.WriteArray(tileDataTrimmed, xout, yout)
+                histAccum.doHistAccum(tileDataTrimmed)
+
+                if rightName is not None:
+                    self.saveOverlap(rightName, tileData[:, -self.overlapSize:])
+                if bottomName is not None:
+                    self.saveOverlap(bottomName, tileData[-self.overlapSize:, :])    
+
+                tileMaxSegId = tileDataTrimmed.max()
+                maxSegId = max(maxSegId, tileMaxSegId)
+                i += 1
+
+        self.writeHistogramToFile(outBand, histAccum)
+        self.hasEmptySegments = (histAccum.hist[1:] == 0).any()
+        utils.estimateStatsFromHisto(outBand, histAccum.hist)
+        self.maxSegId = maxSegId
+        self.outDs = outDs
+
+    def recodeTile(self, tileData, maxSegId, tileRow, tileCol,
+            top, bottom, left, right):
+        """
+        Adjust the segment ID numbers in the current tile, to make them
+        globally unique (and contiguous) across the whole mosaic.
+
+        Make use of the overlapping regions of tiles above and left,
+        to identify shared segments, and recode those to segment IDs 
+        from the adjacent tiles (i.e. we change the current tile, not 
+        the adjacent ones). Non-shared segments are increased so they 
+        are larger than previous values. 
+
+        Parameters
+        ----------
+          tileData : shepseg.SegIdType ndarray (tileNrows, tileNcols)
+            The array of segment IDs for a single image tile
+          maxSegId : shepseg.SegIdType
+            The current maximum segment ID for all preceding tiles.
+          tileRow, tileCol : int
+            The row/col numbers of this tile, within the whole-mosaic
+            tile numbering scheme. (These are not pixel numbers, but tile
+            grid numbers)
+          top, bottom, left, right : int
+            Pixel coordinates *within tile* of the non-overlap region of
+            the tile.
+
+        Returns
+        -------
+          newTileData : shepseg.SegIdType ndarray (tileNrows, tileNcols)
+            A copy of tileData, with new segment ID numbers.
+
+        """
+        # The A overlaps are from the current tile. The B overlaps 
+        # are the same regions from the earlier adjacent tiles, and
+        # we load them here from the saved .npy files. 
+        topOverlapA = tileData[:self.overlapSize, :]
+        leftOverlapA = tileData[:, :self.overlapSize]
+
+        recodeDict = {}    
+
+        # Read in the bottom and right regions of the adjacent tiles
+        if tileRow > 0:
+            topOverlapCacheKey = self.overlapCacheKey(tileCol, tileRow - 1, 
+                                    BOTTOM_OVERLAP)
+            topOverlapB = self.loadOverlap(topOverlapCacheKey)
+
+            self.recodeSharedSegments(tileData, topOverlapA, topOverlapB, 
+                HORIZONTAL, recodeDict)
+
+        if tileCol > 0:
+            leftOverlapCacheKey = self.overlapCacheKey(tileCol - 1, tileRow, 
+                                    RIGHT_OVERLAP)
+            leftOverlapB = self.loadOverlap(leftOverlapCacheKey)
+
+            self.recodeSharedSegments(tileData, leftOverlapA, leftOverlapB, 
+                VERTICAL, recodeDict)
+
+        (newTileData, newMaxSegId) = self.relabelSegments(tileData, recodeDict, 
+            maxSegId, top, bottom, left, right)
+
+        return newTileData
+
+    @staticmethod
+    def recodeSharedSegments(tileData, overlapA, overlapB, orientation,
+            recodeDict):
+        """
+        Work out a mapping which recodes segment ID numbers from
+        the tile in tileData. Segments to be recoded are those which 
+        are in the overlap with an earlier tile, and which cross the 
+        midline of the overlap, which is where the stitchline between 
+        the tiles will fall. 
+
+        Updates recodeDict, which is a dictionary keyed on the 
+        existing segment ID numbers, where the value of each entry 
+        is the segment ID number from the earlier tile, to be used 
+        to recode the segment in the current tile. 
+
+        overlapA and overlapB are numpy arrays of pixels in the overlap
+        region in question, giving the segment ID numbers in the two tiles.
+        The values in overlapB are from the earlier tile, and those in
+        overlapA are from the current tile.
+
+        It is critically important that the overlapping region is either
+        at the top or the left of the current tile, as this means that 
+        the row and column numbers of pixels in the overlap arrays 
+        match the same pixels in the full tile. This cannot be used
+        for overlaps on the right or bottom of the current tile.
+
+        Parameters
+        ----------
+          tileData : shepseg.SegIdType ndarray (tileNrows, tileNcols)
+            Tile subset of segment ID image
+          overlapA, overlapB : shepseg.SegIdType ndarray (overlapNrows, overlapNcols)
+            Tile overlap subsets of segment ID image
+          orientation : {HORIZONTAL, VERTICAL}
+            The orientation parameter defines whether we are dealing with
+            overlap at the top (orientation == HORIZONTAL) or the left
+            (orientation == VERTICAL).
+          recodeDict : dict
+            Keys and values are both segment ID numbers. Defines the mapping
+            which recodes segment IDs. Updated in place.
+
+        """
+        # The current segment IDs just from the overlap region.
+        segIdList = numpy.unique(overlapA)
+        # Ensure that we do not include the null segment ID
+        segIdList = segIdList[segIdList!=shepseg.SEGNULLVAL]
+
+        segSize = shepseg.makeSegSize(overlapA)
+        segLoc = shepseg.makeSegmentLocations(overlapA, segSize)
+
+        # Find the segments which cross the stitch line
+        segsOnStitch = []
+        for segid in segIdList:
+            if __class__.crossesMidline(overlapA, segLoc[segid], orientation):
+                segsOnStitch.append(segid)
+
+        for segid in segsOnStitch:
+            # Get the pixel row and column numbers of every pixel
+            # in this segment. Note that because we are using
+            # the top and left overlap regions, the pixel row/col 
+            # numbers in the full tile are identical to those for 
+            # the corresponding pixels in the overlap region arrays
+            segNdx = segLoc[segid].getSegmentIndices()
+
+            # Find the most common segment ID in the corresponding
+            # pixels from the B overlap array. In principle there 
+            # should only be one, but just in case. 
+            modeObj = scipy.stats.mode(overlapB[segNdx])
+            # change in scipy 1.9.0. use keepdims=True for old behaviour
+            # but that breaks older scipy. So workaround by seeing what returned
+            if numpy.isscalar(modeObj.mode):
+                segIdFromB = modeObj.mode
+            else:
+                segIdFromB = modeObj.mode[0]
+
+            # Now record this recoding relationship
+            recodeDict[segid] = segIdFromB
+
+    @staticmethod
+    def relabelSegments(tileData, recodeDict, maxSegId, 
+            top, bottom, left, right):
+        """
+        Recode the segment IDs in the given tileData array.
+
+        For segment IDs which are keys in recodeDict, these
+        are replaced with the corresponding entry. For all other 
+        segment IDs, they are replaced with sequentially increasing
+        ID numbers, starting from one more than the previous
+        maximum segment ID (maxSegId). 
+
+        A re-coded copy of tileData is created, the original is 
+        unchanged.
+
+        Parameters
+        ----------
+          tileData : shepseg.SegIdType ndarray (tileNrows, tileNcols)
+            Segment IDs of tile
+          recodeDict : dict
+            Keys and values are segment ID numbers. Defines mapping
+            for segment relabelling
+          maxSegId : shepseg.SegIdType
+            Maximum segment ID number
+          top, bottom, left, right : int
+            Pixel coordinates *within tile* of the non-overlap region of
+            the tile.
+
+        Returns
+        -------
+            newTileData : shepseg.SegIdType ndarray (tileNrows, tileNcols)
+              Segment IDs of tile, after relabelling
+            newMaxSegId : shepseg.SegIdType
+              New maximum segment ID after relabelling
+
+        """
+        newTileData = numpy.full(tileData.shape, shepseg.SEGNULLVAL, 
+            dtype=tileData.dtype)
+
+        segSize = shepseg.makeSegSize(tileData)
+        segLoc = shepseg.makeSegmentLocations(tileData, segSize)
+
+        newSegId = maxSegId
+        oldSegmentIDs = segLoc.keys()
+
+        for segid in oldSegmentIDs:
+            pixNdx = segLoc[shepseg.SegIdType(segid)].getSegmentIndices()
+            if segid in recodeDict:
+                newTileData[pixNdx] = recodeDict[segid]
+            else:
+                (segRows, segCols) = pixNdx
+                segLeft = segCols.min()
+                segTop = segRows.min()
+                # Avoid incrementing newSegId for segments which are
+                # handled in neighbouring tiles. For the left and top 
+                # margins, the segment must be entirely within the 
+                # trimmed tile, while for the right and bottom
+                # margins the segment must be at least partially
+                # within the trimmed tile. 
+                if ((segLeft >= left) and (segTop >= top) and
+                        (segLeft < right) and (segTop < bottom)):
+                    newSegId += 1
+                    newTileData[pixNdx] = newSegId
+
+        return (newTileData, newSegId)
+
+    @staticmethod
+    def crossesMidline(overlap, segLoc, orientation):
+        """
+        Check whether the given segment crosses the midline of the
+        given overlap. If it does not, then it will lie entirely within
+        exactly one tile, but if it does cross, then it will need to be
+        re-coded across the midline.
+
+        Parameters
+        ----------
+          overlap : shepseg.SegIdType ndarray (overlapNrows, overlapNcols)
+            Array of segments just for this overlap region
+          segLoc : shepseg.RowColArray
+            The row/col coordinates (within the overlap array) of the
+            pixels for the segment of interest
+          orientation : {HORIZONTAL, VERTICAL}
+            Indicates the orientation of the midline
+
+        Returns
+        -------
+          crosses : bool
+            True if the given segment crosses the midline
+
+        """
+        (nrows, ncols) = overlap.shape
+        if orientation == HORIZONTAL:
+            mid = int(nrows / 2)
+            n = 0
+        elif orientation == VERTICAL:
+            mid = int(ncols / 2)
+            n = 1
+
+        minN = segLoc.rowcols[:, n].min()
+        maxN = segLoc.rowcols[:, n].max()
+
+        return ((minN < mid) & (maxN >= mid))
+
+    @staticmethod
+    def writeHistogramToFile(outBand, histAccum):
+        """
+        Write the accumulated histogram to the output segmentation file
+        """
+        attrTbl = outBand.GetDefaultRAT()
+        numTableRows = len(histAccum.hist)
         if attrTbl.GetRowCount() != numTableRows:
             attrTbl.SetRowCount(numTableRows)
             
@@ -1220,136 +1103,307 @@ def calcHistogramTiled(segfile, maxSegId, writeToRat=True):
             # Use GFT_Real to match rios.calcstats (And I think GDAL in general)
             attrTbl.CreateColumn('Histogram', gdal.GFT_Real, gdal.GFU_PixelCount)
             colNum = attrTbl.GetColumnCount() - 1
-        attrTbl.WriteArray(hist, colNum)
-        
-    return hist
+        attrTbl.WriteArray(histAccum.hist, colNum)
 
 
-@njit
-def updateCounts(tileData, hist):
+class SegNoConcurrencyMgr(SegmentationConcurrencyMgr):
     """
-    Fast function to increment counts for each segment ID in the given tile
+    Runs tiled segmentation with no concurrency
     """
-    (nrows, ncols) = tileData.shape
-    for i in range(nrows):
-        for j in range(ncols):
-            segid = tileData[i, j]
-            hist[segid] += 1
+    concurrencyType = CONC_NONE
+
+    def segmentAllTiles(self):
+        """
+        Run segmentation for all tiles, and write output image. Just runs all
+        tiles in sequence, and then the recode and stitch together for final
+        output.
+        """
+        # create a temp directory for use in splitting out tiles, overlaps etc
+        self.tempDir = tempfile.mkdtemp()
+        # GDAL driver for temporary files
+        outDrvr = gdal.GetDriverByName(self.tempfilesDriver)
+
+        self.tileFilenames = {}
+        inDs = gdal.Open(self.infile)
+
+        tileInfoKeys = self.tileInfo.tiles.keys()
+        colRowList = sorted(tileInfoKeys, key=lambda x: (x[1], x[0]))
+        tileNum = 1
+        for col, row in colRowList:
+            if self.verbose:
+                print("\nDoing tile {} of {}: row={}, col={}".format(
+                    tileNum, len(colRowList), row, col))
+
+            (xpos, ypos, xsize, ysize) = self.tileInfo.getTile(col, row)
+            lyrDataList = []
+            for bandNum in self.bandNumbers:
+                lyr = inDs.GetRasterBand(bandNum)
+                lyrData = lyr.ReadAsArray(xpos, ypos, xsize, ysize)
+                lyrDataList.append(lyrData)
+
+            img = numpy.array(lyrDataList)
+
+            segResult = shepseg.doShepherdSegmentation(img, 
+                        minSegmentSize=self.minSegmentSize,
+                        maxSpectralDiff=self.maxSpectralDiff,
+                        imgNullVal=self.imgNullVal, 
+                        fourConnected=self.fourConnected,
+                        kmeansObj=self.kmeansObj, 
+                        verbose=self.verbose,
+                        spectDistPcntile=self.spectDistPcntile)
+
+            filename = 'tile_{}_{}.{}'.format(col, row, self.tempfilesExt)
+            filename = os.path.join(self.tempDir, filename)
+            self.writeTile(segResult, filename, outDrvr, xpos, ypos,
+                xsize, ysize)
+            self.tileFilenames[(col, row)] = filename
+
+            tileNum += 1
+
+        self.stitchTiles()
+
+        shutil.rmtree(self.tempDir)
+
+        # Save this in case it was deduced during segmentaion
+        self.maxSpectralDiff = segResult.maxSpectralDiff
+
+    def writeTile(self, segResult, filename, outDrvr, xpos, ypos,
+            xsize, ysize):
+        """
+        Write the segmented tile to a temporary image file
+        """
+        if os.path.exists(filename):
+            outDrvr.Delete(filename)
+
+        outType = gdal.GDT_UInt32
+
+        outDs = outDrvr.Create(filename, xsize, ysize, 1, outType, 
+                    options=self.tempfilesCreationOptions)
+        outDs.SetProjection(self.inProj)
+        transform = self.inGeoTransform
+        subsetTransform = list(transform)
+        subsetTransform[0] = transform[0] + xpos * transform[1]
+        subsetTransform[3] = transform[3] + ypos * transform[5]
+        outDs.SetGeoTransform(tuple(subsetTransform))
+        b = outDs.GetRasterBand(1)
+        b.WriteArray(segResult.segimg)
+        b.SetMetadataItem('LAYER_TYPE', 'thematic')
+        b.SetNoDataValue(shepseg.SEGNULLVAL)
+
+        del outDs
+
+    def overlapCacheFilename(self, overlapCacheKey):
+        """
+        Return filename for given overlapCacheKey
+        """
+        return os.path.join(self.tempDir, f"{overlapCacheKey}.npy")
+
+    def saveOverlap(self, overlapCacheKey, overlapData):
+        """
+        Save given overlap data to disk file
+        """
+        filename = self.overlapCacheFilename(overlapCacheKey)
+        numpy.save(filename, overlapData)
+
+    def loadOverlap(self, overlapCacheKey):
+        """
+        Load the requested overlap from disk cache
+        """
+        filename = self.overlapCacheFilename(overlapCacheKey)
+        return numpy.load(filename)
+
+    def saveCompletedTiles(self):
+        """
+        In this subclass, completed tiles are on disk, so do nothing
+        """
+
+    def getTileSegmentation(self, col, row):
+        """
+        Read the requested tile of segmentation output from disk
+        """
+        filename = self.tileFilenames[(col, row)]
+        ds = gdal.Open(filename)
+        tileData = ds.ReadAsArray()
+        return tileData
 
 
-def createPagedRat():
+class SegThreadsMgr(SegmentationConcurrencyMgr):
     """
-    Create the dictionary for the paged RAT. Each element is a page of
-    the RAT, with entries for a range of segment IDs. The key is the 
-    segment ID of the first entry in the page. 
-
-    The returned dictionary is initially empty. 
-
+    Run tiled segmentation with concurrency based on threads within the main
+    process.
     """
-    pagedRat = Dict.empty(key_type=segIdNumbaType, 
-        value_type=RatPage.class_type.instance_type)
-    return pagedRat
-    
+    concurrencyType = CONC_THREADS
+    segResultCache = {}
+    overlapCache = {}
 
-@njit
-def getRatPageId(segId):
+    def specificChecks(self):
+        """
+        Checks which are specific to the subclass
+        """
+        numCpus = cpu_count()
+        if self.concurrencyCfg.numWorkers >= numCpus:
+            msg = "numWorkers ({}) must be less than num CPUs ({})".format(
+                self.concurrencyCfg.numWorkers, numCpus)
+            raise PyShepSegTilingError(msg)
+
+    def segmentAllTiles(self):
+        """
+        Run segmentation for all tiles, and write output image. Runs a number
+        of worker threads, each working independently on individual tiles. The
+        tiles to process are sent via a Queue, and the computed results are
+        returned via a different Queue.
+
+        Stitching the tiles together is run in the main thread, beginning as
+        soon as the first tile is completed.
+        """
+        self.inQue = queue.Queue()
+        self.outQue = queue.Queue()
+
+        # Place all tiles in the inQue
+        tileInfoKeys = self.tileInfo.tiles.keys()
+        colRowList = sorted(tileInfoKeys, key=lambda x: (x[1], x[0]))
+        for colRow in colRowList:
+            self.inQue.put(colRow)
+
+        self.startWorkers()
+        self.stitchTiles()
+
+    def startWorkers(self):
+        """
+        Start worker threads for segmenting tiles
+        """
+        # Start all the worker threads
+        self.threadPool = futures.ThreadPoolExecutor(
+            max_workers=self.concurrencyCfg.numWorkers)
+        self.workerList = []
+        for workerID in range(self.concurrencyCfg.numWorkers):
+            worker = self.threadPool.submit(self.worker)
+            self.workerList.append(worker)
+
+    def worker(self):
+        """
+        Worker function. Called for each worker thread.
+        """
+        # Each worker needs its own open Dataset for the input file, as these
+        # are not thread-safe
+        inDs = gdal.Open(self.infile)
+
+        colRow = self.popFromQue(self.inQue)
+        while colRow is not None:
+            (col, row) = colRow
+
+            xpos, ypos, xsize, ysize = self.tileInfo.getTile(col, row)
+
+            lyrDataList = []
+            for bandNum in self.bandNumbers:
+                with self.readSemaphore:
+                    lyr = inDs.GetRasterBand(bandNum)
+                    lyrData = lyr.ReadAsArray(xpos, ypos, xsize, ysize)
+                    lyrDataList.append(lyrData)
+
+            img = numpy.array(lyrDataList)
+
+            segResult = shepseg.doShepherdSegmentation(img, 
+                        minSegmentSize=self.minSegmentSize,
+                        maxSpectralDiff=self.maxSpectralDiff,
+                        imgNullVal=self.imgNullVal, 
+                        fourConnected=self.fourConnected,
+                        kmeansObj=self.kmeansObj, 
+                        verbose=self.verbose,
+                        spectDistPcntile=self.spectDistPcntile)
+
+            self.outQue.put((col, row, segResult))
+            colRow = self.popFromQue(self.inQue)
+
+    @staticmethod
+    def popFromQue(que):
+        """
+        Pop out the next item from the given Queue, returning None if
+        the queue is empty.
+
+        WARNING: don't use this if the queued items can be None
+        """
+        try:
+            item = que.get(block=False)
+        except queue.Empty:
+            item = None
+        return item
+
+    def saveOverlap(self, overlapCacheKey, overlapData):
+        """
+        Save given overlap data to cache
+        """
+        self.overlapCache[overlapCacheKey] = overlapData
+
+    def loadOverlap(self, overlapCacheKey):
+        """
+        Load the requested overlap from cache, and remove it from cache
+        """
+        return self.overlapCache.pop(overlapCacheKey)
+
+    def getTileSegmentation(self, col, row):
+        """
+        Get the segmented tile output data from the local cache, and remove it
+        from the cache
+        """
+        tileData = None
+        segResult = self.segResultCache.get((col, row))
+        if segResult is not None:
+            self.segResultCache.pop((col, row))
+            tileData = segResult.segimg
+        return tileData
+
+
+class HistogramAccumulator:
     """
-    For the given segment ID, return the page ID. This is the segment
-    ID of the first segment in the page. 
+    Accumulator for histogram for the output segmentation image. This
+    allows us to accumulate the histogram incrementally, tile-by-tile.
+    Note that there are simplifying assumptions about being uint32, and
+    the null value being zero, so don't try to use this for anything else.
     """
-    pageId = (segId // RAT_PAGE_SIZE) * RAT_PAGE_SIZE
-    return segIdNumbaType(pageId)
+    def __init__(self):
+        self.hist = None
 
+    def doHistAccum(self, arr):
+        """
+        Accumulate the histogram with counts from the given arr.
+        """
+        counts = numpy.bincount(arr.flatten())
+        # Always remove counts for the null value
+        counts[shepseg.SEGNULLVAL] = 0
+        self.updateHist(counts)
 
-STAT_DTYPE_INT = 0
-STAT_DTYPE_FLOAT = 1
-    
-RAT_PAGE_SIZE = 100000
-ratPageSpec = [
-    ('startSegId', segIdNumbaType),
-    ('intcols', numbaTypeForImageType[:, :]),
-    ('floatcols', types.float32[:, :]),
-    ('complete', types.boolean[:])
-]
+    @staticmethod
+    def addTwoHistograms(hist1, hist2):
+        """
+        Add the two given histograms together, and return the result.
 
+        If one is longer than the other, the shorter one is added to it.
 
-@jitclass(ratPageSpec)
-class RatPage(object):
-    """
-    Hold a single page of the paged RAT
-    """
-    def __init__(self, numIntCols, numFloatCols, startSegId, numSeg):
         """
-        Allocate arrays for int and float columns. Int columns are
-        stored as signed int32, floats are float32. 
-        
-        startSegId is the segment ID number of the lowest segment in this page.
-        numSeg is the number of segments within this page, normally the
-        page size, but the last page will be smaller. 
-        
-        numIntCols and numFloatCols are as returned by makeFastStatsSelection().
-        
-        """
-        self.startSegId = startSegId
-        self.intcols = numpy.empty((numIntCols, numSeg), dtype=numbaTypeForImageType)
-        self.floatcols = numpy.empty((numFloatCols, numSeg), dtype=numpy.float32)
-        self.complete = numpy.zeros(numSeg, dtype=types.boolean)
-        if startSegId == shepseg.SEGNULLVAL:
-            # The null segment is always complete
-            self.complete[0] = True
-            self.intcols[:, 0] = 0
-            self.floatcols[:, 0] = 0
-    
-    def getIndexInPage(self, segId):
-        """
-        Return the index for the given segment, within the current
-        page. 
-        """
-        return segId - self.startSegId
+        if hist1 is None:
+            result = hist2
+        else:
+            l1 = len(hist1)
+            l2 = len(hist2)
+            if l1 > l2:
+                hist1[:l2] += hist2
+                result = hist1
+            else:
+                hist2[:l1] += hist1
+                result = hist2
+        return result
 
-    def setRatVal(self, segId, colType, colArrayNdx, val):
+    def updateHist(self, newCounts):
         """
-        Set the RAT entry for the given segment,
-        to be the given value. 
+        Update the current histogram counts. If positive is True, then
+        the counts for positive values are updated, otherwise those for the
+        negative values are updated.
+
         """
-        ndxInPage = self.getIndexInPage(segId)
-        if colType == STAT_DTYPE_INT:
-            self.intcols[colArrayNdx, ndxInPage] = val
-        elif colType == STAT_DTYPE_FLOAT:
-            self.floatcols[colArrayNdx, ndxInPage] = val
-            
-    def getRatVal(self, segId, colType, colArrayNdx):
-        """
-        Get the RAT entry for the given segment.
-        """
-        ndxInPage = self.getIndexInPage(segId)
-        if colType == STAT_DTYPE_INT:
-            val = self.intcols[colArrayNdx, ndxInPage]
-        elif colType == STAT_DTYPE_FLOAT:
-            val = self.floatcols[colArrayNdx, ndxInPage]
-        return val
-    
-    def setSegmentComplete(self, segId):
-        """
-        Flag that the given segment has had all stats calculated. 
-        """
-        ndxInPage = self.getIndexInPage(segId)
-        self.complete[ndxInPage] = True
-        
-    def getSegmentComplete(self, segId):
-        """
-        Returns True if the segment has been flagged as complete
-        """
-        ndxInPage = self.getIndexInPage(segId)
-        return self.complete[ndxInPage]
-    
-    def pageComplete(self):
-        """
-        Return True if the current page has been completed
-        """
-        return self.complete.all()
+        if len(newCounts) > 0:
+            self.hist = self.addTwoHistograms(self.hist, newCounts)
 
 
 class PyShepSegTilingError(Exception):
     pass
-

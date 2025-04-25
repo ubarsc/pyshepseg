@@ -25,9 +25,6 @@ segmented image into a smaller one for checking etc. See
 # CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 # WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-# Just in case anyone is trying to use this with Python-2
-from __future__ import print_function, division
-
 import numpy
 from numba import njit
 from numba.typed import Dict
@@ -35,6 +32,7 @@ from osgeo import gdal
 
 from . import shepseg
 from . import tiling
+from . import tilingstats
 
 gdal.UseExceptions()
 
@@ -173,10 +171,10 @@ def subsetImage(inname, outname, tlx, tly, newXsize, newYsize, outformat,
     # process the recodeDict, one page of the input at a time
 
     # fill this in as we go and write out each page when complete.
-    outPagedRat = tiling.createPagedRat()
-    for startSegId in range(minInVal, maxInVal, tiling.RAT_PAGE_SIZE):
-        # looping through in tiling.RAT_PAGE_SIZE pages
-        endSegId = min(startSegId + tiling.RAT_PAGE_SIZE - 1, maxInVal)
+    outPagedRat = tilingstats.createPagedRat()
+    for startSegId in range(minInVal, maxInVal, tilingstats.RAT_PAGE_SIZE):
+        # looping through in tilingstats.RAT_PAGE_SIZE pages
+        endSegId = min(startSegId + tilingstats.RAT_PAGE_SIZE - 1, maxInVal)
 
         # get this page in
         inPage = readRATIntoPage(inRAT, numIntCols, numFloatCols,
@@ -229,7 +227,7 @@ def copySubsettedSegmentsToNew(inPage, outPagedRat, recodeDict):
 
     Parameters
     ----------
-      inPage : tiling.RatPage
+      inPage : tilingstats.RatPage
         A page of RAT from the input file
       outPagedRat : numba.typed.Dict
         In-memory pages of the output RAT, as created by createPagedRat().
@@ -249,11 +247,11 @@ def copySubsettedSegmentsToNew(inPage, outPagedRat, recodeDict):
             continue
         outRow = recodeDict[inRow]
 
-        outPageId = tiling.getRatPageId(outRow)
+        outPageId = tilingstats.getRatPageId(outRow)
         outRowInPage = outRow - outPageId
         if outPageId not in outPagedRat:
-            numSegThisPage = min(tiling.RAT_PAGE_SIZE, (maxSegId - outPageId + 1))
-            outPagedRat[outPageId] = tiling.RatPage(numIntCols, numFloatCols,
+            numSegThisPage = min(tilingstats.RAT_PAGE_SIZE, (maxSegId - outPageId + 1))
+            outPagedRat[outPageId] = tilingstats.RatPage(numIntCols, numFloatCols,
                             outPageId, numSegThisPage)
             if outPageId == shepseg.SEGNULLVAL:
                 # nothing will get written to this one, but needs to be
@@ -312,7 +310,7 @@ def readRATIntoPage(rat, numIntCols, numFloatCols, minVal, maxVal):
     """
     minVal = int(minVal)
     nrows = int(maxVal - minVal) + 1
-    page = tiling.RatPage(numIntCols, numFloatCols, minVal, nrows)
+    page = tilingstats.RatPage(numIntCols, numFloatCols, minVal, nrows)
 
     intColIdx = 0
     floatColIdx = 0
@@ -321,11 +319,11 @@ def readRATIntoPage(rat, numIntCols, numFloatCols, minVal, maxVal):
         data = rat.ReadAsArray(col, start=minVal, length=nrows)
         if dtype == gdal.GFT_Integer:
             readColDataIntoPage(page, data, intColIdx,
-                tiling.STAT_DTYPE_INT, minVal)
+                tilingstats.STAT_DTYPE_INT, minVal)
             intColIdx += 1
         else:
             readColDataIntoPage(page, data, floatColIdx,
-                tiling.STAT_DTYPE_FLOAT, minVal)
+                tilingstats.STAT_DTYPE_FLOAT, minVal)
             floatColIdx += 1
 
     return page
