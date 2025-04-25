@@ -60,7 +60,7 @@ from concurrent import futures
 from multiprocessing import cpu_count
 
 import numpy
-from osgeo import gdal
+from osgeo import gdal, gdal_array
 import scipy.stats
 
 from . import shepseg
@@ -745,7 +745,7 @@ class SegmentationConcurrencyMgr:
         if os.path.exists(self.outfile):
             outDrvr.Delete(self.outfile)
 
-        outType = gdal.GDT_UInt32
+        outType = gdal_array.NumericTypeCodeToGDALTypeCode(shepseg.SegIdType)
 
         outDs = outDrvr.Create(self.outfile, self.inXsize, self.inYsize, 1, 
                     outType, self.creationOptions)
