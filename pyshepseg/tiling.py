@@ -698,18 +698,6 @@ class SegmentationConcurrencyMgr:
         Get the requested tile of segmentation output
         """
 
-    def saveCompletedTiles(self):
-        """
-        Save any completed tiles of segmentation output, if required. This
-        is used by concurrent subclasses to grab completed tiles from
-        the output queue, and hang onto them until we are ready to write them.
-        """
-        completedTile = self.popFromQue(self.outQue)
-        while completedTile is not None:
-            (col, row, segResult) = completedTile
-            self.segResultCache[(col, row)] = segResult
-            completedTile = self.popFromQue(self.outQue)
-
     @staticmethod
     def overlapCacheKey(col, row, edge):
         """
@@ -776,17 +764,12 @@ class SegmentationConcurrencyMgr:
             print("Stitching tiles together")
         reportedRow = -1
         i = 0
-        # Currently this loop is a polling loop, checking on every iteration
-        # whether the desired tile has been done. It should be more event-driven,
-        # but am working up to that.
         while i < len(colRowList):
             (col, row) = colRowList[i]
 
             if self.verbose and row != reportedRow:
                 print("Stitching tile row {}".format(row))
             reportedRow = row
-
-            self.saveCompletedTiles()
 
             (xpos, ypos, xsize, ysize) = self.tileInfo.getTile(col, row)
             tileData = self.getTileSegmentation(col, row)
@@ -1212,11 +1195,6 @@ class SegNoConcurrencyMgr(SegmentationConcurrencyMgr):
         filename = self.overlapCacheFilename(overlapCacheKey)
         return numpy.load(filename)
 
-    def saveCompletedTiles(self):
-        """
-        In this subclass, completed tiles are on disk, so do nothing
-        """
-
     def getTileSegmentation(self, col, row):
         """
         Read the requested tile of segmentation output from disk
@@ -1233,7 +1211,6 @@ class SegThreadsMgr(SegmentationConcurrencyMgr):
     process.
     """
     concurrencyType = CONC_THREADS
-    segResultCache = {}
     overlapCache = {}
 
     def specificChecks(self):
@@ -1257,11 +1234,14 @@ class SegThreadsMgr(SegmentationConcurrencyMgr):
         soon as the first tile is completed.
         """
         self.inQue = queue.Queue()
-        self.outQue = queue.Queue()
 
-        # Place all tiles in the inQue
         tileInfoKeys = self.tileInfo.tiles.keys()
         colRowList = sorted(tileInfoKeys, key=lambda x: (x[1], x[0]))
+
+        # Create the segResultCache
+        self.segResultCache = SegmentationResultCache(colRowList)
+
+        # Place all tiles in the inQue
         for colRow in colRowList:
             self.inQue.put(colRow)
 
@@ -1312,7 +1292,7 @@ class SegThreadsMgr(SegmentationConcurrencyMgr):
                         verbose=self.verbose,
                         spectDistPcntile=self.spectDistPcntile)
 
-            self.outQue.put((col, row, segResult))
+            self.segResultCache.addResult(col, row, segResult)
             colRow = self.popFromQue(self.inQue)
 
     @staticmethod
@@ -1346,11 +1326,8 @@ class SegThreadsMgr(SegmentationConcurrencyMgr):
         Get the segmented tile output data from the local cache, and remove it
         from the cache
         """
-        tileData = None
-        segResult = self.segResultCache.get((col, row))
-        if segResult is not None:
-            self.segResultCache.pop((col, row))
-            tileData = segResult.segimg
+        segResult = self.segResultCache.waitForTile(col, row)
+        tileData = segResult.segimg
         return tileData
 
 
@@ -1403,6 +1380,35 @@ class HistogramAccumulator:
         """
         if len(newCounts) > 0:
             self.hist = self.addTwoHistograms(self.hist, newCounts)
+
+
+class SegmentationResultCache:
+    """
+    Thread-safe cache for segmentation results, by tile.
+    """
+    def __init__(self, colRowList):
+        self.lock = threading.Lock()
+        self.cache = {}
+        self.completionEvent = {}
+        for (col, row) in colRowList:
+            self.completionEvent[(col, row)] = threading.Event()
+
+    def addResult(self, col, row, segResult):
+        with self.lock:
+            key = (col, row)
+            self.cache[key] = segResult
+            self.completionEvent[key].set()
+
+    def waitForTile(self, col, row):
+        """
+        Wait until the nominated tile is ready, and then pop it out of
+        the cache.
+        """
+        key = (col, row)
+        self.completionEvent[key].wait()
+        segResult = self.cache.pop(key)
+        self.completionEvent[key].clear()
+        return segResult
 
 
 class PyShepSegTilingError(Exception):
