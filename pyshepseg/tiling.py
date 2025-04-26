@@ -740,10 +740,40 @@ class SegmentationConcurrencyMgr:
         Any explicit shutdown operations
         """
 
-    def startQueues(self):
+    @staticmethod
+    def popFromQue(que):
         """
-        Start in and out queues, if required
+        Pop out the next item from the given Queue, returning None if
+        the queue is empty.
+
+        WARNING: don't use this if the queued items can be None
         """
+        try:
+            item = que.get(block=False)
+        except queue.Empty:
+            item = None
+        return item
+
+    def saveOverlap(self, overlapCacheKey, overlapData):
+        """
+        Save given overlap data to cache
+        """
+        self.overlapCache[overlapCacheKey] = overlapData
+
+    def loadOverlap(self, overlapCacheKey):
+        """
+        Load the requested overlap from cache, and remove it from cache
+        """
+        return self.overlapCache.pop(overlapCacheKey)
+
+    def getTileSegmentation(self, col, row):
+        """
+        Get the segmented tile output data from the local cache, and remove it
+        from the cache
+        """
+        segResult = self.segResultCache.waitForTile(col, row)
+        tileData = segResult.segimg
+        return tileData
 
     def startWorkers(self):
         """
@@ -754,11 +784,6 @@ class SegmentationConcurrencyMgr:
         """
         Runs segmentation for all tiles in the input image, and writes the output
         file.
-        """
-
-    def getTileSegmentation(self, col, row):
-        """
-        Get the requested tile of segmentation output
         """
 
     @staticmethod
@@ -780,17 +805,6 @@ class SegmentationConcurrencyMgr:
         """
         cachekey = '{}_{}_{}'.format(edge, col, row)
         return cachekey
-
-    def saveOverlap(self, overlapCacheKey, overlapData):
-        """
-        Save given overlap data in cache, under the given key. This may be
-        in-memory or on-disk, depending on the sub-class
-        """
-
-    def loadOverlap(self, overlapCacheKey):
-        """
-        Load the requested overlap data from cache
-        """
 
     def stitchTiles(self):
         """
@@ -1357,41 +1371,6 @@ class SegThreadsMgr(SegmentationConcurrencyMgr):
 
             self.segResultCache.addResult(col, row, segResult)
             colRow = self.popFromQue(self.inQue)
-
-    @staticmethod
-    def popFromQue(que):
-        """
-        Pop out the next item from the given Queue, returning None if
-        the queue is empty.
-
-        WARNING: don't use this if the queued items can be None
-        """
-        try:
-            item = que.get(block=False)
-        except queue.Empty:
-            item = None
-        return item
-
-    def saveOverlap(self, overlapCacheKey, overlapData):
-        """
-        Save given overlap data to cache
-        """
-        self.overlapCache[overlapCacheKey] = overlapData
-
-    def loadOverlap(self, overlapCacheKey):
-        """
-        Load the requested overlap from cache, and remove it from cache
-        """
-        return self.overlapCache.pop(overlapCacheKey)
-
-    def getTileSegmentation(self, col, row):
-        """
-        Get the segmented tile output data from the local cache, and remove it
-        from the cache
-        """
-        segResult = self.segResultCache.waitForTile(col, row)
-        tileData = segResult.segimg
-        return tileData
 
 
 class HistogramAccumulator:
