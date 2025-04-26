@@ -564,10 +564,73 @@ class ConcurrencyConfig:
     Configuration for segmentation concurrency
     """
     def __init__(self, concurrencyType=CONC_NONE, numWorkers=0,
-            maxConcurrentReads=20):
+            maxConcurrentReads=20, fgContainerImage=None,
+            fgTaskRoleArn=None, fgExecutionRoleArn=None, fgSubnets=None,
+            fgSecurityGroups=None, fgCpu='0.5 vCPU', fgMemory='1GB',
+            fgCpuArchitecture=None, fgClusterName='default'):
+        """
+        Configuration for managing segmentation concurrency.
+
+        Parameters starting with 'fg' are for use with AWS Fargate
+        (i.e. concurrencyType=CONC_FARGATE).
+
+        Parameters
+        ----------
+          concurrencyType : One of {CONC_NONE, CONC_THREADS, CONC_FARGATE}
+            The mechanism used for concurrency
+          numWorkers : int
+            Number of segmentation workers
+          maxConcurrentReads : int
+            Maximum number of concurrent reads. Each segmentation worker
+            does its own reading of input data. Since the number of workers
+            can be quite large, this could load the read device too heavily.
+            Given that the read step is a very small component of each
+            worker's activity, we can limit the number of concurrent reads
+            to this value, without degrading throughput.
+          fgContainer : str
+            URI of the container image to use for segmentation workers
+          fgTaskRoleArn : str
+            ARN for an AWS role. This allows your code to use AWS services.
+            This role should include policies such as AmazonS3FullAccess,
+            covering any AWS services the segmentation workers will need.
+          fgExecutionRoleArn : str
+            ARN for an AWS role. This allows ECS to use AWS services on
+            your behalf. A good start is a role including
+            AmazonECSTaskExecutionRolePolicy
+          fgSubnets : list of str
+            List of subnet ID strings associated with the VPC in which
+            workers will run.
+          fgSecurityGroups : list of str
+            Fargate. List of security group IDs associated with the VPC.
+          fgCpu : str
+            Number of CPU units requested for each segmentation worker,
+            expressed in AWS's own units. For example, '0.5 vCPU', or
+            '1024' (which corresponds to the same thing). Both must be strings.
+            This helps Fargate to select a suitable VM instance type.
+          fgMemory : str
+            Amount of memory requested for each segmentation worker,
+            expressed in MiB, or with a units suffix. For example, '1024'
+            or its equivalent '1GB'. This helps Fargate to select a suitable
+            VM instance type.
+          fgCpuArchitecture : str
+            If given, selects the CPU architecture of the hosts to run
+            worker on. Can be 'ARM64', defaults to 'X86_64'.
+          fgClusterName : str
+            If given, Fargate will use this cluster name instead of
+            the default, which is called "default".
+        """
         self.concurrencyType = concurrencyType
         self.numWorkers = numWorkers
         self.maxConcurrentReads = maxConcurrentReads
+        self.fgContainerImage = fgContainerImage
+        self.fgTaskRoleArn = fgTaskRoleArn
+        self.fgExecutionRoleArn = fgExecutionRoleArn
+        self.fgSubnets = fgSubnets
+        self.fgSecurityGroups = fgSecurityGroups
+        self.fgCpu = fgCpu
+        self.fgMemory = fgMemory
+        self.fgCpuArchitecture = fgCpuArchitecture
+        self.fgClusterName = fgClusterName
     
 
 class SegmentationConcurrencyMgr:
