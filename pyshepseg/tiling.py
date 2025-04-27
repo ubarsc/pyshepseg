@@ -1528,6 +1528,9 @@ class SegmentationResultCache:
             self.completionEvent[(col, row)] = threading.Event()
 
     def addResult(self, col, row, segResult):
+        """
+        Add a single segResult object to the cache, for the given (col, row)
+        """
         with self.lock:
             key = (col, row)
             self.cache[key] = segResult
