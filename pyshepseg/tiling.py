@@ -1516,7 +1516,9 @@ class HistogramAccumulator:
 
 class SegmentationResultCache:
     """
-    Thread-safe cache for segmentation results, by tile.
+    Thread-safe cache for segmentation results, by tile. As each worker completes
+    a tile, it adds it directly to this cache. The writing thread can then
+    pop tiles out of this when required.
     """
     def __init__(self, colRowList):
         self.lock = threading.Lock()
