@@ -1257,7 +1257,7 @@ class SegNoConcurrencyMgr(SegmentationConcurrencyMgr):
 
             filename = 'tile_{}_{}.{}'.format(col, row, self.tempfilesExt)
             filename = os.path.join(self.tempDir, filename)
-            self.writeTile(segResult, filename, outDrvr, xpos, ypos,
+            self.writeTileToTemp(segResult, filename, outDrvr, xpos, ypos,
                 xsize, ysize)
             self.tileFilenames[(col, row)] = filename
 
@@ -1270,7 +1270,7 @@ class SegNoConcurrencyMgr(SegmentationConcurrencyMgr):
         # Save this in case it was deduced during segmentaion
         self.maxSpectralDiff = segResult.maxSpectralDiff
 
-    def writeTile(self, segResult, filename, outDrvr, xpos, ypos,
+    def writeTileToTemp(self, segResult, filename, outDrvr, xpos, ypos,
             xsize, ysize):
         """
         Write the segmented tile to a temporary image file
