@@ -858,54 +858,53 @@ class SegmentationConcurrencyMgr:
             (xpos, ypos, xsize, ysize) = self.tileInfo.getTile(col, row)
             tileData = self.getTileSegmentation(col, row)
 
-            if tileData is not None:
-                top = marginSize
-                bottom = ysize - marginSize
-                left = marginSize
-                right = xsize - marginSize
+            top = marginSize
+            bottom = ysize - marginSize
+            left = marginSize
+            right = xsize - marginSize
 
-                xout = xpos + marginSize
-                yout = ypos + marginSize
+            xout = xpos + marginSize
+            yout = ypos + marginSize
 
-                rightName = self.overlapCacheKey(col, row, RIGHT_OVERLAP)
-                bottomName = self.overlapCacheKey(col, row, BOTTOM_OVERLAP)
+            rightName = self.overlapCacheKey(col, row, RIGHT_OVERLAP)
+            bottomName = self.overlapCacheKey(col, row, BOTTOM_OVERLAP)
 
-                if row == 0:
-                    top = 0
-                    yout = ypos
+            if row == 0:
+                top = 0
+                yout = ypos
 
-                if row == (self.tileInfo.nrows - 1):
-                    bottom = ysize
-                    bottomName = None
+            if row == (self.tileInfo.nrows - 1):
+                bottom = ysize
+                bottomName = None
 
-                if col == 0:
-                    left = 0
-                    xout = xpos
+            if col == 0:
+                left = 0
+                xout = xpos
 
-                if col == (self.tileInfo.ncols - 1):
-                    right = xsize
-                    rightName = None
+            if col == (self.tileInfo.ncols - 1):
+                right = xsize
+                rightName = None
 
-                if self.simpleTileRecode:
-                    nullmask = (tileData == shepseg.SEGNULLVAL)
-                    tileData += maxSegId
-                    tileData[nullmask] = shepseg.SEGNULLVAL
-                else:
-                    tileData = self.recodeTile(tileData, maxSegId, row, col, 
-                                top, bottom, left, right)
+            if self.simpleTileRecode:
+                nullmask = (tileData == shepseg.SEGNULLVAL)
+                tileData += maxSegId
+                tileData[nullmask] = shepseg.SEGNULLVAL
+            else:
+                tileData = self.recodeTile(tileData, maxSegId, row, col,
+                            top, bottom, left, right)
 
-                tileDataTrimmed = tileData[top:bottom, left:right]
-                outBand.WriteArray(tileDataTrimmed, xout, yout)
-                histAccum.doHistAccum(tileDataTrimmed)
+            tileDataTrimmed = tileData[top:bottom, left:right]
+            outBand.WriteArray(tileDataTrimmed, xout, yout)
+            histAccum.doHistAccum(tileDataTrimmed)
 
-                if rightName is not None:
-                    self.saveOverlap(rightName, tileData[:, -self.overlapSize:])
-                if bottomName is not None:
-                    self.saveOverlap(bottomName, tileData[-self.overlapSize:, :])    
+            if rightName is not None:
+                self.saveOverlap(rightName, tileData[:, -self.overlapSize:])
+            if bottomName is not None:
+                self.saveOverlap(bottomName, tileData[-self.overlapSize:, :])
 
-                tileMaxSegId = tileDataTrimmed.max()
-                maxSegId = max(maxSegId, tileMaxSegId)
-                i += 1
+            tileMaxSegId = tileDataTrimmed.max()
+            maxSegId = max(maxSegId, tileMaxSegId)
+            i += 1
 
         self.writeHistogramToFile(outBand, histAccum)
         self.hasEmptySegments = self.checkForEmptySegments(histAccum.hist,
