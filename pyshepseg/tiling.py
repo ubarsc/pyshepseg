@@ -835,6 +835,7 @@ class SegmentationConcurrencyMgr:
                     outType, self.creationOptions)
         outDs.SetProjection(self.inProj)
         outDs.SetGeoTransform(self.inGeoTransform)
+        self.setupOverviews(outDs)
         outBand = outDs.GetRasterBand(1)
         outBand.SetMetadataItem('LAYER_TYPE', 'thematic')
         outBand.SetNoDataValue(shepseg.SEGNULLVAL)
@@ -895,6 +896,7 @@ class SegmentationConcurrencyMgr:
 
             tileDataTrimmed = tileData[top:bottom, left:right]
             outBand.WriteArray(tileDataTrimmed, xout, yout)
+            self.writeOverviews(outBand, tileDataTrimmed, xout, yout)
             histAccum.doHistAccum(tileDataTrimmed)
 
             if rightName is not None:
@@ -1206,6 +1208,52 @@ class SegmentationConcurrencyMgr:
             attrTbl.CreateColumn('Histogram', gdal.GFT_Real, gdal.GFU_PixelCount)
             colNum = attrTbl.GetColumnCount() - 1
         attrTbl.WriteArray(histAccum.hist, colNum)
+
+    def writeOverviews(self, outBand, arr, xOff, yOff):
+        """
+        Calculate and write out the overview layers for the tile
+        given as arr.
+
+        """
+        nOverviews = len(self.overviewLevels)
+
+        for j in range(nOverviews):
+            band_ov = outBand.GetOverview(j)
+            lvl = self.overviewLevels[j]
+            # Offset from top-left edge
+            o = lvl // 2
+            # Sub-sample by taking every lvl-th pixel in each direction
+            arr_sub = arr[o::lvl, o::lvl]
+            # The xOff/yOff of the block within the sub-sampled raster
+            xOff_sub = xOff // lvl
+            yOff_sub = yOff // lvl
+            # The actual number of rows and cols to write, ensuring we
+            # do not go off the edges
+            nc = band_ov.XSize - xOff_sub
+            nr = band_ov.YSize - yOff_sub
+            arr_sub = arr_sub[:nr, :nc]
+            band_ov.WriteArray(arr_sub, xOff_sub, yOff_sub)
+
+    def setupOverviews(self, outDs):
+        """
+        Calculate a suitable set of overview levels to use for output
+        segmentation file, and set these up on the given Dataset. Stores
+        the overview levels list as self.overviewLevels
+        """
+        # Work out a list of overview levels, starting with 4, until the
+        # raster size (in largest direction) is smaller then finalOutSize.
+        outSize = max(self.inXsize, self.inYsize)
+        finalOutSize = 1024
+        self.overviewLevels = []
+        i = 2
+        totalSizeOK = (outSize // (2 ** i)) >= finalOutSize
+        while (totalSizeOK):
+            self.overviewLevels.append(2 ** i)
+            totalSizeOK = (outSize // (2 ** i)) >= finalOutSize
+            i += 1
+
+        # Create these overview layers on the dataset
+        outDs.BuildOverviews("NEAREST", self.overviewLevels)
 
 
 class SegNoConcurrencyMgr(SegmentationConcurrencyMgr):
