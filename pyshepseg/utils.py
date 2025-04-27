@@ -28,6 +28,9 @@ Utility functions for working with segmented data.
 # Just in case anyone is trying to use this with Python-2
 from __future__ import print_function, division
 
+import sys
+import inspect
+
 import numpy
 from . import shepseg
 
@@ -224,3 +227,37 @@ def writeColorTableFromRatColumns(segfile, redColName, greenColName,
     else:
         i = colNameList.index('Alpha')
     attrTbl.WriteArray(alpha, i)
+
+
+deprecationAlreadyWarned = set()
+
+
+def deprecationWarning(msg, stacklevel=2):
+    """
+    Print a deprecation warning to stderr. Includes the filename
+    and line number of the call to the function which called this.
+    The stacklevel argument controls how many stack levels above this
+    gives the line number.
+
+    Implemented in mimcry of warnings.warn(), which seems very flaky.
+    Sometimes it prints, and sometimes not, unless PYTHONWARNINGS is set
+    (or -W is used). This function at least seems to work consistently.
+
+    """
+    frame = inspect.currentframe()
+    for i in range(stacklevel):
+        if frame is not None:
+            frame = frame.f_back
+
+    if frame is None:
+        filename = "sys"
+        lineno = 1
+    else:
+        filename = frame.f_code.co_filename
+        lineno = frame.f_lineno
+
+    key = (filename, lineno)
+    if key not in deprecationAlreadyWarned:
+        print("{} (line {}):\n    WARNING: {}".format(filename, lineno, msg),
+            file=sys.stderr)
+        deprecationAlreadyWarned.add(key)

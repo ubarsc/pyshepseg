@@ -50,6 +50,7 @@ whole area.
 # CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION 
 # WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+import sys
 import os
 import time
 import shutil
@@ -62,6 +63,8 @@ from multiprocessing import cpu_count
 import numpy
 from osgeo import gdal, gdal_array
 import scipy.stats
+from numba import njit
+from numba.core import types
 
 from . import shepseg
 from . import utils
@@ -88,6 +91,10 @@ HORIZONTAL = 0
 VERTICAL = 1
 RIGHT_OVERLAP = 'right'
 BOTTOM_OVERLAP = 'bottom'
+
+# This is the numba equivalent type of shepseg.SegIdType. No longer
+# used here, but still (potentially) referenced from other modules.
+segIdNumbaType = types.uint32
 
 
 class TiledSegmentationResult(object):
@@ -707,7 +714,7 @@ class SegmentationConcurrencyMgr:
         inDs = gdal.Open(self.infile)
 
         if self.bandNumbers is None:
-            self.bandNumbers = range(1, self.inDs.RasterCount + 1)
+            self.bandNumbers = range(1, inDs.RasterCount + 1)
 
         t0 = time.time()
         if self.kmeansObj is None:
@@ -722,7 +729,7 @@ class SegmentationConcurrencyMgr:
 
         elif self.imgNullVal is None:
             # make sure we have the null value, even if they have supplied the kMeans
-            self.imgNullVal = getImgNullValue(self.inDs, self.bandNumbers)
+            self.imgNullVal = getImgNullValue(inDs, self.bandNumbers)
 
         self.tileInfo = getTilesForFile(inDs, self.tileSize, self.overlapSize)
         if self.verbose:
@@ -901,7 +908,8 @@ class SegmentationConcurrencyMgr:
                 i += 1
 
         self.writeHistogramToFile(outBand, histAccum)
-        self.hasEmptySegments = (histAccum.hist[1:] == 0).any()
+        self.hasEmptySegments = self.checkForEmptySegments(histAccum.hist,
+            self.overlapSize)
         utils.estimateStatsFromHisto(outBand, histAccum.hist)
         self.maxSegId = maxSegId
         self.outDs = outDs
@@ -1147,6 +1155,41 @@ class SegmentationConcurrencyMgr:
         maxN = segLoc.rowcols[:, n].max()
 
         return ((minN < mid) & (maxN >= mid))
+
+    def checkForEmptySegments(self, hist, overlapSize):
+        """
+        Check the final segmentation for any empty segments. These
+        can be problematic later, and should be avoided. Prints a
+        warning message if empty segments are found.
+
+        Parameters
+        ----------
+          hist : ndarray of uint32
+            Histogram counts for the segmentation raster
+          overlapSize : int
+            Number of pixels to use in overlaps between tiles
+
+        Returns
+        -------
+          hasEmptySegments : bool
+            True if there are segment ID numbers with no pixels
+
+        """
+        emptySegIds = numpy.where(hist[1:] == 0)[0] + 1
+        numEmptySeg = len(emptySegIds)
+        hasEmptySegments = (numEmptySeg > 0)
+        if hasEmptySegments:
+            msg = [
+                "",
+                "WARNING: Found {} segments with zero pixels".format(numEmptySeg),
+                "    Segment IDs: {}".format(emptySegIds),
+                "    This is caused by inconsistent joining of segmentation",
+                "    tiles, and will probably cause trouble later on.",
+                "    It is highly recommended to re-run with a larger overlap",
+                "    size (currently {}), and if necessary a larger tile size".format(overlapSize),
+                ""
+            ]
+            print('\n'.join(msg), file=sys.stderr)
 
     @staticmethod
     def writeHistogramToFile(outBand, histAccum):
@@ -1455,3 +1498,110 @@ class SegmentationResultCache:
 
 class PyShepSegTilingError(Exception):
     pass
+
+
+# Warning. Everything below this point is deprecated, and will likely be
+# removed in a future version.
+#
+
+def calcHistogramTiled(segfile, maxSegId, writeToRat=True):
+    """
+    Calculate a histogram of the given segment image file.
+
+    Note that we need this function because GDAL's GetHistogram
+    function does not seem to work when attempting a histogram
+    with very large numbers of entries. We want an entry for
+    every segment, rather than an approximate count for a range of
+    segment values, and the number of segments is very large. So,
+    we need to write our own routine. 
+
+    It works in tiles across the image, so that it can process
+    very large images in a memory-efficient way.
+
+    For a raster which can easily fit into memory, a histogram
+    can be calculated directly using :func:`pyshepseg.shepseg.makeSegSize`.
+
+    Parameters
+    ----------
+      segfile : str or gdal.Dataset
+        Segmentation image file. Can be either the file name string, or
+        an open Dataset object.
+      maxSegId : shepseg.SegIdType
+        Maximum segment ID used
+      writeToRat : bool
+        If True, the completed histogram will be written to the image
+        file's raster attribute table. If segfile was given as a Dataset
+        object, it would therefore need to have been opened with update
+        access.
+
+    Returns
+    -------
+      hist : int ndarray (numSegments+1, )
+        Histogram counts for each segment (index is segment ID number)
+
+    """
+    # Hanging indent in msg
+    hInd = 13 * ' '
+    msg = '\n'.join([
+        "The calcHistogramTiled function is obsolete, as histogram of ",
+        hInd + "segmentation raster is now calculated as tiles are written. ",
+        hInd + "It is deprecated, and will probably be removed in a future version"
+    ])
+    utils.deprecationWarning(msg)
+
+    # This is the histogram array, indexed by segment ID.
+    # Currently just in memory, it could be quite large,
+    # depending on how many segments there are.
+    hist = numpy.zeros((maxSegId + 1), dtype=numpy.uint32)
+
+    # Open the file
+    if isinstance(segfile, gdal.Dataset):
+        ds = segfile
+    else:
+        ds = gdal.Open(segfile, gdal.GA_Update)
+    segband = ds.GetRasterBand(1)
+
+    tileSize = TILESIZE
+    (nlines, npix) = (segband.YSize, segband.XSize)
+    numXtiles = int(numpy.ceil(npix / tileSize))
+    numYtiles = int(numpy.ceil(nlines / tileSize))
+
+    for tileRow in range(numYtiles):
+        for tileCol in range(numXtiles):
+            topLine = tileRow * tileSize
+            leftPix = tileCol * tileSize
+            xsize = min(tileSize, npix - leftPix)
+            ysize = min(tileSize, nlines - topLine)
+
+            tileData = segband.ReadAsArray(leftPix, topLine, xsize, ysize)
+            updateCounts(tileData, hist)
+
+    # Set the histogram count for the null segment to zero
+    hist[shepseg.SEGNULLVAL] = 0
+
+    if writeToRat:
+        attrTbl = segband.GetDefaultRAT()
+        numTableRows = int(maxSegId + 1)
+        if attrTbl.GetRowCount() != numTableRows:
+            attrTbl.SetRowCount(numTableRows)
+
+        colNum = attrTbl.GetColOfUsage(gdal.GFU_PixelCount)
+        if colNum == -1:
+            # Use GFT_Real to match rios.calcstats (And I think GDAL in general)
+            attrTbl.CreateColumn('Histogram', gdal.GFT_Real, gdal.GFU_PixelCount)
+            colNum = attrTbl.GetColumnCount() - 1
+        attrTbl.WriteArray(hist, colNum)
+
+    return hist
+
+
+@njit
+def updateCounts(tileData, hist):
+    """
+    Fast function to increment counts for each segment ID in the given tile
+    """
+    (nrows, ncols) = tileData.shape
+    for i in range(nrows):
+        for j in range(ncols):
+            segid = tileData[i, j]
+            hist[segid] += 1
