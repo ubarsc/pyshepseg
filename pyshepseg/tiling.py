@@ -1506,6 +1506,9 @@ class PyShepSegTilingError(Exception):
 
 def calcHistogramTiled(segfile, maxSegId, writeToRat=True):
     """
+    This function is now deprecated, and will probably be removed in
+    a future version.
+
     Calculate a histogram of the given segment image file.
 
     Note that we need this function because GDAL's GetHistogram
@@ -1540,8 +1543,8 @@ def calcHistogramTiled(segfile, maxSegId, writeToRat=True):
         Histogram counts for each segment (index is segment ID number)
 
     """
-    # Hanging indent in msg
-    hInd = 13 * ' '
+    # Deprecation warning message.
+    hInd = 13 * ' '     # Hanging indent in msg
     msg = '\n'.join([
         "The calcHistogramTiled function is obsolete, as histogram of ",
         hInd + "segmentation raster is now calculated as tiles are written. ",
