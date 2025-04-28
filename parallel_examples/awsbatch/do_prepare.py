@@ -69,6 +69,10 @@ def getCmdargs():
     p.add_argument("--statsreadworkers", type=int, default=0, 
         help="Number or RIOS readworkers to use while calculating stats. " + 
             "(default=%(default)s)")
+    p.add_argument("--readworkerstimeouts", type=int,
+        help="If statsreadworkers specified, this value is used for readBufferPopTimeout, " +
+            "readBufferInsertTimeout, computeBufferInsertTimeout, computeBufferPopTimeout " +
+            "in the RIOS ConcurrencyStyle object")
     p.add_argument("--kmeans", 
         help="If specified, this should be a path to a pickled kmeans object to do " +
             "the segmentation with (in format:bucket:path/in/bucket.pkl). " +
@@ -169,6 +173,8 @@ def main():
         cmd.append('--nogdalstats')
     if cmdargs.noremove:
         cmd.append('--noremove')
+    if cmdargs.readworkerstimeouts is not None:
+        cmd.extend(['--readworkerstimeouts', str(cmdargs.readworkerstimeouts)])
 
     response = batch.submit_job(jobName="pyshepseg_stitch",
         jobQueue=cmdargs.jobqueue,
