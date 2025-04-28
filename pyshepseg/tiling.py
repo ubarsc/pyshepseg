@@ -1491,12 +1491,12 @@ class SegThreadsMgr(SegmentationConcurrencyMgr):
 
                 img = numpy.array(lyrDataList)
 
-                segResult = shepseg.doShepherdSegmentation(img, 
+                segResult = shepseg.doShepherdSegmentation(img,
                             minSegmentSize=self.minSegmentSize,
                             maxSpectralDiff=self.maxSpectralDiff,
-                            imgNullVal=self.imgNullVal, 
+                            imgNullVal=self.imgNullVal,
                             fourConnected=self.fourConnected,
-                            kmeansObj=self.kmeansObj, 
+                            kmeansObj=self.kmeansObj,
                             verbose=self.verbose,
                             spectDistPcntile=self.spectDistPcntile)
 
