@@ -1564,10 +1564,25 @@ class SegFargateMgr(SegmentationConcurrencyMgr):
         Set up a NetworkDataChannel to communicate with the worker
         Fargate instances.
         """
+        # The segDataDict is all the stuff which is just data, and can be
+        # pickled and sent across to the workers.
+        segDataDict = {}
+        segDataDict['infile'] = self.infile
+        segDataDict['tileInfo'] = self.tileInfo
+        segDataDict['minSegmentSize'] = self.minSegmentSize
+        segDataDict['maxSpectralDiff'] = self.maxSpectralDiff
+        segDataDict['imgNullVal'] = self.imgNullVal
+        segDataDict['fourConnected'] = self.fourConnected
+        segDataDict['kmeansObj'] = self.kmeansObj
+        segDataDict['verbose'] = self.verbose
+        segDataDict['spectDistPcntile'] = self.spectDistPcntile
+
         self.dataChan = NetworkDataChannel(inQue=self.inQue,
             segResultCache=self.segResultCache,
             forceExit=self.forceExit,
-            exceptionQue=self.exceptionQue)
+            exceptionQue=self.exceptionQue,
+            segDataDict=segDataDict,
+            readSemaphore=self.readSemaphore)
 
 
 class NetworkDataChannel:
@@ -1579,7 +1594,7 @@ class NetworkDataChannel:
     takes 
     """
     def __init__(self, inQue=None, segResultCache=None, forceExit=None,
-            exceptionQue=None,
+            exceptionQue=None, segDataDict=None, readSemaphore=None,
             hostname=None, portnum=None, authkey=None):
         class DataChannelMgr(multiprocessing.managers.BaseManager):
             pass
@@ -1597,6 +1612,8 @@ class NetworkDataChannel:
             self.segResultCache = segResultCache
             self.forceExit = forceExit
             self.exceptionQue = exceptionQue
+            self.readSemaphore = readSemaphore
+            self.segDataDict = segDataDict
 
             DataChannelMgr.register("get_inque", callable=lambda: self.inQue)
             DataChannelMgr.register("get_segresultcache",
@@ -1605,6 +1622,10 @@ class NetworkDataChannel:
                 callable=lambda: self.forceExit)
             DataChannelMgr.register("get_exceptionque",
                 callable=lambda: self.exceptionQue)
+            DataChannelMgr.register("get_segdatadict",
+                callable=lambda: self.segDataDict)
+            DataChannelMgr.register("get_readsemaphore",
+                callable=lambda: self.readSemaphore)
 
             self.mgr = DataChannelMgr(address=(self.hostname, 0),
                                      authkey=bytes(self.authkey, 'utf-8'))
@@ -1619,6 +1640,8 @@ class NetworkDataChannel:
             DataChannelMgr.register("get_segresultcache")
             DataChannelMgr.register("get_forceexit")
             DataChannelMgr.register("get_exceptionque")
+            DataChannelMgr.register("get_segdatadict")
+            DataChannelMgr.register("get_readsemaphore")
 
             self.mgr = DataChannelMgr(address=(hostname, portnum),
                                      authkey=authkey)
@@ -1632,6 +1655,8 @@ class NetworkDataChannel:
             self.segResultCache = self.mgr.get_segresultcache()
             self.forceExit = self.mgr.get_forceexit()
             self.exceptionQue = self.mgr.get_exceptionque()
+            self.segDataDict = self.mgr.get_segdatadict()
+            self.readSemaphore = self.mgr.get_readsemaphore()
         else:
             msg = ("Must supply either (inQue, segResultCache, etc.)" +
                    " or ALL of (hostname, portnum and authkey)")
