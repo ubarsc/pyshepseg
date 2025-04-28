@@ -30,6 +30,7 @@ from __future__ import print_function, division
 
 import sys
 import inspect
+import traceback
 
 import numpy
 from . import shepseg
@@ -261,3 +262,27 @@ def deprecationWarning(msg, stacklevel=2):
         print("{} (line {}):\n    WARNING: {}".format(filename, lineno, msg),
             file=sys.stderr)
         deprecationAlreadyWarned.add(key)
+
+
+class WorkerErrorRecord:
+    """
+    Hold a record of an exception raised in a remote worker.
+    """
+    def __init__(self, exc, workerType):
+        self.exc = exc
+        self.workerType = workerType
+        self.formattedTraceback = traceback.format_exception(exc)
+
+    def __str__(self):
+        headLine = "Error in {} worker".format(self.workerType)
+        lines = [headLine]
+        lines.extend([line.strip('\n') for line in self.formattedTraceback])
+        s = '\n'.join(lines) + '\n'
+        return s
+
+
+def reportWorkerException(exceptionRecord):
+    """
+    Report the given WorkerExceptionRecord object to stderr
+    """
+    print(exceptionRecord, file=sys.stderr)

@@ -57,14 +57,21 @@ import shutil
 import tempfile
 import threading
 import queue
+import socket
+import secrets
 from concurrent import futures
 from multiprocessing import cpu_count
+import multiprocessing.managers
 
 import numpy
 from osgeo import gdal, gdal_array
 import scipy.stats
 from numba import njit
 from numba.core import types
+try:
+    import cloudpickle
+except ImportError:
+    cloudpickle = None
 
 from . import shepseg
 from . import utils
@@ -571,8 +578,9 @@ class ConcurrencyConfig:
     Configuration for segmentation concurrency
     """
     def __init__(self, concurrencyType=CONC_NONE, numWorkers=0,
-            maxConcurrentReads=20, fgContainerImage=None,
-            fgTaskRoleArn=None, fgExecutionRoleArn=None, fgSubnets=None,
+            maxConcurrentReads=20, tileCompletionTimeout=60,
+            fgContainerImage=None, fgTaskRoleArn=None,
+            fgExecutionRoleArn=None, fgSubnets=None,
             fgSecurityGroups=None, fgCpu='0.5 vCPU', fgMemory='1GB',
             fgCpuArchitecture=None, fgClusterName='default'):
         """
@@ -594,6 +602,8 @@ class ConcurrencyConfig:
             Given that the read step is a very small component of each
             worker's activity, we can limit the number of concurrent reads
             to this value, without degrading throughput.
+          tileCompletionTimeout : int
+            Timeout (seconds) to wait for completion of each segmentation tile
           fgContainer : str
             URI of the container image to use for segmentation workers
           fgTaskRoleArn : str
@@ -629,6 +639,7 @@ class ConcurrencyConfig:
         self.concurrencyType = concurrencyType
         self.numWorkers = numWorkers
         self.maxConcurrentReads = maxConcurrentReads
+        self.tileCompletionTimeout = tileCompletionTimeout
         self.fgContainerImage = fgContainerImage
         self.fgTaskRoleArn = fgTaskRoleArn
         self.fgExecutionRoleArn = fgExecutionRoleArn
@@ -779,7 +790,10 @@ class SegmentationConcurrencyMgr:
         from the cache
         """
         segResult = self.segResultCache.waitForTile(col, row)
-        tileData = segResult.segimg
+        if segResult is not None:
+            tileData = segResult.segimg
+        else:
+            tileData = None
         return tileData
 
     def startWorkers(self):
@@ -792,6 +806,18 @@ class SegmentationConcurrencyMgr:
         Runs segmentation for all tiles in the input image, and writes the output
         file.
         """
+
+    def checkWorkerExceptions(self):
+        """
+        Check if any workers raised exceptions. If so, raise a local exception
+        with the WorkerErrorRecord.
+        """
+        # Check for worker exceptions
+        if self.exceptionQue.qsize() > 0:
+            exceptionRecord = self.exceptionQue.get()
+            utils.reportWorkerException(exceptionRecord)
+            msg = "The preceding exception was raised in a worker"
+            raise PyShepSegTilingError(msg)
 
     @staticmethod
     def overlapCacheKey(col, row, edge):
@@ -850,6 +876,8 @@ class SegmentationConcurrencyMgr:
         reportedRow = -1
         i = 0
         while i < len(colRowList):
+            self.checkWorkerExceptions()
+
             (col, row) = colRowList[i]
 
             if self.verbose and row != reportedRow:
@@ -859,54 +887,55 @@ class SegmentationConcurrencyMgr:
             (xpos, ypos, xsize, ysize) = self.tileInfo.getTile(col, row)
             tileData = self.getTileSegmentation(col, row)
 
-            top = marginSize
-            bottom = ysize - marginSize
-            left = marginSize
-            right = xsize - marginSize
+            if tileData is not None:
+                top = marginSize
+                bottom = ysize - marginSize
+                left = marginSize
+                right = xsize - marginSize
 
-            xout = xpos + marginSize
-            yout = ypos + marginSize
+                xout = xpos + marginSize
+                yout = ypos + marginSize
 
-            rightName = self.overlapCacheKey(col, row, RIGHT_OVERLAP)
-            bottomName = self.overlapCacheKey(col, row, BOTTOM_OVERLAP)
+                rightName = self.overlapCacheKey(col, row, RIGHT_OVERLAP)
+                bottomName = self.overlapCacheKey(col, row, BOTTOM_OVERLAP)
 
-            if row == 0:
-                top = 0
-                yout = ypos
+                if row == 0:
+                    top = 0
+                    yout = ypos
 
-            if row == (self.tileInfo.nrows - 1):
-                bottom = ysize
-                bottomName = None
+                if row == (self.tileInfo.nrows - 1):
+                    bottom = ysize
+                    bottomName = None
 
-            if col == 0:
-                left = 0
-                xout = xpos
+                if col == 0:
+                    left = 0
+                    xout = xpos
 
-            if col == (self.tileInfo.ncols - 1):
-                right = xsize
-                rightName = None
+                if col == (self.tileInfo.ncols - 1):
+                    right = xsize
+                    rightName = None
 
-            if self.simpleTileRecode:
-                nullmask = (tileData == shepseg.SEGNULLVAL)
-                tileData += maxSegId
-                tileData[nullmask] = shepseg.SEGNULLVAL
-            else:
-                tileData = self.recodeTile(tileData, maxSegId, row, col,
-                            top, bottom, left, right)
+                if self.simpleTileRecode:
+                    nullmask = (tileData == shepseg.SEGNULLVAL)
+                    tileData += maxSegId
+                    tileData[nullmask] = shepseg.SEGNULLVAL
+                else:
+                    tileData = self.recodeTile(tileData, maxSegId, row, col,
+                                top, bottom, left, right)
 
-            tileDataTrimmed = tileData[top:bottom, left:right]
-            outBand.WriteArray(tileDataTrimmed, xout, yout)
-            self.writeOverviews(outBand, tileDataTrimmed, xout, yout)
-            histAccum.doHistAccum(tileDataTrimmed)
+                tileDataTrimmed = tileData[top:bottom, left:right]
+                outBand.WriteArray(tileDataTrimmed, xout, yout)
+                self.writeOverviews(outBand, tileDataTrimmed, xout, yout)
+                histAccum.doHistAccum(tileDataTrimmed)
 
-            if rightName is not None:
-                self.saveOverlap(rightName, tileData[:, -self.overlapSize:])
-            if bottomName is not None:
-                self.saveOverlap(bottomName, tileData[-self.overlapSize:, :])
+                if rightName is not None:
+                    self.saveOverlap(rightName, tileData[:, -self.overlapSize:])
+                if bottomName is not None:
+                    self.saveOverlap(bottomName, tileData[-self.overlapSize:, :])
 
-            tileMaxSegId = tileDataTrimmed.max()
-            maxSegId = max(maxSegId, tileMaxSegId)
-            i += 1
+                tileMaxSegId = tileDataTrimmed.max()
+                maxSegId = max(maxSegId, tileMaxSegId)
+                i += 1
 
         self.writeHistogramToFile(outBand, histAccum)
         self.hasEmptySegments = self.checkForEmptySegments(histAccum.hist,
@@ -1371,6 +1400,11 @@ class SegNoConcurrencyMgr(SegmentationConcurrencyMgr):
         tileData = ds.ReadAsArray()
         return tileData
 
+    def checkWorkerExceptions(self):
+        """
+        Dummy. No workers, so no worker exceptions.
+        """
+
 
 class SegThreadsMgr(SegmentationConcurrencyMgr):
     """
@@ -1401,19 +1435,25 @@ class SegThreadsMgr(SegmentationConcurrencyMgr):
         soon as the first tile is completed.
         """
         self.inQue = queue.Queue()
+        self.exceptionQue = queue.Queue()
+        self.forceExit = threading.Event()
 
         tileInfoKeys = self.tileInfo.tiles.keys()
         colRowList = sorted(tileInfoKeys, key=lambda x: (x[1], x[0]))
 
         # Create the segResultCache
-        self.segResultCache = SegmentationResultCache(colRowList)
+        self.segResultCache = SegmentationResultCache(colRowList,
+            timeout=self.concurrencyCfg.tileCompletionTimeout)
 
         # Place all tiles in the inQue
         for colRow in colRowList:
             self.inQue.put(colRow)
 
-        self.startWorkers()
-        self.stitchTiles()
+        try:
+            self.startWorkers()
+            self.stitchTiles()
+        finally:
+            self.shutdown()
 
     def startWorkers(self):
         """
@@ -1431,36 +1471,181 @@ class SegThreadsMgr(SegmentationConcurrencyMgr):
         """
         Worker function. Called for each worker thread.
         """
-        # Each worker needs its own open Dataset for the input file, as these
-        # are not thread-safe
-        inDs = gdal.Open(self.infile)
+        try:
+            # Each worker needs its own open Dataset for the input file, as these
+            # are not thread-safe
+            inDs = gdal.Open(self.infile)
 
-        colRow = self.popFromQue(self.inQue)
-        while colRow is not None:
-            (col, row) = colRow
-
-            xpos, ypos, xsize, ysize = self.tileInfo.getTile(col, row)
-
-            lyrDataList = []
-            for bandNum in self.bandNumbers:
-                with self.readSemaphore:
-                    lyr = inDs.GetRasterBand(bandNum)
-                    lyrData = lyr.ReadAsArray(xpos, ypos, xsize, ysize)
-                    lyrDataList.append(lyrData)
-
-            img = numpy.array(lyrDataList)
-
-            segResult = shepseg.doShepherdSegmentation(img, 
-                        minSegmentSize=self.minSegmentSize,
-                        maxSpectralDiff=self.maxSpectralDiff,
-                        imgNullVal=self.imgNullVal, 
-                        fourConnected=self.fourConnected,
-                        kmeansObj=self.kmeansObj, 
-                        verbose=self.verbose,
-                        spectDistPcntile=self.spectDistPcntile)
-
-            self.segResultCache.addResult(col, row, segResult)
             colRow = self.popFromQue(self.inQue)
+            while colRow is not None and not self.forceExit.is_set():
+                (col, row) = colRow
+
+                xpos, ypos, xsize, ysize = self.tileInfo.getTile(col, row)
+
+                lyrDataList = []
+                for bandNum in self.bandNumbers:
+                    with self.readSemaphore:
+                        lyr = inDs.GetRasterBand(bandNum)
+                        lyrData = lyr.ReadAsArray(xpos, ypos, xsize, ysize)
+                        lyrDataList.append(lyrData)
+
+                img = numpy.array(lyrDataList)
+
+                segResult = shepseg.doShepherdSegmentation(img, 
+                            minSegmentSize=self.minSegmentSize,
+                            maxSpectralDiff=self.maxSpectralDiff,
+                            imgNullVal=self.imgNullVal, 
+                            fourConnected=self.fourConnected,
+                            kmeansObj=self.kmeansObj, 
+                            verbose=self.verbose,
+                            spectDistPcntile=self.spectDistPcntile)
+
+                self.segResultCache.addResult(col, row, segResult)
+                colRow = self.popFromQue(self.inQue)
+        except Exception as e:
+            # Send a printable version of the exception back to main thread
+            workerErr = utils.WorkerErrorRecord(e, 'segmentation')
+            self.exceptionQue.put(workerErr)
+
+    def shutdown(self):
+        """
+        Shut down the thread pool
+        """
+        self.forceExit.set()
+        futures.wait(self.workerList)
+        self.threadPool.shutdown()
+
+
+class SegFargateMgr(SegmentationConcurrencyMgr):
+    """
+    Run tiled segmentation with concurrency based on AWS Fargate workers.
+    """
+    concurrencyType = CONC_FARGATE
+    overlapCache = {}
+
+    def startWorkers(self):
+        """
+        Start all segmentation workers
+        """
+
+    def segmentAllTiles(self):
+        """
+        Run segmentation for all tiles, and write output image. Runs a number
+        of worker tasks on individual Fargate instances, each working
+        independently on individual tiles. The tiles to process are sent via
+        a Queue, and the computed results are returned via a different Queue.
+
+        Stitching the tiles together is run in the main thread, beginning as
+        soon as the first tile is completed.
+        """
+        self.setupNetworkComms()
+        self.inQue = queue.Queue()
+
+        tileInfoKeys = self.tileInfo.tiles.keys()
+        colRowList = sorted(tileInfoKeys, key=lambda x: (x[1], x[0]))
+
+        # Create the segResultCache
+        self.segResultCache = SegmentationResultCache(colRowList)
+
+        # Place all tiles in the inQue
+        for colRow in colRowList:
+            self.inQue.put(colRow)
+
+        self.startWorkers()
+        self.stitchTiles()
+
+    def setupNetworkComms(self):
+        """
+        Set up a NetworkDataChannel to communicate with the worker
+        Fargate instances.
+        """
+
+
+class NetworkDataChannel:
+    """
+    Single class to manage communication with workers running on different
+    machines. Uses the facilities in multiprocessing.managers.
+
+    Created from either the server or the client end, the constructor
+    takes 
+    """
+    def __init__(self, inQue=None, segResultCache=None,
+            hostname=None, portnum=None, authkey=None):
+        class DataChannelMgr(multiprocessing.managers.BaseManager):
+            pass
+        if cloudpickle is None:
+            msg = "Failed to import cloudpickle"
+            raise PyShepSegTilingError(msg)
+
+        if None not in (inQue, segResultCache):
+            self.hostname = socket.gethostname()
+            # Authkey is a big long random bytes string. Making one which is
+            # also printable ascii.
+            self.authkey = secrets.token_hex()
+
+            self.inQue = inQue
+            self.segResultCache = segResultCache
+
+            DataChannelMgr.register("get_inque", callable=lambda: self.inQue)
+            DataChannelMgr.register("get_segresultcache",
+                callable=lambda: self.segResultCache)
+
+            self.mgr = DataChannelMgr(address=(self.hostname, 0),
+                                     authkey=bytes(self.authkey, 'utf-8'))
+
+            self.server = self.mgr.get_server()
+            self.portnum = self.server.address[1]
+            self.threadPool = futures.ThreadPoolExecutor(max_workers=1)
+            self.serverThread = self.threadPool.submit(
+                self.server.serve_forever)
+        elif None not in (hostname, portnum, authkey):
+            DataChannelMgr.register("get_inque")
+            DataChannelMgr.register("get_segresultcache")
+
+            self.mgr = DataChannelMgr(address=(hostname, portnum),
+                                     authkey=authkey)
+            self.hostname = hostname
+            self.portnum = portnum
+            self.authkey = authkey
+            self.mgr.connect()
+
+            # Get the proxy objects.
+            self.inQue = self.mgr.get_inque()
+            self.segResultCache = self.mgr.get_segresultcache()
+        else:
+            msg = ("Must supply either (inQue, segResultCache)" +
+                   " or ALL of (hostname, portnum and authkey)")
+            raise ValueError(msg)
+
+    def shutdown(self):
+        """
+        Shut down the NetworkDataChannel in the right order. This should always
+        be called explicitly by the creator, when it is no longer
+        needed. If left to the garbage collector and/or the interpreter
+        exit code, things are shut down in the wrong order, and the
+        interpreter hangs on exit.
+
+        I have tried __del__, also weakref.finalize and atexit.register,
+        and none of them avoid these problems. So, just make sure you
+        call shutdown explicitly, in the process which created the
+        NetworkDataChannel.
+
+        The client processes don't seem to care, presumably because they
+        are not running the server thread. Calling shutdown on the client
+        does nothing.
+
+        """
+        if hasattr(self, 'server'):
+            self.server.stop_event.set()
+            futures.wait([self.serverThread])
+            self.threadPool.shutdown()
+
+    def addressStr(self):
+        """
+        Return a single string encoding the network address of this channel
+        """
+        s = "{},{},{}".format(self.hostname, self.portnum, self.authkey)
+        return s
 
 
 class HistogramAccumulator:
@@ -1520,7 +1705,8 @@ class SegmentationResultCache:
     a tile, it adds it directly to this cache. The writing thread can then
     pop tiles out of this when required.
     """
-    def __init__(self, colRowList):
+    def __init__(self, colRowList, timeout=None):
+        self.timeout = timeout
         self.lock = threading.Lock()
         self.cache = {}
         self.completionEvent = {}
@@ -1542,9 +1728,12 @@ class SegmentationResultCache:
         the cache.
         """
         key = (col, row)
-        self.completionEvent[key].wait()
-        segResult = self.cache.pop(key)
-        self.completionEvent[key].clear()
+        completed = self.completionEvent[key].wait(timeout=self.timeout)
+        if completed:
+            segResult = self.cache.pop(key)
+            self.completionEvent[key].clear()
+        else:
+            segResult = None
         return segResult
 
 
