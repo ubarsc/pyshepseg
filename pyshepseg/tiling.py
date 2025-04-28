@@ -1538,27 +1538,36 @@ class SegFargateMgr(SegmentationConcurrencyMgr):
         Stitching the tiles together is run in the main thread, beginning as
         soon as the first tile is completed.
         """
-        self.setupNetworkComms()
-        self.inQue = queue.Queue()
-
         tileInfoKeys = self.tileInfo.tiles.keys()
         colRowList = sorted(tileInfoKeys, key=lambda x: (x[1], x[0]))
 
-        # Create the segResultCache
-        self.segResultCache = SegmentationResultCache(colRowList)
+        self.inQue = queue.Queue()
+        self.segResultCache = SegmentationResultCache(colRowList,
+            timeout=self.concurrencyCfg.tileCompletionTimeout)
+        self.forceExit = threading.Event()
+        self.exceptionQue = queue.Queue()
 
-        # Place all tiles in the inQue
-        for colRow in colRowList:
-            self.inQue.put(colRow)
+        try:
+            self.setupNetworkComms()
 
-        self.startWorkers()
-        self.stitchTiles()
+            # Place all tiles in the inQue
+            for colRow in colRowList:
+                self.inQue.put(colRow)
+
+            self.startWorkers()
+            self.stitchTiles()
+        finally:
+            self.dataChan.shutdown()
 
     def setupNetworkComms(self):
         """
         Set up a NetworkDataChannel to communicate with the worker
         Fargate instances.
         """
+        self.dataChan = NetworkDataChannel(inQue=self.inQue,
+            segResultCache=self.segResultCache,
+            forceExit=self.forceExit,
+            exceptionQue=self.exceptionQue)
 
 
 class NetworkDataChannel:
@@ -1569,7 +1578,8 @@ class NetworkDataChannel:
     Created from either the server or the client end, the constructor
     takes 
     """
-    def __init__(self, inQue=None, segResultCache=None,
+    def __init__(self, inQue=None, segResultCache=None, forceExit=None,
+            exceptionQue=None,
             hostname=None, portnum=None, authkey=None):
         class DataChannelMgr(multiprocessing.managers.BaseManager):
             pass
@@ -1585,10 +1595,16 @@ class NetworkDataChannel:
 
             self.inQue = inQue
             self.segResultCache = segResultCache
+            self.forceExit = forceExit
+            self.exceptionQue = exceptionQue
 
             DataChannelMgr.register("get_inque", callable=lambda: self.inQue)
             DataChannelMgr.register("get_segresultcache",
                 callable=lambda: self.segResultCache)
+            DataChannelMgr.register("get_forceexit",
+                callable=lambda: self.forceExit)
+            DataChannelMgr.register("get_exceptionque",
+                callable=lambda: self.exceptionQue)
 
             self.mgr = DataChannelMgr(address=(self.hostname, 0),
                                      authkey=bytes(self.authkey, 'utf-8'))
@@ -1601,6 +1617,8 @@ class NetworkDataChannel:
         elif None not in (hostname, portnum, authkey):
             DataChannelMgr.register("get_inque")
             DataChannelMgr.register("get_segresultcache")
+            DataChannelMgr.register("get_forceexit")
+            DataChannelMgr.register("get_exceptionque")
 
             self.mgr = DataChannelMgr(address=(hostname, portnum),
                                      authkey=authkey)
@@ -1612,8 +1630,10 @@ class NetworkDataChannel:
             # Get the proxy objects.
             self.inQue = self.mgr.get_inque()
             self.segResultCache = self.mgr.get_segresultcache()
+            self.forceExit = self.mgr.get_forceexit()
+            self.exceptionQue = self.mgr.get_exceptionque()
         else:
-            msg = ("Must supply either (inQue, segResultCache)" +
+            msg = ("Must supply either (inQue, segResultCache, etc.)" +
                    " or ALL of (hostname, portnum and authkey)")
             raise ValueError(msg)
 
