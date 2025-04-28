@@ -56,6 +56,10 @@ def getCmdargs():
     p.add_argument("--statsreadworkers", type=int, default=0, 
         help="Number or RIOS readworkers to use while calculating stats. " + 
             "(default=%(default)s)")
+    p.add_argument("--readworkerstimeouts", type=int,
+        help="If statsreadworkers specified, this value is used for readBufferPopTimeout, " +
+            "readBufferInsertTimeout, computeBufferInsertTimeout, computeBufferPopTimeout " +
+            "in the RIOS ConcurrencyStyle object")
 
     cmdargs = p.parse_args()
 
@@ -127,9 +131,16 @@ def main():
     # ensure dataset is closed so we can open it again in RIOS
     del localDs
     
-    # TODO: timeouts
-    concurrencyStyle = applier.ConcurrencyStyle(
-        numReadWorkers=cmdargs.statsreadworkers)
+    if cmdargs.readworkerstimeouts is not None:
+        concurrencyStyle = applier.ConcurrencyStyle(
+            numReadWorkers=cmdargs.statsreadworkers,
+            readBufferPopTimeout=cmdargs.readworkerstimeouts,
+            readBufferInsertTimeout=cmdargs.readworkerstimeouts,
+            computeBufferInsertTimeout=cmdargs.readworkerstimeouts,
+            computeBufferPopTimeout=cmdargs.readworkerstimeouts)
+    else:
+        concurrencyStyle = applier.ConcurrencyStyle(
+            numReadWorkers=cmdargs.statsreadworkers)
 
     # now do any stats the user has asked for
     if cmdargs.stats is not None:
