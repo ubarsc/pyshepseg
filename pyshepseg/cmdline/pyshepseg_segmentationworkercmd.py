@@ -61,16 +61,16 @@ def pyshepsegRemoteSegmentationWorker(workerID, host, port, authkey):
     """
     dataChan = NetworkDataChannel(hostname=host, portnum=port, authkey=authkey)
 
-    infile = dataChan.segDataDict['infile']
-    tileInfo = dataChan.segDataDict['tileInfo']
-    minSegmentSize = dataChan.segDataDict['minSegmentSize']
-    maxSpectralDiff = dataChan.segDataDict['maxSpectralDiff']
-    imgNullVal = dataChan.segDataDict['imgNullVal']
-    fourConnected = dataChan.segDataDict['fourConnected']
-    kmeansObj = dataChan.segDataDict['kmeansObj']
-    verbose = dataChan.segDataDict['verbose']
-    spectDistPcntile = dataChan.segDataDict['spectDistPcntile']
-    bandNumbers = dataChan.segDataDict['bandNumbers']
+    infile = dataChan.segDataDict.get('infile')
+    tileInfo = dataChan.segDataDict.get('tileInfo')
+    minSegmentSize = dataChan.segDataDict.get('minSegmentSize')
+    maxSpectralDiff = dataChan.segDataDict.get('maxSpectralDiff')
+    imgNullVal = dataChan.segDataDict.get('imgNullVal')
+    fourConnected = dataChan.segDataDict.get('fourConnected')
+    kmeansObj = dataChan.segDataDict.get('kmeansObj')
+    verbose = dataChan.segDataDict.get('verbose')
+    spectDistPcntile = dataChan.segDataDict.get('spectDistPcntile')
+    bandNumbers = dataChan.segDataDict.get('bandNumbers')
 
     inDs = gdal.Open(infile)
 
@@ -83,10 +83,13 @@ def pyshepsegRemoteSegmentationWorker(workerID, host, port, authkey):
 
             lyrDataList = []
             for bandNum in bandNumbers:
-                with dataChan.readSemaphore:
-                    lyr = inDs.GetRasterBand(bandNum)
-                    lyrData = lyr.ReadAsArray(xpos, ypos, xsize, ysize)
-                    lyrDataList.append(lyrData)
+                # Note that the proxy semaphore object does not support
+                # context manager protocol, so we use acquire/release
+                dataChan.readSemaphore.acquire()
+                lyr = inDs.GetRasterBand(bandNum)
+                lyrData = lyr.ReadAsArray(xpos, ypos, xsize, ysize)
+                lyrDataList.append(lyrData)
+                dataChan.readSemaphore.release()
 
             img = numpy.array(lyrDataList)
 
@@ -103,7 +106,7 @@ def pyshepsegRemoteSegmentationWorker(workerID, host, port, authkey):
             colRow = popFromQue(dataChan.inQue)
     except Exception as e:
         # Send a printable version of the exception back to main thread
-        workerErr = WorkerErrorRecord(e, 'compute', workerID)
+        workerErr = WorkerErrorRecord(e, 'compute')
         dataChan.exceptionQue.put(workerErr)
 
 

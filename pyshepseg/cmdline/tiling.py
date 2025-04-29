@@ -121,7 +121,8 @@ def getCmdargs():
         "red,green,blue"))
 
     concGroup.add_argument("--concurrencytype", default=tiling.CONC_NONE,
-        choices=[tiling.CONC_NONE, tiling.CONC_THREADS, tiling.CONC_FARGATE],
+        choices=[tiling.CONC_NONE, tiling.CONC_THREADS, tiling.CONC_FARGATE,
+            tiling.CONC_SUBPROC],
         help="Type of concurrency to use in tiled segmentation (default=%(default)s)")
     concGroup.add_argument("--numworkers", default=0, type=int,
         help="Number of workers for concurrent segmentation (default=%(default)s)")

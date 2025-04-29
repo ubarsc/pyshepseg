@@ -62,16 +62,13 @@ import secrets
 from concurrent import futures
 from multiprocessing import cpu_count
 import multiprocessing.managers
+import subprocess
 
 import numpy
 from osgeo import gdal, gdal_array
 import scipy.stats
 from numba import njit
 from numba.core import types
-try:
-    import cloudpickle
-except ImportError:
-    cloudpickle = None
 
 from . import shepseg
 from . import utils
@@ -92,6 +89,7 @@ TILESIZE = 1024
 CONC_NONE = "CONC_NONE"
 CONC_THREADS = "CONC_THREADS"
 CONC_FARGATE = "CONC_FARGATE"
+CONC_SUBPROC = "CONC_SUBPROC"
 
 # The two orientations of the overlap region
 HORIZONTAL = 0
@@ -758,6 +756,32 @@ class SegmentationConcurrencyMgr:
         Any explicit shutdown operations
         """
 
+    def setupNetworkComms(self):
+        """
+        Set up a NetworkDataChannel to communicate with the workers
+        outside the main process (e.g. Fargate instances)
+        """
+        # The segDataDict is all the stuff which is just data, and can be
+        # pickled and sent across to the workers.
+        segDataDict = {}
+        segDataDict['infile'] = self.infile
+        segDataDict['tileInfo'] = self.tileInfo
+        segDataDict['minSegmentSize'] = self.minSegmentSize
+        segDataDict['maxSpectralDiff'] = self.maxSpectralDiff
+        segDataDict['imgNullVal'] = self.imgNullVal
+        segDataDict['fourConnected'] = self.fourConnected
+        segDataDict['kmeansObj'] = self.kmeansObj
+        segDataDict['verbose'] = self.verbose
+        segDataDict['spectDistPcntile'] = self.spectDistPcntile
+        segDataDict['bandNumbers'] = self.bandNumbers
+
+        self.dataChan = NetworkDataChannel(inQue=self.inQue,
+            segResultCache=self.segResultCache,
+            forceExit=self.forceExit,
+            exceptionQue=self.exceptionQue,
+            segDataDict=segDataDict,
+            readSemaphore=self.readSemaphore)
+
     @staticmethod
     def popFromQue(que):
         """
@@ -942,7 +966,9 @@ class SegmentationConcurrencyMgr:
             self.overlapSize)
         utils.estimateStatsFromHisto(outBand, histAccum.hist)
         self.maxSegId = maxSegId
-        self.outDs = outDs
+        outDs.FlushCache()
+        if self.returnGDALDS:
+            self.outDs = outDs
 
     def recodeTile(self, tileData, maxSegId, tileRow, tileCol,
             top, bottom, left, right):
@@ -1557,32 +1583,62 @@ class SegFargateMgr(SegmentationConcurrencyMgr):
             self.startWorkers()
             self.stitchTiles()
         finally:
+            if hasattr(self, 'dataChan'):
+                self.dataChan.shutdown()
+
+
+class SegSubprocMgr(SegmentationConcurrencyMgr):
+    """
+    Run tiled segmentation with concurrency based on subprocess workers.
+    This is used only as a test bed for the NetworkDataChannel and external
+    worker command, and should not be used in real life.
+    """
+    concurrencyType = CONC_SUBPROC
+    overlapCache = {}
+
+    def startWorkers(self):
+        """
+        Start all segmentation workers
+        """
+        self.processes = {}
+        for workerID in range(self.concurrencyCfg.numWorkers):
+            cmdWords = ["pyshepseg_segmentationworkercmd",
+                "--idnum", str(workerID),
+                "--channaddr", self.dataChan.addressStr()]
+            self.processes[workerID] = subprocess.Popen(cmdWords,
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                universal_newlines=True)
+
+    def segmentAllTiles(self):
+        """
+        Run segmentation for all tiles, and write output image. Runs a number
+        of worker tasks as subprocesses on the same machine, each working
+        independently on individual tiles. The tiles to process are sent via
+        a Queue, and the computed results are returned via a different Queue.
+
+        Stitching the tiles together is run in the main thread, beginning as
+        soon as the first tile is completed.
+        """
+        tileInfoKeys = self.tileInfo.tiles.keys()
+        colRowList = sorted(tileInfoKeys, key=lambda x: (x[1], x[0]))
+
+        self.inQue = queue.Queue()
+        self.segResultCache = SegmentationResultCache(colRowList,
+            timeout=self.concurrencyCfg.tileCompletionTimeout)
+        self.forceExit = threading.Event()
+        self.exceptionQue = queue.Queue()
+
+        try:
+            self.setupNetworkComms()
+
+            # Place all tiles in the inQue
+            for colRow in colRowList:
+                self.inQue.put(colRow)
+
+            self.startWorkers()
+            self.stitchTiles()
+        finally:
             self.dataChan.shutdown()
-
-    def setupNetworkComms(self):
-        """
-        Set up a NetworkDataChannel to communicate with the worker
-        Fargate instances.
-        """
-        # The segDataDict is all the stuff which is just data, and can be
-        # pickled and sent across to the workers.
-        segDataDict = {}
-        segDataDict['infile'] = self.infile
-        segDataDict['tileInfo'] = self.tileInfo
-        segDataDict['minSegmentSize'] = self.minSegmentSize
-        segDataDict['maxSpectralDiff'] = self.maxSpectralDiff
-        segDataDict['imgNullVal'] = self.imgNullVal
-        segDataDict['fourConnected'] = self.fourConnected
-        segDataDict['kmeansObj'] = self.kmeansObj
-        segDataDict['verbose'] = self.verbose
-        segDataDict['spectDistPcntile'] = self.spectDistPcntile
-
-        self.dataChan = NetworkDataChannel(inQue=self.inQue,
-            segResultCache=self.segResultCache,
-            forceExit=self.forceExit,
-            exceptionQue=self.exceptionQue,
-            segDataDict=segDataDict,
-            readSemaphore=self.readSemaphore)
 
 
 class NetworkDataChannel:
@@ -1598,9 +1654,6 @@ class NetworkDataChannel:
             hostname=None, portnum=None, authkey=None):
         class DataChannelMgr(multiprocessing.managers.BaseManager):
             pass
-        if cloudpickle is None:
-            msg = "Failed to import cloudpickle"
-            raise PyShepSegTilingError(msg)
 
         if None not in (inQue, segResultCache):
             self.hostname = socket.gethostname()
