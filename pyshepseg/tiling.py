@@ -1620,7 +1620,7 @@ class SegFargateMgr(SegmentationConcurrencyMgr):
         }
 
         channAddr = self.dataChan.addressStr()
-        ctrOverrides = runTaskParams['overrides']['containerOverrides']
+        ctrOverrides = runTaskParams['overrides']['containerOverrides'][0]
         for workerID in range(concCfg.numWorkers):
             # Construct the command args entry with the current workerID
             workerCmdArgs = ['-i', str(workerID), '--channaddr', channAddr]
