@@ -874,13 +874,13 @@ class SegmentationConcurrencyMgr:
         """
         marginSize = int(self.overlapSize / 2)
 
-        outDrvr = gdal.GetDriverByName(self.outputDriver)
-
         if os.path.exists(self.outfile):
-            outDrvr.Delete(self.outfile)
+            drvr = gdal.IdentifyDriver(self.outfile)
+            drvr.Delete(self.outfile)
 
         outType = gdal_array.NumericTypeCodeToGDALTypeCode(shepseg.SegIdType)
 
+        outDrvr = gdal.GetDriverByName(self.outputDriver)
         outDs = outDrvr.Create(self.outfile, self.inXsize, self.inYsize, 1, 
                     outType, self.creationOptions)
         outDs.SetProjection(self.inProj)
