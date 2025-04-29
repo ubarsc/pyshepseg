@@ -671,6 +671,7 @@ class SegmentationConcurrencyMgr:
         Constructor. Just saves all its arguments to self, and does a couple
         of quick checks.
         """
+        self.overlapCache = {}
         self.infile = infile
         self.outfile = outfile
         self.tileSize = tileSize
@@ -1472,7 +1473,6 @@ class SegThreadsMgr(SegmentationConcurrencyMgr):
     process.
     """
     concurrencyType = CONC_THREADS
-    overlapCache = {}
 
     def specificChecks(self):
         """
@@ -1555,7 +1555,6 @@ class SegFargateMgr(SegmentationConcurrencyMgr):
     Run tiled segmentation with concurrency based on AWS Fargate workers.
     """
     concurrencyType = CONC_FARGATE
-    overlapCache = {}
 
     def specificChecks(self):
         """
@@ -1644,7 +1643,6 @@ class SegSubprocMgr(SegmentationConcurrencyMgr):
     worker command, and should not be used in real life.
     """
     concurrencyType = CONC_SUBPROC
-    overlapCache = {}
 
     def startWorkers(self):
         """
