@@ -969,6 +969,8 @@ class SegmentationConcurrencyMgr:
         outDs.FlushCache()
         if self.returnGDALDS:
             self.outDs = outDs
+        else:
+            del outDs
 
     def recodeTile(self, tileData, maxSegId, tileRow, tileCol,
             top, bottom, left, right):
