@@ -671,7 +671,6 @@ class SegmentationConcurrencyMgr:
         Constructor. Just saves all its arguments to self, and does a couple
         of quick checks.
         """
-        self.overlapCache = {}
         self.infile = infile
         self.outfile = outfile
         self.tileSize = tileSize
@@ -698,6 +697,7 @@ class SegmentationConcurrencyMgr:
         if concCfg.numWorkers > 0:
             self.readSemaphore = threading.BoundedSemaphore(
                 value=concCfg.maxConcurrentReads)
+        self.overlapCache = {}
 
         if (self.overlapSize % 2) != 0:
             raise PyShepSegTilingError("Overlap size must be an even number")
