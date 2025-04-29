@@ -59,6 +59,7 @@ import threading
 import queue
 import socket
 import secrets
+import random
 from concurrent import futures
 from multiprocessing import cpu_count
 import multiprocessing.managers
@@ -72,6 +73,11 @@ from numba.core import types
 
 from . import shepseg
 from . import utils
+try:
+    import boto3
+except ImportError:
+    boto3 = None
+
 
 gdal.UseExceptions()
 
@@ -1551,10 +1557,75 @@ class SegFargateMgr(SegmentationConcurrencyMgr):
     concurrencyType = CONC_FARGATE
     overlapCache = {}
 
+    def specificChecks(self):
+        """
+        Checks which are specific to the subclass
+        """
+        if boto3 is None:
+            msg = "CONC_FARGATE requires boto3 to be installed"
+            raise PyShepSegTilingError(msg)
+
     def startWorkers(self):
         """
-        Start all segmentation workers
+        Start all segmentation workers as AWS Fargate tasks
         """
+        concCfg = self.concurrencyCfg
+
+        ecsClient = boto3.client("ecs")
+        self.ecsClient = ecsClient
+
+        jobIDstr = random.randbytes(4).hex()
+        containerName = f'pyshepseg_{jobIDstr}'
+        workerCmd = 'pyshepseg_segmentationworkercmd'
+        containerDefs = [{'name': containerName,
+                          'image': concCfg.fgContainerImage,
+                          'entryPoint': ['/usr/bin/env', workerCmd]}]
+
+        networkConf = {
+            'awsvpcConfiguration': {
+                'assignPublicIp': 'DISABLED',
+                'subnets': concCfg.fgSubnets,
+                'securityGroups': concCfg.fgSecurityGroups
+            }
+        }
+
+        taskFamily = f"pyshepseg_{jobIDstr}_task"
+        taskDefParams = {
+            'family': taskFamily,
+            'networkMode': 'awsvpc',
+            'requiresCompatibilities': ['FARGATE'],
+            'containerDefinitions': containerDefs,
+            'cpu': concCfg.fgCpu,
+            'memory': concCfg.fgMemory
+        }
+        if concCfg.fgTaskRoleArn is not None:
+            taskDefParams['taskRoleArn'] = concCfg.fgTaskRoleArn
+        if concCfg.fgExecutionRoleArn is not None:
+            taskDefParams['executionRoleArn'] = concCfg.fgExecutionRoleArn
+        if concCfg.fgCpuArchitecture is not None:
+            taskDefParams['runtimePlatform'] = {'cpuArchitecture':
+                concCfg.fgCpuArchitecture}
+
+        taskDefResponse = self.ecsClient.register_task_definition(**taskDefParams)
+        self.taskDefArn = taskDefResponse['taskDefinition']['taskDefinitionArn']
+
+        runTaskParams = {
+            'launchType': 'FARGATE',
+            'cluster': concCfg.fgClusterName,
+            'networkConfiguration': networkConf,
+            'taskDefinition': self.taskDefArn,
+            'overrides': {'containerOverrides': [{
+                "command": 'Dummy, to be over-written',
+                'name': containerName}]}
+        }
+
+        channAddr = self.dataChan.addressStr()
+        ctrOverrides = runTaskParams['overrides']['containerOverrides']
+        for workerID in range(concCfg.numWorkers):
+            # Construct the command args entry with the current workerID
+            workerCmdArgs = ['-i', str(workerID), '--channaddr', channAddr]
+            ctrOverrides['command'] = workerCmdArgs
+            runTaskResponse = ecsClient.run_task(**runTaskParams)
 
     def segmentAllTiles(self):
         """
@@ -1587,6 +1658,15 @@ class SegFargateMgr(SegmentationConcurrencyMgr):
         finally:
             if hasattr(self, 'dataChan'):
                 self.dataChan.shutdown()
+
+    def shutdown(self):
+        """
+        Shut down the workers and data channel
+        """
+        self.forceExit.set()
+        if hasattr(self, 'dataChan'):
+            self.dataChan.shutdown()
+        self.ecsClient.deregister_task_definition(taskDefinition=self.taskDefArn)
 
 
 class SegSubprocMgr(SegmentationConcurrencyMgr):
@@ -1640,7 +1720,8 @@ class SegSubprocMgr(SegmentationConcurrencyMgr):
             self.startWorkers()
             self.stitchTiles()
         finally:
-            self.dataChan.shutdown()
+            if hasattr(self, 'dataChan'):
+                self.dataChan.shutdown()
 
 
 class NetworkDataChannel:
