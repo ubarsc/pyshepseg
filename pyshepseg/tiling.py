@@ -833,9 +833,35 @@ class SegmentationConcurrencyMgr:
 
     def segmentAllTiles(self):
         """
-        Runs segmentation for all tiles in the input image, and writes the output
-        file.
+        Run segmentation for all tiles, and write output image. Runs a number
+        of segmentation workers, each working independently on individual
+        tiles. The tiles to process are sent via a Queue, and the computed
+        results are returned via a different Queue.
+
+        Stitching the tiles together is run in the main thread, beginning as
+        soon as the first tile is completed.
         """
+        tileInfoKeys = self.tileInfo.tiles.keys()
+        colRowList = sorted(tileInfoKeys, key=lambda x: (x[1], x[0]))
+
+        self.inQue = queue.Queue()
+        self.segResultCache = SegmentationResultCache(colRowList,
+            timeout=self.concurrencyCfg.tileCompletionTimeout)
+        self.forceExit = threading.Event()
+        self.exceptionQue = queue.Queue()
+
+        try:
+            self.setupNetworkComms()
+
+            # Place all tiles in the inQue
+            for colRow in colRowList:
+                self.inQue.put(colRow)
+
+            self.startWorkers()
+            self.stitchTiles()
+        finally:
+            if hasattr(self, 'dataChan'):
+                self.dataChan.shutdown()
 
     def checkWorkerExceptions(self):
         """
@@ -1458,37 +1484,6 @@ class SegThreadsMgr(SegmentationConcurrencyMgr):
                 self.concurrencyCfg.numWorkers, numCpus)
             raise PyShepSegTilingError(msg)
 
-    def segmentAllTiles(self):
-        """
-        Run segmentation for all tiles, and write output image. Runs a number
-        of worker threads, each working independently on individual tiles. The
-        tiles to process are sent via a Queue, and the computed results are
-        returned via a different Queue.
-
-        Stitching the tiles together is run in the main thread, beginning as
-        soon as the first tile is completed.
-        """
-        self.inQue = queue.Queue()
-        self.exceptionQue = queue.Queue()
-        self.forceExit = threading.Event()
-
-        tileInfoKeys = self.tileInfo.tiles.keys()
-        colRowList = sorted(tileInfoKeys, key=lambda x: (x[1], x[0]))
-
-        # Create the segResultCache
-        self.segResultCache = SegmentationResultCache(colRowList,
-            timeout=self.concurrencyCfg.tileCompletionTimeout)
-
-        # Place all tiles in the inQue
-        for colRow in colRowList:
-            self.inQue.put(colRow)
-
-        try:
-            self.startWorkers()
-            self.stitchTiles()
-        finally:
-            self.shutdown()
-
     def startWorkers(self):
         """
         Start worker threads for segmenting tiles
@@ -1548,6 +1543,11 @@ class SegThreadsMgr(SegmentationConcurrencyMgr):
         self.forceExit.set()
         futures.wait(self.workerList)
         self.threadPool.shutdown()
+
+    def setupNetworkComms(self):
+        """
+        Dummy. No network communications required.
+        """
 
 
 class SegFargateMgr(SegmentationConcurrencyMgr):
@@ -1627,38 +1627,6 @@ class SegFargateMgr(SegmentationConcurrencyMgr):
             ctrOverrides['command'] = workerCmdArgs
             runTaskResponse = ecsClient.run_task(**runTaskParams)
 
-    def segmentAllTiles(self):
-        """
-        Run segmentation for all tiles, and write output image. Runs a number
-        of worker tasks on individual Fargate instances, each working
-        independently on individual tiles. The tiles to process are sent via
-        a Queue, and the computed results are returned via a different Queue.
-
-        Stitching the tiles together is run in the main thread, beginning as
-        soon as the first tile is completed.
-        """
-        tileInfoKeys = self.tileInfo.tiles.keys()
-        colRowList = sorted(tileInfoKeys, key=lambda x: (x[1], x[0]))
-
-        self.inQue = queue.Queue()
-        self.segResultCache = SegmentationResultCache(colRowList,
-            timeout=self.concurrencyCfg.tileCompletionTimeout)
-        self.forceExit = threading.Event()
-        self.exceptionQue = queue.Queue()
-
-        try:
-            self.setupNetworkComms()
-
-            # Place all tiles in the inQue
-            for colRow in colRowList:
-                self.inQue.put(colRow)
-
-            self.startWorkers()
-            self.stitchTiles()
-        finally:
-            if hasattr(self, 'dataChan'):
-                self.dataChan.shutdown()
-
     def shutdown(self):
         """
         Shut down the workers and data channel
@@ -1690,38 +1658,6 @@ class SegSubprocMgr(SegmentationConcurrencyMgr):
             self.processes[workerID] = subprocess.Popen(cmdWords,
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                 universal_newlines=True)
-
-    def segmentAllTiles(self):
-        """
-        Run segmentation for all tiles, and write output image. Runs a number
-        of worker tasks as subprocesses on the same machine, each working
-        independently on individual tiles. The tiles to process are sent via
-        a Queue, and the computed results are returned via a different Queue.
-
-        Stitching the tiles together is run in the main thread, beginning as
-        soon as the first tile is completed.
-        """
-        tileInfoKeys = self.tileInfo.tiles.keys()
-        colRowList = sorted(tileInfoKeys, key=lambda x: (x[1], x[0]))
-
-        self.inQue = queue.Queue()
-        self.segResultCache = SegmentationResultCache(colRowList,
-            timeout=self.concurrencyCfg.tileCompletionTimeout)
-        self.forceExit = threading.Event()
-        self.exceptionQue = queue.Queue()
-
-        try:
-            self.setupNetworkComms()
-
-            # Place all tiles in the inQue
-            for colRow in colRowList:
-                self.inQue.put(colRow)
-
-            self.startWorkers()
-            self.stitchTiles()
-        finally:
-            if hasattr(self, 'dataChan'):
-                self.dataChan.shutdown()
 
 
 class NetworkDataChannel:
