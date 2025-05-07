@@ -586,7 +586,7 @@ class ConcurrencyConfig:
             fgContainerImage=None, fgTaskRoleArn=None,
             fgExecutionRoleArn=None, fgSubnets=None,
             fgSecurityGroups=None, fgCpu='0.5 vCPU', fgMemory='1GB',
-            fgCpuArchitecture=None, fgClusterName='default'):
+            fgCpuArchitecture=None):
         """
         Configuration for managing segmentation concurrency.
 
@@ -636,9 +636,6 @@ class ConcurrencyConfig:
           fgCpuArchitecture : str
             If given, selects the CPU architecture of the hosts to run
             worker on. Can be 'ARM64', defaults to 'X86_64'.
-          fgClusterName : str
-            If given, Fargate will use this cluster name instead of
-            the default, which is called "default".
         """
         self.concurrencyType = concurrencyType
         self.numWorkers = numWorkers
@@ -652,7 +649,6 @@ class ConcurrencyConfig:
         self.fgCpu = fgCpu
         self.fgMemory = fgMemory
         self.fgCpuArchitecture = fgCpuArchitecture
-        self.fgClusterName = fgClusterName
     
 
 class SegmentationConcurrencyMgr:
@@ -1574,11 +1570,15 @@ class SegFargateMgr(SegmentationConcurrencyMgr):
         self.ecsClient = ecsClient
 
         jobIDstr = random.randbytes(4).hex()
-        containerName = f'pyshepseg_{jobIDstr}'
+        containerName = f'pyshepseg_{jobIDstr}_container'
         workerCmd = 'pyshepseg_segmentationworkercmd'
         containerDefs = [{'name': containerName,
                           'image': concCfg.fgContainerImage,
                           'entryPoint': ['/usr/bin/env', workerCmd]}]
+
+        # Create a private cluster
+        self.clusterName = f'pyshepseg_{jobIDstr}_cluster'
+        self.ecsClient.create_cluster({'clusterName': self.clusterName})
 
         networkConf = {
             'awsvpcConfiguration': {
@@ -1610,7 +1610,7 @@ class SegFargateMgr(SegmentationConcurrencyMgr):
 
         runTaskParams = {
             'launchType': 'FARGATE',
-            'cluster': concCfg.fgClusterName,
+            'cluster': self.clusterName,
             'networkConfiguration': networkConf,
             'taskDefinition': self.taskDefArn,
             'overrides': {'containerOverrides': [{
@@ -1620,20 +1620,60 @@ class SegFargateMgr(SegmentationConcurrencyMgr):
 
         channAddr = self.dataChan.addressStr()
         ctrOverrides = runTaskParams['overrides']['containerOverrides'][0]
+        self.taskArnList = []
         for workerID in range(concCfg.numWorkers):
             # Construct the command args entry with the current workerID
             workerCmdArgs = ['-i', str(workerID), '--channaddr', channAddr]
             ctrOverrides['command'] = workerCmdArgs
             runTaskResponse = ecsClient.run_task(**runTaskParams)
+            taskResp = runTaskResponse['tasks'][0]
+            self.taskArnList.append(taskResp['taskArn'])
 
     def shutdown(self):
         """
         Shut down the workers and data channel
         """
         self.forceExit.set()
+        self.waitClusterTasksFinished()
+        self.ecsClient.delete_cluster(cluster=self.clusterName)
         if hasattr(self, 'dataChan'):
             self.dataChan.shutdown()
         self.ecsClient.deregister_task_definition(taskDefinition=self.taskDefArn)
+
+    def waitClusterTasksFinished(self):
+        """
+        Poll the given cluster until the number of tasks reaches zero
+        """
+        taskCount = self.getClusterTaskCount()
+        startTime = time.time()
+        timeout = 20
+        timeExceeded = False
+        while ((taskCount > 0) and (not timeExceeded)):
+            time.sleep(5)
+            taskCount = self.getClusterTaskCount()
+            timeExceeded = (time.time() > (startTime + timeout))
+
+        # If we exceeded timeout without reaching zero,
+        # raise an exception
+        if timeExceeded and (taskCount > 0):
+            msg = ("Cluster task count timeout ({} seconds). ".format(timeout))
+            raise PyShepSegTilingError(msg)
+
+    def getClusterTaskCount(self):
+        """
+        Query the cluster, and return the number of tasks it has.
+        This is the total of running and pending tasks.
+        If the cluster does not exist, return None.
+        """
+        count = None
+        clusterName = self.clusterName
+        response = self.ecsClient.describe_clusters(clusters=[clusterName])
+        if 'clusters' in response:
+            for descr in response['clusters']:
+                if descr['clusterName'] == clusterName:
+                    count = (descr['runningTasksCount'] +
+                             descr['pendingTasksCount'])
+        return count
 
 
 class SegSubprocMgr(SegmentationConcurrencyMgr):
