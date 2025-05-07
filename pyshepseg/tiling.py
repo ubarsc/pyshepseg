@@ -1554,7 +1554,7 @@ class SegFargateMgr(SegmentationConcurrencyMgr):
 
     def specificChecks(self):
         """
-        Checks which are specific to the subclass
+        Initial checks which are specific to the subclass
         """
         if boto3 is None:
             msg = "CONC_FARGATE requires boto3 to be installed"
