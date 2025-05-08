@@ -517,12 +517,12 @@ def doTiledShepherdSegmentation(infile, outfile, tileSize=DFLT_TILESIZE,
         File extension to use for temporary raster files
       tempfilesCreationOptions : list of str
         GDAL creation options to use for temporary raster files
-      writeHistogram: bool
+      writeHistogram : bool
         Deprecated, and ignored. The histogram is always written.
-      returnGDALDS: bool
+      returnGDALDS : bool
         Whether to set the outDs member of TiledSegmentationResult
         when returning. If set, this will be open in update mode.
-      concurrencyCfg: ConcurrencyConfig
+      concurrencyCfg : ConcurrencyConfig
         Configuration for segmentation concurrency. Default is None,
         meaning no concurrency.
 
@@ -535,7 +535,8 @@ def doTiledShepherdSegmentation(infile, outfile, tileSize=DFLT_TILESIZE,
         concurrencyCfg = ConcurrencyConfig()
 
     concurrencyType = concurrencyCfg.concurrencyType
-    concurrencyMgrClass = selectConcurrencyClass(concurrencyType)
+    concurrencyMgrClass = selectConcurrencyClass(concurrencyType,
+        SegmentationConcurrencyMgr)
     concurrencyMgr = concurrencyMgrClass(infile, outfile, tileSize,
         overlapSize, minSegmentSize, numClusters, bandNumbers, subsamplePcnt,
         maxSpectralDiff, imgNullVal, fixedKMeansInit, fourConnected, verbose,
@@ -561,12 +562,12 @@ def doTiledShepherdSegmentation(infile, outfile, tileSize=DFLT_TILESIZE,
     return tiledSegResult
 
 
-def selectConcurrencyClass(concurrencyType):
+def selectConcurrencyClass(concurrencyType, baseClass):
     """
     Choose the sub-class corresponding to the given concurrencyType
     """
     concMgrClass = None
-    subclasses = SegmentationConcurrencyMgr.__subclasses__()
+    subclasses = baseClass.__subclasses__()
     for c in subclasses:
         if c.concurrencyType == concurrencyType:
             concMgrClass = c
@@ -579,7 +580,8 @@ def selectConcurrencyClass(concurrencyType):
 
 class ConcurrencyConfig:
     """
-    Configuration for segmentation concurrency
+    Configuration for concurrency. This class can be used independantly to
+    configure concurrency in either segmentation or per-segment statistics.
     """
     def __init__(self, concurrencyType=CONC_NONE, numWorkers=0,
             maxConcurrentReads=20, tileCompletionTimeout=60,
