@@ -611,7 +611,10 @@ class ConcurrencyConfig:
           tileCompletionTimeout : int
             Timeout (seconds) to wait for completion of each segmentation tile
           fgContainer : str
-            URI of the container image to use for segmentation workers
+            URI of the container image to use for segmentation workers. This
+            container must have pyshepseg installed. It can be the same
+            container as used for the main script, as the entry point is
+            over-written.
           fgTaskRoleArn : str
             ARN for an AWS role. This allows your code to use AWS services.
             This role should include policies such as AmazonS3FullAccess,
