@@ -132,6 +132,8 @@ class TiledSegmentationResult(object):
         This is an error condition, probably indicating that the
         merging of segments across tiles has produced inconsistent
         numbering. A warning message will also have been printed.
+      timings : pyshepseg.timinghooks.Timers
+        Timings for various key parts of the segmentation process
       outDs: gdal.Dataset
         Open GDAL dataset object to the output file. May not be set -
         see the returnGDALDS parameter to doTiledShepherdSegmentation.
@@ -146,6 +148,7 @@ class TiledSegmentationResult(object):
         self.kmeans = None
         self.hasEmptySegments = None
         self.outDs = None
+        self.timings = None
 
 
 def fitSpectralClustersWholeFile(inDs, bandNumbers, numClusters=60, 
