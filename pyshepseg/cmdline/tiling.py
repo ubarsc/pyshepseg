@@ -236,8 +236,15 @@ def doPerSegmentStats(cmdargs):
                 selection = (name, statsSpec)
             statsSelection.append(selection)
 
-        tilingstats.calcPerSegmentStatsTiled(cmdargs.infile, statsBand, 
+        rtn = tilingstats.calcPerSegmentStatsTiled(cmdargs.infile, statsBand,
             cmdargs.outfile, statsSelection)
+
+        if cmdargs.verbose:
+            print("Stats Timings (sec) for band", statsBand)
+            timingsSummary = rtn.timings.makeSummaryDict()
+            for t in timingsSummary:
+                print("{}    {:.2f}".format(t, timingsSummary[t]['total']))
+            print()
 
 
 if __name__ == "__main__":

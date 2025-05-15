@@ -45,6 +45,7 @@ from .guardeddecorators import jitclass
 
 from . import tiling
 from . import shepseg
+from . import timinghooks
 
 HAVE_RIOS = False
 try:
@@ -64,6 +65,20 @@ osr.UseExceptions()
 numbaTypeForImageType = types.int64
 # This is the numba equivalent type of shepseg.SegIdType
 segIdNumbaType = types.uint32
+
+
+class TiledStatsResult:
+    """
+    Result of tiled per-segment statistics
+
+    Attributes
+    ----------
+      timings : pyshepseg.timinghooks.Timers
+        Timings for various key parts of the per-segment stats calculation
+
+    """
+    def __init__(self):
+        self.timings = None
 
 
 def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile, 
@@ -130,6 +145,8 @@ def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile,
         What to set for segments that have no valid pixels in imgile
 
     """
+    timings = timinghooks.Timers()
+
     segds, segband, imgds, imgband = doImageAlignmentChecks(segfile, 
         imgfile, imgbandnum)
     
@@ -168,20 +185,34 @@ def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile,
             leftPix = tileCol * tileSize
             xsize = min(tileSize, npix - leftPix)
             ysize = min(tileSize, nlines - topLine)
-            
-            tileSegments = segband.ReadAsArray(leftPix, topLine, xsize, ysize)
-            tileImageData = imgband.ReadAsArray(leftPix, topLine, xsize, ysize)
-            
-            accumulateSegDict(segDict, noDataDict, imgNullVal, tileSegments, 
-                tileImageData)
-            calcStatsForCompletedSegs(segDict, noDataDict, missingStatsValue, 
-                pagedRat, statsSelection_fast, segSize, numIntCols, numFloatCols)
-            
-            writeCompletePages(pagedRat, attrTbl, statsSelection_fast)
+
+            with timings.interval('reading'):
+                tileSegments = segband.ReadAsArray(leftPix, topLine, xsize, ysize)
+                tileImageData = imgband.ReadAsArray(leftPix, topLine, xsize, ysize)
+
+            with timings.interval('accumulation'):
+                accumulateSegDict(segDict, noDataDict, imgNullVal,
+                    tileSegments, tileImageData)
+
+            with timings.interval('statscompletion'):
+                calcStatsForCompletedSegs(segDict, noDataDict,
+                    missingStatsValue, pagedRat, statsSelection_fast,
+                    segSize, numIntCols, numFloatCols)
+
+            with timings.interval('writing'):
+                writeCompletePages(pagedRat, attrTbl, statsSelection_fast)
+
+    with timings.interval('writing'):
+        segds.FlushCache()
+        del segds
 
     # all pages should now be written. Raise an error if this not the case.
     if len(pagedRat) > 0:
         raise PyShepSegStatsError('Not all pixels found during processing')
+
+    rtn = TiledStatsResult()
+    rtn.timings = timings
+    return rtn
 
 
 def calcPerSegmentStats_riosFunc(info, inputs, outputs, otherArgs):
@@ -1257,6 +1288,8 @@ def calcPerSegmentSpatialStatsTiled(imgfile, imgbandnum, segfile,
         The value to fill in for segments that have no data.
     
     """
+    timings = timinghooks.Timers()
+
     segds, segband, imgds, imgband = doImageAlignmentChecks(segfile, 
         imgfile, imgbandnum)
 
@@ -1308,21 +1341,34 @@ def calcPerSegmentSpatialStatsTiled(imgfile, imgbandnum, segfile,
             leftPix = tileCol * tileSize
             xsize = min(tileSize, npix - leftPix)
             ysize = min(tileSize, nlines - topLine)
-            
-            tileSegments = segband.ReadAsArray(leftPix, topLine, xsize, ysize)
-            tileImageData = imgband.ReadAsArray(leftPix, topLine, xsize, ysize)
-            
-            accumulateSegSpatial(segDict, noDataDict, imgNullVal, tileSegments, 
-                tileImageData, topLine, leftPix)
-            calcStatsForCompletedSegsSpatial(segDict, noDataDict, 
-                missingStatsValue, pagedRat, segSize, userFunc, userParam, 
-                statsSelection_fast, intArr, floatArr, imgNullVal)
-            
-            writeCompletePages(pagedRat, attrTbl, statsSelection_fast)
+
+            with timings.interval('reading'):
+                tileSegments = segband.ReadAsArray(leftPix, topLine, xsize, ysize)
+                tileImageData = imgband.ReadAsArray(leftPix, topLine, xsize, ysize)
+
+            with timings.interval('accumulation'):
+                accumulateSegSpatial(segDict, noDataDict, imgNullVal,
+                    tileSegments, tileImageData, topLine, leftPix)
+
+            with timings.interval('statscompletion'):
+                calcStatsForCompletedSegsSpatial(segDict, noDataDict,
+                    missingStatsValue, pagedRat, segSize, userFunc, userParam,
+                    statsSelection_fast, intArr, floatArr, imgNullVal)
+
+            with timings.interval('writing'):
+                writeCompletePages(pagedRat, attrTbl, statsSelection_fast)
+
+    with timings.interval('writing'):
+        segds.FlushCache()
+        del segds
 
     # all pages should now be written. Raise an error if this not the case.
     if len(pagedRat) > 0:
         raise PyShepSegStatsError('Not all pixels found during processing')
+
+    rtn = TiledStatsResult()
+    rtn.timings = timings
+    return rtn
         
 
 def calcPerSegmentSpatialStats_riosFunc(info, inputs, outputs, otherArgs):
