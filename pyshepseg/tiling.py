@@ -73,6 +73,7 @@ from numba.core import types
 
 from . import shepseg
 from . import utils
+from . import timinghooks
 try:
     import boto3
 except ImportError:
@@ -544,9 +545,10 @@ def doTiledShepherdSegmentation(infile, outfile, tileSize=DFLT_TILESIZE,
         kmeansObj, tempfilesDriver, tempfilesCreationOptions, writeHistogram,
         returnGDALDS, concurrencyCfg)
 
-    concurrencyMgr.initialize()
-    concurrencyMgr.segmentAllTiles()
-    concurrencyMgr.shutdown()
+    with concurrencyMgr.timings.interval('walltime'):
+        concurrencyMgr.initialize()
+        concurrencyMgr.segmentAllTiles()
+        concurrencyMgr.shutdown()
 
     tiledSegResult = TiledSegmentationResult()
     tiledSegResult.maxSegId = concurrencyMgr.maxSegId
@@ -556,6 +558,7 @@ def doTiledShepherdSegmentation(infile, outfile, tileSize=DFLT_TILESIZE,
     tiledSegResult.maxSpectralDiff = concurrencyMgr.maxSpectralDiff
     tiledSegResult.kmeans = concurrencyMgr.kmeansObj
     tiledSegResult.hasEmptySegments = concurrencyMgr.hasEmptySegments
+    tiledSegResult.timings = concurrencyMgr.timings
     if returnGDALDS:
         tiledSegResult.outDs = concurrencyMgr.outDs
     
@@ -699,6 +702,7 @@ class SegmentationConcurrencyMgr:
             self.readSemaphore = threading.BoundedSemaphore(
                 value=concCfg.maxConcurrentReads)
         self.overlapCache = {}
+        self.timings = timinghooks.Timers()
 
         if (self.overlapSize % 2) != 0:
             raise PyShepSegTilingError("Overlap size must be an even number")
@@ -735,9 +739,10 @@ class SegmentationConcurrencyMgr:
 
         t0 = time.time()
         if self.kmeansObj is None:
-            fitReturn = fitSpectralClustersWholeFile(inDs, self.bandNumbers,
-                    self.numClusters, self.subsamplePcnt, self.imgNullVal,
-                    self.fixedKMeansInit)
+            with self.timings.interval('spectralclusters'):
+                fitReturn = fitSpectralClustersWholeFile(inDs, self.bandNumbers,
+                        self.numClusters, self.subsamplePcnt, self.imgNullVal,
+                        self.fixedKMeansInit)
             (self.kmeansObj, self.subsamplePcnt, self.imgNullVal) = fitReturn
                 
             if self.verbose:
@@ -788,7 +793,8 @@ class SegmentationConcurrencyMgr:
             forceExit=self.forceExit,
             exceptionQue=self.exceptionQue,
             segDataDict=segDataDict,
-            readSemaphore=self.readSemaphore)
+            readSemaphore=self.readSemaphore,
+            timings=self.timings)
 
     @staticmethod
     def popFromQue(que):
@@ -860,7 +866,8 @@ class SegmentationConcurrencyMgr:
                 self.inQue.put(colRow)
 
             self.startWorkers()
-            self.stitchTiles()
+            with self.timings.interval('stitchtiles'):
+                self.stitchTiles()
         finally:
             if hasattr(self, 'dataChan'):
                 self.dataChan.shutdown()
@@ -1376,22 +1383,24 @@ class SegNoConcurrencyMgr(SegmentationConcurrencyMgr):
                     tileNum, len(colRowList), row, col))
 
             (xpos, ypos, xsize, ysize) = self.tileInfo.getTile(col, row)
-            lyrDataList = []
-            for bandNum in self.bandNumbers:
-                lyr = inDs.GetRasterBand(bandNum)
-                lyrData = lyr.ReadAsArray(xpos, ypos, xsize, ysize)
-                lyrDataList.append(lyrData)
+            with self.timings.interval('reading'):
+                lyrDataList = []
+                for bandNum in self.bandNumbers:
+                    lyr = inDs.GetRasterBand(bandNum)
+                    lyrData = lyr.ReadAsArray(xpos, ypos, xsize, ysize)
+                    lyrDataList.append(lyrData)
 
             img = numpy.array(lyrDataList)
 
-            segResult = shepseg.doShepherdSegmentation(img, 
-                        minSegmentSize=self.minSegmentSize,
-                        maxSpectralDiff=self.maxSpectralDiff,
-                        imgNullVal=self.imgNullVal, 
-                        fourConnected=self.fourConnected,
-                        kmeansObj=self.kmeansObj, 
-                        verbose=self.verbose,
-                        spectDistPcntile=self.spectDistPcntile)
+            with self.timings.interval('segmentation'):
+                segResult = shepseg.doShepherdSegmentation(img,
+                            minSegmentSize=self.minSegmentSize,
+                            maxSpectralDiff=self.maxSpectralDiff,
+                            imgNullVal=self.imgNullVal,
+                            fourConnected=self.fourConnected,
+                            kmeansObj=self.kmeansObj,
+                            verbose=self.verbose,
+                            spectDistPcntile=self.spectDistPcntile)
 
             filename = 'tile_{}_{}.{}'.format(col, row, self.tempfilesExt)
             filename = os.path.join(self.tempDir, filename)
@@ -1401,7 +1410,8 @@ class SegNoConcurrencyMgr(SegmentationConcurrencyMgr):
 
             tileNum += 1
 
-        self.stitchTiles()
+        with self.timings.interval('stitchtiles'):
+            self.stitchTiles()
 
         shutil.rmtree(self.tempDir)
 
@@ -1512,23 +1522,25 @@ class SegThreadsMgr(SegmentationConcurrencyMgr):
 
                 xpos, ypos, xsize, ysize = self.tileInfo.getTile(col, row)
 
-                lyrDataList = []
-                for bandNum in self.bandNumbers:
-                    with self.readSemaphore:
-                        lyr = inDs.GetRasterBand(bandNum)
-                        lyrData = lyr.ReadAsArray(xpos, ypos, xsize, ysize)
-                        lyrDataList.append(lyrData)
+                with self.timings.interval('reading'):
+                    lyrDataList = []
+                    for bandNum in self.bandNumbers:
+                        with self.readSemaphore:
+                            lyr = inDs.GetRasterBand(bandNum)
+                            lyrData = lyr.ReadAsArray(xpos, ypos, xsize, ysize)
+                            lyrDataList.append(lyrData)
 
                 img = numpy.array(lyrDataList)
 
-                segResult = shepseg.doShepherdSegmentation(img,
-                            minSegmentSize=self.minSegmentSize,
-                            maxSpectralDiff=self.maxSpectralDiff,
-                            imgNullVal=self.imgNullVal,
-                            fourConnected=self.fourConnected,
-                            kmeansObj=self.kmeansObj,
-                            verbose=self.verbose,
-                            spectDistPcntile=self.spectDistPcntile)
+                with self.timings.interval('segmentation'):
+                    segResult = shepseg.doShepherdSegmentation(img,
+                                minSegmentSize=self.minSegmentSize,
+                                maxSpectralDiff=self.maxSpectralDiff,
+                                imgNullVal=self.imgNullVal,
+                                fourConnected=self.fourConnected,
+                                kmeansObj=self.kmeansObj,
+                                verbose=self.verbose,
+                                spectDistPcntile=self.spectDistPcntile)
 
                 self.segResultCache.addResult(col, row, segResult)
                 colRow = self.popFromQue(self.inQue)
@@ -1713,6 +1725,7 @@ class NetworkDataChannel:
     """
     def __init__(self, inQue=None, segResultCache=None, forceExit=None,
             exceptionQue=None, segDataDict=None, readSemaphore=None,
+            timings=None,
             hostname=None, portnum=None, authkey=None):
         class DataChannelMgr(multiprocessing.managers.BaseManager):
             pass
@@ -1729,6 +1742,7 @@ class NetworkDataChannel:
             self.exceptionQue = exceptionQue
             self.readSemaphore = readSemaphore
             self.segDataDict = segDataDict
+            self.timings = timings
 
             DataChannelMgr.register("get_inque", callable=lambda: self.inQue)
             DataChannelMgr.register("get_segresultcache",
@@ -1741,6 +1755,8 @@ class NetworkDataChannel:
                 callable=lambda: self.segDataDict)
             DataChannelMgr.register("get_readsemaphore",
                 callable=lambda: self.readSemaphore)
+            DataChannelMgr.register("get_timings",
+                callable=lambda: self.timings)
 
             self.mgr = DataChannelMgr(address=(self.hostname, 0),
                                      authkey=bytes(self.authkey, 'utf-8'))
@@ -1757,6 +1773,7 @@ class NetworkDataChannel:
             DataChannelMgr.register("get_exceptionque")
             DataChannelMgr.register("get_segdatadict")
             DataChannelMgr.register("get_readsemaphore")
+            DataChannelMgr.register("get_timings")
 
             self.mgr = DataChannelMgr(address=(hostname, portnum),
                                      authkey=authkey)
@@ -1772,6 +1789,7 @@ class NetworkDataChannel:
             self.exceptionQue = self.mgr.get_exceptionque()
             self.segDataDict = self.mgr.get_segdatadict()
             self.readSemaphore = self.mgr.get_readsemaphore()
+            self.timings = self.mgr.get_timings()
         else:
             msg = ("Must supply either (inQue, segResultCache, etc.)" +
                    " or ALL of (hostname, portnum and authkey)")

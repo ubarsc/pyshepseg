@@ -192,6 +192,13 @@ def main():
             fourConnected=not cmdargs.eightway, verbose=cmdargs.verbose,
             simpleTileRecode=cmdargs.simplerecode, outputDriver=cmdargs.format,
             creationOptions=creationOptions, concurrencyCfg=concurrencyCfg)
+    # Print timings
+    if cmdargs.verbose:
+        print("Segmentation Timings (sec)")
+        timingsSummary = tiledSegResult.timings.makeSummaryDict()
+        for t in timingsSummary:
+            print("{}    {:.2f}".format(t, timingsSummary[t]['total']))
+        print()
 
     # Do a colour table on final output file. 
     outDs = gdal.Open(cmdargs.outfile, gdal.GA_Update)

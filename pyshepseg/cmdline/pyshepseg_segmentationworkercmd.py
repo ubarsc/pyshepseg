@@ -11,6 +11,7 @@ from osgeo import gdal
 from pyshepseg import shepseg
 from pyshepseg.tiling import NetworkDataChannel
 from pyshepseg.utils import WorkerErrorRecord
+from pyshepseg.timinghooks import Timers
 
 
 # Compute workers in separate processes should always use GDAL exceptions,
@@ -71,6 +72,9 @@ def pyshepsegRemoteSegmentationWorker(workerID, host, port, authkey):
     verbose = dataChan.segDataDict.get('verbose')
     spectDistPcntile = dataChan.segDataDict.get('spectDistPcntile')
     bandNumbers = dataChan.segDataDict.get('bandNumbers')
+    # Use our own local timings object, because the proxy one does not support
+    # the context manager protocol
+    timings = Timers()
 
     inDs = gdal.Open(infile)
 
@@ -81,26 +85,28 @@ def pyshepsegRemoteSegmentationWorker(workerID, host, port, authkey):
 
             xpos, ypos, xsize, ysize = tileInfo.getTile(col, row)
 
-            lyrDataList = []
-            for bandNum in bandNumbers:
-                # Note that the proxy semaphore object does not support
-                # context manager protocol, so we use acquire/release
-                dataChan.readSemaphore.acquire()
-                lyr = inDs.GetRasterBand(bandNum)
-                lyrData = lyr.ReadAsArray(xpos, ypos, xsize, ysize)
-                lyrDataList.append(lyrData)
-                dataChan.readSemaphore.release()
+            with timings.interval('reading'):
+                lyrDataList = []
+                for bandNum in bandNumbers:
+                    # Note that the proxy semaphore object does not support
+                    # context manager protocol, so we use acquire/release
+                    dataChan.readSemaphore.acquire()
+                    lyr = inDs.GetRasterBand(bandNum)
+                    lyrData = lyr.ReadAsArray(xpos, ypos, xsize, ysize)
+                    lyrDataList.append(lyrData)
+                    dataChan.readSemaphore.release()
 
             img = numpy.array(lyrDataList)
 
-            segResult = shepseg.doShepherdSegmentation(img, 
-                        minSegmentSize=minSegmentSize,
-                        maxSpectralDiff=maxSpectralDiff,
-                        imgNullVal=imgNullVal, 
-                        fourConnected=fourConnected,
-                        kmeansObj=kmeansObj, 
-                        verbose=verbose,
-                        spectDistPcntile=spectDistPcntile)
+            with timings.interval('segmentation'):
+                segResult = shepseg.doShepherdSegmentation(img,
+                            minSegmentSize=minSegmentSize,
+                            maxSpectralDiff=maxSpectralDiff,
+                            imgNullVal=imgNullVal,
+                            fourConnected=fourConnected,
+                            kmeansObj=kmeansObj,
+                            verbose=verbose,
+                            spectDistPcntile=spectDistPcntile)
 
             dataChan.segResultCache.addResult(col, row, segResult)
             colRow = popFromQue(dataChan.inQue)
@@ -108,6 +114,9 @@ def pyshepsegRemoteSegmentationWorker(workerID, host, port, authkey):
         # Send a printable version of the exception back to main thread
         workerErr = WorkerErrorRecord(e, 'compute')
         dataChan.exceptionQue.put(workerErr)
+
+    # Merge the local timings object with the central one.
+    dataChan.timings.merge(timings)
 
 
 def popFromQue(que):
