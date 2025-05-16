@@ -286,3 +286,52 @@ def reportWorkerException(exceptionRecord):
     Report the given WorkerExceptionRecord object to stderr
     """
     print(exceptionRecord, file=sys.stderr)
+
+
+def formatTimingRpt(summaryDict):
+    """
+    Format a report on timings, given the output of Timers.makeSummaryDict()
+
+    Return a single string of the formatted report.
+    """
+    isSeg = ('spectralclusters' in summaryDict)
+    isStats = ('statscompletion' in summaryDict)
+    if isSeg:
+        hdr = "Segmentation Timings (sec)"
+        timerList = ['spectralclusters', 'reading', 'segmentation',
+            'stitchtiles']
+    elif isStats:
+        hdr = "Per-segment Stats Timings (sec)"
+        timerList = ['reading', 'accumulation', 'statscompletion', 'writing']
+    else:
+        # Some unknown set of timers, do something sensible
+        hdr = "Timers (unknown set) (sec)"
+        timerList = sorted(list(summaryDict.keys()))
+
+    lines = [hdr]
+    walltimeDict = summaryDict.get('walltime')
+    if walltimeDict is not None:
+        walltime = walltimeDict['total']
+        lines.append(f"Walltime: {walltime:.2f}")
+    lines.append("")
+
+    # Work out column widths and format strings. Very tedious, but neater output.
+    fldWidth1 = max([len(t) for t in timerList])
+    maxTime = max([summaryDict[t]['total'] for t in timerList])
+    logMaxTime = numpy.log10(maxTime)
+    if int(logMaxTime) == logMaxTime:
+        # maxTime is exact power of 10, so force ceil() to go up anyway
+        logMaxTime += 0.1
+    fldWidth2 = 3 + int(numpy.ceil(logMaxTime))
+    colHdrFmt = "{:" + str(fldWidth1) + "s}   {:>" + str(fldWidth2) + "s}"
+    lines.append(colHdrFmt.format("Timer", "Total"))
+    lines.append((3 + fldWidth1 + fldWidth2) * '-')
+    colFmt = "{:" + str(fldWidth1) + "s}   {:" + str(fldWidth2) + ".2f}"
+
+    # Now add the table of timings.
+    for t in timerList:
+        line = colFmt.format(t, summaryDict[t]['total'])
+        lines.append(line)
+
+    outStr = '\n'.join(lines)
+    return outStr
