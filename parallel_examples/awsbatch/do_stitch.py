@@ -15,6 +15,7 @@ import resource
 import argparse
 import tempfile
 import shutil
+import importlib
 import boto3
 from pyshepseg import tiling, tilingstats, utils
 from osgeo import gdal
@@ -55,6 +56,10 @@ def getCmdargs():
     p.add_argument("--statsreadworkers", type=int, default=0, 
         help="Number or RIOS readworkers to use while calculating stats. " + 
             "(default=%(default)s)")
+    p.add_argument("--readworkerstimeouts", type=int,
+        help="If statsreadworkers specified, this value is used for readBufferPopTimeout, " +
+            "readBufferInsertTimeout, computeBufferInsertTimeout, computeBufferPopTimeout " +
+            "in the RIOS ConcurrencyStyle object")
 
     cmdargs = p.parse_args()
 
@@ -126,9 +131,16 @@ def main():
     # ensure dataset is closed so we can open it again in RIOS
     del localDs
     
-    # TODO: timeouts
-    concurrencyStyle = applier.ConcurrencyStyle(
-        numReadWorkers=cmdargs.statsreadworkers)
+    if cmdargs.readworkerstimeouts is not None:
+        concurrencyStyle = applier.ConcurrencyStyle(
+            numReadWorkers=cmdargs.statsreadworkers,
+            readBufferPopTimeout=cmdargs.readworkerstimeouts,
+            readBufferInsertTimeout=cmdargs.readworkerstimeouts,
+            computeBufferInsertTimeout=cmdargs.readworkerstimeouts,
+            computeBufferPopTimeout=cmdargs.readworkerstimeouts)
+    else:
+        concurrencyStyle = applier.ConcurrencyStyle(
+            numReadWorkers=cmdargs.statsreadworkers)
 
     # now do any stats the user has asked for
     if cmdargs.stats is not None:
@@ -153,12 +165,21 @@ def main():
             dataForStats = json.load(fileobj)
             for img, bandnum, colInfo, userFuncName, param in dataForStats:
                 print(img, bandnum, colInfo, userFuncName, param)
-                if (not userFuncName.startswith('userFunc') or
-                        not hasattr(tilingstats, userFuncName)):
-                    raise ValueError("'userFunc' must be a function starting " +
-                        "with 'userFunc' in the tilingstats module")
-
-                userFunc = getattr(tilingstats, userFuncName)
+                userFuncArr = userFuncName.split('.')
+                if len(userFuncArr) < 2:
+                    raise ValueError("'userFunc' must be a fully qualified function " +
+                        "name. ie. modulename.function_name. " +
+                        "eg. pyshepseg.tilingstats.userFuncVariogram")
+                        
+                moduleName = '.'.join(userFuncArr[:-1])
+                funcName = userFuncArr[-1]
+                mod = importlib.import_module(moduleName)
+                if not hasattr(mod, funcName):
+                    raise ValueError(f"Cannot find function {funcName} " +
+                        f"in module {moduleName}")
+                
+                userFunc = getattr(mod, funcName)
+                
                 tilingstats.calcPerSegmentSpatialStatsRIOS(img, bandnum, 
                     localOutfile, colInfo, userFunc, param, concurrencyStyle)
 
