@@ -34,6 +34,7 @@ and :func:`calcPerSegmentSpatialStatsTiled`.
 # WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 import sys
+import os
 import numpy
 from osgeo import gdal
 from osgeo import osr
@@ -194,7 +195,7 @@ def calcPerSegmentStats_riosFunc(info, inputs, outputs, otherArgs):
 
 def calcPerSegmentStatsRIOS(imgfile, imgbandnum, segfile, 
             statsSelection, concurrencyStyle=None, 
-            missingStatsValue=-9999):
+            missingStatsValue=-9999, outFile=None):
     """
     Calculate selected per-segment statistics for the given band 
     of the imgfile, against the given segment raster file. 
@@ -261,6 +262,10 @@ def calcPerSegmentStatsRIOS(imgfile, imgbandnum, segfile,
         Concurrency parameters for RIOS
       missingStatsValue : int or float
         What to set for segments that have no valid pixels in imgile
+      outFile : str
+        Name of a separate output file in which to write RAT columns. Should
+        not exist, as it will be created here. Created as KEA, so should
+        use .kea suffix. This is a temporary hack, should do better.
 
     """
     if not HAVE_RIOS:
@@ -297,8 +302,15 @@ def calcPerSegmentStatsRIOS(imgfile, imgbandnum, segfile,
     controls.setWindowSize(tiling.TILESIZE, tiling.TILESIZE)
     
     # now create a new temporary file for saving the new columns too
-    tempFileMgr = applier.TempfileManager(controls.tempdir)
-    tempKEA = tempFileMgr.mktempfile(prefix='pyshepseg_tilingstats_', suffix='.kea')
+    if outFile is None:
+        tempFileMgr = applier.TempfileManager(controls.tempdir)
+        tempKEA = tempFileMgr.mktempfile(prefix='pyshepseg_tilingstats_', suffix='.kea')
+    else:
+        if os.path.exists(outFile):
+            drvr = gdal.IdentifyDriver(outFile)
+            if drvr is not None:
+                drvr.Delete(outFile)
+        tempKEA = outFile
     keaDriver = gdal.GetDriverByName('KEA')
     tempKEADS = keaDriver.Create(tempKEA, 10, 10, 1, gdal.GDT_UInt32)
     tempKEABand = tempKEADS.GetRasterBand(1)
@@ -348,9 +360,10 @@ def calcPerSegmentStatsRIOS(imgfile, imgbandnum, segfile,
     # all pages should now be written. Raise an error if this not the case.
     if len(otherArgs.pagedRat) > 0:
         raise PyShepSegStatsError('Not all pixels found during processing')
-        
-    # now merge the stats from the tempfile band info segfile
-    ratapplier.copyRAT(tempKEA, segfile)
+
+    if outFile is None:
+        # now merge the stats from the tempfile band info segfile
+        ratapplier.copyRAT(tempKEA, segfile)
 
 
 def doImageAlignmentChecks(segfile, imgfile, imgbandnum):
@@ -1339,7 +1352,7 @@ def calcPerSegmentSpatialStats_riosFunc(info, inputs, outputs, otherArgs):
 
 def calcPerSegmentSpatialStatsRIOS(imgfile, imgbandnum, segfile,
         colNamesAndTypes, userFunc, userParam=None, concurrencyStyle=None, 
-        missingStatsValue=-9999):
+        missingStatsValue=-9999, outFile=None):
     """
     Similar to the :func:`calcPerSegmentStatsTiledRIOS` function 
     but allows the user to calculate spatial statistics on the data
@@ -1394,6 +1407,10 @@ def calcPerSegmentSpatialStatsRIOS(imgfile, imgbandnum, segfile,
         Concurrency parameters for RIOS
       missingStatsValue : int
         The value to fill in for segments that have no data.
+      outFile : str
+        Name of a separate output file in which to write RAT columns. Should
+        not exist, as it will be created here. Created as KEA, so should
+        use .kea suffix. This is a temporary hack, should do better.
     
     """
     if not HAVE_RIOS:
@@ -1440,8 +1457,15 @@ def calcPerSegmentSpatialStatsRIOS(imgfile, imgbandnum, segfile,
     controls.setWindowSize(tiling.TILESIZE, tiling.TILESIZE)
     
     # now create a new temporary file for saving the new columns too
-    tempFileMgr = applier.TempfileManager(controls.tempdir)
-    tempKEA = tempFileMgr.mktempfile(prefix='pyshepseg_tilingstatsspatial_', suffix='.kea')
+    if outFile is None:
+        tempFileMgr = applier.TempfileManager(controls.tempdir)
+        tempKEA = tempFileMgr.mktempfile(prefix='pyshepseg_tilingstatsspatial_', suffix='.kea')
+    else:
+        if os.path.exists(outFile):
+            drvr = gdal.IdentifyDriver(outFile)
+            if drvr is not None:
+                drvr.Delete(outFile)
+        tempKEA = outFile
     keaDriver = gdal.GetDriverByName('KEA')
     tempKEADS = keaDriver.Create(tempKEA, 10, 10, 1, gdal.GDT_UInt32)
     tempKEABand = tempKEADS.GetRasterBand(1)
@@ -1494,8 +1518,9 @@ def calcPerSegmentSpatialStatsRIOS(imgfile, imgbandnum, segfile,
     if len(otherArgs.pagedRat) > 0:
         raise PyShepSegStatsError('Not all pixels found during processing')
 
-    # now merge the stats from the tempfile band info segfile
-    ratapplier.copyRAT(tempKEA, segfile)
+    if outFile is None:
+        # now merge the stats from the tempfile band info segfile
+        ratapplier.copyRAT(tempKEA, segfile)
 
 
 def createUserColumnsSpatial(colNamesAndTypes, attrTbl, existingColNames):
