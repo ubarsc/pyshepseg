@@ -271,9 +271,8 @@ def calcPerSegmentStatsRIOS(imgfile, imgbandnum, segfile,
     if not HAVE_RIOS:
         raise PyShepSegStatsError('RIOS needs to be installed for this function')
     
-    update = outFile is None
     segds, segband, imgds, imgband = doImageAlignmentChecks(segfile, 
-        imgfile, imgbandnum, update=update)
+        imgfile, imgbandnum, update=False)
     
     attrTbl = segband.GetDefaultRAT()
     existingColNames = [attrTbl.GetNameOfCol(i) 
@@ -1422,9 +1421,8 @@ def calcPerSegmentSpatialStatsRIOS(imgfile, imgbandnum, segfile,
     if not HAVE_RIOS:
         raise PyShepSegStatsError('RIOS needs to be installed for this function')
     
-    update = outFile is None
     segds, segband, imgds, imgband = doImageAlignmentChecks(segfile, 
-        imgfile, imgbandnum, update=update)
+        imgfile, imgbandnum, update=False)
 
     attrTbl = segband.GetDefaultRAT()
     existingColNames = [attrTbl.GetNameOfCol(i) 
