@@ -272,7 +272,7 @@ def calcPerSegmentStatsRIOS(imgfile, imgbandnum, segfile,
         raise PyShepSegStatsError('RIOS needs to be installed for this function')
     
     segds, segband, imgds, imgband = doImageAlignmentChecks(segfile, 
-        imgfile, imgbandnum)
+        imgfile, imgbandnum, update=False)
     
     attrTbl = segband.GetDefaultRAT()
     existingColNames = [attrTbl.GetNameOfCol(i) 
@@ -366,7 +366,7 @@ def calcPerSegmentStatsRIOS(imgfile, imgbandnum, segfile,
         ratapplier.copyRAT(tempKEA, segfile)
 
 
-def doImageAlignmentChecks(segfile, imgfile, imgbandnum):
+def doImageAlignmentChecks(segfile, imgfile, imgbandnum, update=True):
     """
     Do the checks that the segment file and image file that is being used to 
     collect the stats actually align. We refuse to process the files if they
@@ -381,6 +381,8 @@ def doImageAlignmentChecks(segfile, imgfile, imgbandnum):
         Path to input file for collecting statistics from
       imgbandnum : int
         1-based index of the band number in imgfile to use for collecting stats
+      update : bool
+        Whether to open the segfile in update mode or not
 
     Returns
     -------
@@ -395,7 +397,10 @@ def doImageAlignmentChecks(segfile, imgfile, imgbandnum):
     """
     segds = segfile
     if not isinstance(segds, gdal.Dataset):
-        segds = gdal.Open(segfile, gdal.GA_Update)
+        mode = gdal.GA_ReadOnly
+        if update:
+            mode = gdal.GA_Update
+        segds = gdal.Open(segfile, mode)
     segband = segds.GetRasterBand(1)
 
     imgds = imgfile
@@ -1417,7 +1422,7 @@ def calcPerSegmentSpatialStatsRIOS(imgfile, imgbandnum, segfile,
         raise PyShepSegStatsError('RIOS needs to be installed for this function')
     
     segds, segband, imgds, imgband = doImageAlignmentChecks(segfile, 
-        imgfile, imgbandnum)
+        imgfile, imgbandnum, update=False)
 
     attrTbl = segband.GetDefaultRAT()
     existingColNames = [attrTbl.GetNameOfCol(i) 
