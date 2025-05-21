@@ -314,6 +314,7 @@ def calcPerSegmentStatsRIOS(imgfile, imgbandnum, segfile,
     keaDriver = gdal.GetDriverByName('KEA')
     tempKEADS = keaDriver.Create(tempKEA, 10, 10, 1, gdal.GDT_UInt32)
     tempKEABand = tempKEADS.GetRasterBand(1)
+    tempKEABand.SetMetadataItem('LAYER_TYPE', 'thematic')
     tempKEAAttrTbl = tempKEABand.GetDefaultRAT()
     # make same size as original
     tempKEAAttrTbl.SetRowCount(segSize.size)
@@ -1474,6 +1475,7 @@ def calcPerSegmentSpatialStatsRIOS(imgfile, imgbandnum, segfile,
     keaDriver = gdal.GetDriverByName('KEA')
     tempKEADS = keaDriver.Create(tempKEA, 10, 10, 1, gdal.GDT_UInt32)
     tempKEABand = tempKEADS.GetRasterBand(1)
+    tempKEABand.SetMetadataItem('LAYER_TYPE', 'thematic')
     tempKEAAttrTbl = tempKEABand.GetDefaultRAT()
     # make same size as original
     tempKEAAttrTbl.SetRowCount(segSize.size)
