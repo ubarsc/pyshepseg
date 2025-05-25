@@ -184,13 +184,14 @@ def main():
     if cmdargs.format in GDAL_DRIVER_CREATION_OPTIONS:
         creationOptions = GDAL_DRIVER_CREATION_OPTIONS[cmdargs.format]
 
-    concurrencyCfg = tiling.ConcurrencyConfig(cmdargs.concurrencytype,
-        cmdargs.numworkers)
     fargateCfg = None
-    if (cmdargs.fargatecfg is not None and
-            concurrencyCfg.concurrencyType == tiling.CONC_FARGATE):
+    if cmdargs.fargatecfg is not None:
         fargateCfg_kwArgs = json.load(open(cmdargs.fargatecfg))
         fargateCfg = tiling.FargateConfig(**fargateCfg_kwArgs)
+    concurrencyCfg = tiling.SegmentationConcurrencyConfig(
+        concurrencyType=cmdargs.concurrencytype,
+        numWorkers=cmdargs.numworkers,
+        fargateCfg=fargateCfg)
     
     tiledSegResult = tiling.doTiledShepherdSegmentation(cmdargs.infile, cmdargs.outfile, 
             tileSize=cmdargs.tilesize, overlapSize=cmdargs.overlapsize, 
@@ -200,8 +201,7 @@ def main():
             fixedKMeansInit=cmdargs.fixedkmeansinit, 
             fourConnected=not cmdargs.eightway, verbose=cmdargs.verbose,
             simpleTileRecode=cmdargs.simplerecode, outputDriver=cmdargs.format,
-            creationOptions=creationOptions, concurrencyCfg=concurrencyCfg,
-            fargateCfg=fargateCfg)
+            creationOptions=creationOptions, concurrencyCfg=concurrencyCfg)
     # Print timings
     if cmdargs.verbose:
         summaryDict = tiledSegResult.timings.makeSummaryDict()

@@ -451,7 +451,7 @@ def doTiledShepherdSegmentation(infile, outfile, tileSize=DFLT_TILESIZE,
         creationOptions=[], spectDistPcntile=50, kmeansObj=None,
         tempfilesDriver=DFLT_TEMPFILES_DRIVER, tempfilesExt=DFLT_TEMPFILES_EXT,
         tempfilesCreationOptions=[], writeHistogram=True, returnGDALDS=False,
-        concurrencyCfg=None, fargateCfg=None):
+        concurrencyCfg=None):
     """
     Run the Shepherd segmentation algorithm in a memory-efficient
     manner, suitable for large raster files. Runs the segmentation
@@ -526,11 +526,9 @@ def doTiledShepherdSegmentation(infile, outfile, tileSize=DFLT_TILESIZE,
       returnGDALDS : bool
         Whether to set the outDs member of TiledSegmentationResult
         when returning. If set, this will be open in update mode.
-      concurrencyCfg : ConcurrencyConfig
+      concurrencyCfg : SegmentationConcurrencyConfig
         Configuration for segmentation concurrency. Default is None,
         meaning no concurrency.
-      fargateCfg : FargateConfig or None
-        Configuration for AWS Fargate (when using CONC_FARGATE)
 
     Returns
     -------
@@ -538,7 +536,7 @@ def doTiledShepherdSegmentation(infile, outfile, tileSize=DFLT_TILESIZE,
 
     """
     if concurrencyCfg is None:
-        concurrencyCfg = ConcurrencyConfig()
+        concurrencyCfg = SegmentationConcurrencyConfig()
 
     concurrencyType = concurrencyCfg.concurrencyType
     concurrencyMgrClass = selectConcurrencyClass(concurrencyType,
@@ -548,7 +546,7 @@ def doTiledShepherdSegmentation(infile, outfile, tileSize=DFLT_TILESIZE,
         maxSpectralDiff, imgNullVal, fixedKMeansInit, fourConnected, verbose,
         simpleTileRecode, outputDriver, creationOptions, spectDistPcntile,
         kmeansObj, tempfilesDriver, tempfilesCreationOptions, writeHistogram,
-        returnGDALDS, concurrencyCfg, fargateCfg)
+        returnGDALDS, concurrencyCfg)
 
     with concurrencyMgr.timings.interval('walltime'):
         concurrencyMgr.initialize()
@@ -586,13 +584,14 @@ def selectConcurrencyClass(concurrencyType, baseClass):
     return concMgrClass
 
 
-class ConcurrencyConfig:
+class SegmentationConcurrencyConfig:
     """
     Configuration for concurrency. This class can be used independantly to
     configure concurrency in either segmentation or per-segment statistics.
     """
     def __init__(self, concurrencyType=CONC_NONE, numWorkers=0,
-            maxConcurrentReads=20, tileCompletionTimeout=60):
+            maxConcurrentReads=20, tileCompletionTimeout=60,
+            fargateCfg=None):
         """
         Configuration for managing segmentation concurrency.
 
@@ -611,12 +610,21 @@ class ConcurrencyConfig:
             to this value, without degrading throughput.
           tileCompletionTimeout : int
             Timeout (seconds) to wait for completion of each segmentation tile
+          fargateCfg : None or instance of FargateConfig
+            Configuration for AWS Fargate (when using CONC_FARGATE)
 
         """
         self.concurrencyType = concurrencyType
         self.numWorkers = numWorkers
         self.maxConcurrentReads = maxConcurrentReads
         self.tileCompletionTimeout = tileCompletionTimeout
+        self.fargateCfg = fargateCfg
+        if concurrencyType == CONC_FARGATE and fargateCfg is None:
+            msg = "fargateCfg is required with CONC_FARGATE"
+            raise PyShepSegTilingError(msg)
+        if concurrencyType != CONC_FARGATE and fargateCfg is not None:
+            msg = "fargateCfg is only used with CONC_FARGATE"
+            raise PyShepSegTilingError(msg)
 
 
 class FargateConfig:
@@ -686,7 +694,7 @@ class SegmentationConcurrencyMgr:
             imgNullVal, fixedKMeansInit, fourConnected, verbose,
             simpleTileRecode, outputDriver, creationOptions, spectDistPcntile,
             kmeansObj, tempfilesDriver, tempfilesCreationOptions,
-            writeHistogram, returnGDALDS, concCfg, fargateCfg):
+            writeHistogram, returnGDALDS, concCfg):
         """
         Constructor. Just saves all its arguments to self, and does a couple
         of quick checks.
@@ -714,7 +722,6 @@ class SegmentationConcurrencyMgr:
         self.writeHistogram = writeHistogram
         self.returnGDALDS = returnGDALDS
         self.concurrencyCfg = concCfg
-        self.fargateCfg = fargateCfg
         if concCfg.numWorkers > 0:
             self.readSemaphore = threading.BoundedSemaphore(
                 value=concCfg.maxConcurrentReads)
@@ -1599,7 +1606,7 @@ class SegFargateMgr(SegmentationConcurrencyMgr):
         Start all segmentation workers as AWS Fargate tasks
         """
         concCfg = self.concurrencyCfg
-        fargateCfg = self.fargateCfg
+        fargateCfg = concCfg.fargateCfg
 
         ecsClient = boto3.client("ecs")
         self.ecsClient = ecsClient
