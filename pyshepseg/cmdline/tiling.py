@@ -34,6 +34,7 @@ from __future__ import print_function, division
 import sys
 import time
 import argparse
+import json
 
 from osgeo import gdal
 
@@ -126,6 +127,9 @@ def getCmdargs():
         help="Type of concurrency to use in tiled segmentation (default=%(default)s)")
     concGroup.add_argument("--numworkers", default=0, type=int,
         help="Number of workers for concurrent segmentation (default=%(default)s)")
+    concGroup.add_argument("--fargatecfg", help=("JSON file of keyword " +
+        "arguments dictionary for FargateConfig constructor " +
+        "(for use with CONC_FARGATE)"))
 
     cmdargs = p.parse_args()
     
@@ -182,6 +186,11 @@ def main():
 
     concurrencyCfg = tiling.ConcurrencyConfig(cmdargs.concurrencytype,
         cmdargs.numworkers)
+    fargateCfg = None
+    if (cmdargs.fargatecfg is not None and
+            concurrencyCfg.concurrencyType == tiling.CONC_FARGATE):
+        fargateCfg_kwArgs = json.load(open(cmdargs.fargatecfg))
+        fargateCfg = tiling.FargateConfig(**fargateCfg_kwArgs)
     
     tiledSegResult = tiling.doTiledShepherdSegmentation(cmdargs.infile, cmdargs.outfile, 
             tileSize=cmdargs.tilesize, overlapSize=cmdargs.overlapsize, 
@@ -191,7 +200,8 @@ def main():
             fixedKMeansInit=cmdargs.fixedkmeansinit, 
             fourConnected=not cmdargs.eightway, verbose=cmdargs.verbose,
             simpleTileRecode=cmdargs.simplerecode, outputDriver=cmdargs.format,
-            creationOptions=creationOptions, concurrencyCfg=concurrencyCfg)
+            creationOptions=creationOptions, concurrencyCfg=concurrencyCfg,
+            fargateCfg=fargateCfg)
     # Print timings
     if cmdargs.verbose:
         summaryDict = tiledSegResult.timings.makeSummaryDict()

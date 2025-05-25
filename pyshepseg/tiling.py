@@ -451,7 +451,7 @@ def doTiledShepherdSegmentation(infile, outfile, tileSize=DFLT_TILESIZE,
         creationOptions=[], spectDistPcntile=50, kmeansObj=None,
         tempfilesDriver=DFLT_TEMPFILES_DRIVER, tempfilesExt=DFLT_TEMPFILES_EXT,
         tempfilesCreationOptions=[], writeHistogram=True, returnGDALDS=False,
-        concurrencyCfg=None):
+        concurrencyCfg=None, fargateCfg=None):
     """
     Run the Shepherd segmentation algorithm in a memory-efficient
     manner, suitable for large raster files. Runs the segmentation
@@ -529,6 +529,8 @@ def doTiledShepherdSegmentation(infile, outfile, tileSize=DFLT_TILESIZE,
       concurrencyCfg : ConcurrencyConfig
         Configuration for segmentation concurrency. Default is None,
         meaning no concurrency.
+      fargateCfg : FargateConfig or None
+        Configuration for AWS Fargate (when using CONC_FARGATE)
 
     Returns
     -------
@@ -546,7 +548,7 @@ def doTiledShepherdSegmentation(infile, outfile, tileSize=DFLT_TILESIZE,
         maxSpectralDiff, imgNullVal, fixedKMeansInit, fourConnected, verbose,
         simpleTileRecode, outputDriver, creationOptions, spectDistPcntile,
         kmeansObj, tempfilesDriver, tempfilesCreationOptions, writeHistogram,
-        returnGDALDS, concurrencyCfg)
+        returnGDALDS, concurrencyCfg, fargateCfg)
 
     with concurrencyMgr.timings.interval('walltime'):
         concurrencyMgr.initialize()
@@ -590,16 +592,9 @@ class ConcurrencyConfig:
     configure concurrency in either segmentation or per-segment statistics.
     """
     def __init__(self, concurrencyType=CONC_NONE, numWorkers=0,
-            maxConcurrentReads=20, tileCompletionTimeout=60,
-            fgContainerImage=None, fgTaskRoleArn=None,
-            fgExecutionRoleArn=None, fgSubnets=None,
-            fgSecurityGroups=None, fgCpu='0.5 vCPU', fgMemory='1GB',
-            fgCpuArchitecture=None):
+            maxConcurrentReads=20, tileCompletionTimeout=60):
         """
         Configuration for managing segmentation concurrency.
-
-        Parameters starting with 'fg' are for use with AWS Fargate
-        (i.e. concurrencyType=CONC_FARGATE).
 
         Parameters
         ----------
@@ -616,50 +611,68 @@ class ConcurrencyConfig:
             to this value, without degrading throughput.
           tileCompletionTimeout : int
             Timeout (seconds) to wait for completion of each segmentation tile
-          fgContainer : str
-            URI of the container image to use for segmentation workers. This
-            container must have pyshepseg installed. It can be the same
-            container as used for the main script, as the entry point is
-            over-written.
-          fgTaskRoleArn : str
-            ARN for an AWS role. This allows your code to use AWS services.
-            This role should include policies such as AmazonS3FullAccess,
-            covering any AWS services the segmentation workers will need.
-          fgExecutionRoleArn : str
-            ARN for an AWS role. This allows ECS to use AWS services on
-            your behalf. A good start is a role including
-            AmazonECSTaskExecutionRolePolicy
-          fgSubnets : list of str
-            List of subnet ID strings associated with the VPC in which
-            workers will run.
-          fgSecurityGroups : list of str
-            Fargate. List of security group IDs associated with the VPC.
-          fgCpu : str
-            Number of CPU units requested for each segmentation worker,
-            expressed in AWS's own units. For example, '0.5 vCPU', or
-            '1024' (which corresponds to the same thing). Both must be strings.
-            This helps Fargate to select a suitable VM instance type.
-          fgMemory : str
-            Amount of memory requested for each segmentation worker,
-            expressed in MiB, or with a units suffix. For example, '1024'
-            or its equivalent '1GB'. This helps Fargate to select a suitable
-            VM instance type.
-          fgCpuArchitecture : str
-            If given, selects the CPU architecture of the hosts to run
-            worker on. Can be 'ARM64', defaults to 'X86_64'.
+
         """
         self.concurrencyType = concurrencyType
         self.numWorkers = numWorkers
         self.maxConcurrentReads = maxConcurrentReads
         self.tileCompletionTimeout = tileCompletionTimeout
-        self.fgContainerImage = fgContainerImage
-        self.fgTaskRoleArn = fgTaskRoleArn
-        self.fgExecutionRoleArn = fgExecutionRoleArn
-        self.fgSubnets = fgSubnets
-        self.fgSecurityGroups = fgSecurityGroups
-        self.fgCpu = fgCpu
-        self.fgMemory = fgMemory
-        self.fgCpuArchitecture = fgCpuArchitecture
+
+
+class FargateConfig:
+    """
+    Configuration for AWS Fargate
+    """
+    def __init__(self, containerImage=None, taskRoleArn=None,
+            executionRoleArn=None, subnets=None,
+            securityGroups=None, cpu='0.5 vCPU', memory='1GB',
+            cpuArchitecture=None):
+        """
+        AWS Fargate configuration information. For use only with CONC_FARGATE.
+
+        Parameters
+        ----------
+          containerImage : str
+            URI of the container image to use for segmentation workers. This
+            container must have pyshepseg installed. It can be the same
+            container as used for the main script, as the entry point is
+            over-written.
+          taskRoleArn : str
+            ARN for an AWS role. This allows your code to use AWS services.
+            This role should include policies such as AmazonS3FullAccess,
+            covering any AWS services the segmentation workers will need.
+          executionRoleArn : str
+            ARN for an AWS role. This allows ECS to use AWS services on
+            your behalf. A good start is a role including
+            AmazonECSTaskExecutionRolePolicy
+          subnets : list of str
+            List of subnet ID strings associated with the VPC in which
+            workers will run.
+          securityGroups : list of str
+            Fargate. List of security group IDs associated with the VPC.
+          cpu : str
+            Number of CPU units requested for each segmentation worker,
+            expressed in AWS's own units. For example, '0.5 vCPU', or
+            '1024' (which corresponds to the same thing). Both must be strings.
+            This helps Fargate to select a suitable VM instance type.
+          memory : str
+            Amount of memory requested for each segmentation worker,
+            expressed in MiB, or with a units suffix. For example, '1024'
+            or its equivalent '1GB'. This helps Fargate to select a suitable
+            VM instance type.
+          cpuArchitecture : str
+            If given, selects the CPU architecture of the hosts to run
+            worker on. Can be 'ARM64', defaults to 'X86_64'.
+
+        """
+        self.containerImage = containerImage
+        self.taskRoleArn = taskRoleArn
+        self.executionRoleArn = executionRoleArn
+        self.subnets = subnets
+        self.securityGroups = securityGroups
+        self.cpu = cpu
+        self.memory = memory
+        self.cpuArchitecture = cpuArchitecture
     
 
 class SegmentationConcurrencyMgr:
@@ -673,7 +686,7 @@ class SegmentationConcurrencyMgr:
             imgNullVal, fixedKMeansInit, fourConnected, verbose,
             simpleTileRecode, outputDriver, creationOptions, spectDistPcntile,
             kmeansObj, tempfilesDriver, tempfilesCreationOptions,
-            writeHistogram, returnGDALDS, concCfg):
+            writeHistogram, returnGDALDS, concCfg, fargateCfg):
         """
         Constructor. Just saves all its arguments to self, and does a couple
         of quick checks.
@@ -701,6 +714,7 @@ class SegmentationConcurrencyMgr:
         self.writeHistogram = writeHistogram
         self.returnGDALDS = returnGDALDS
         self.concurrencyCfg = concCfg
+        self.fargateCfg = fargateCfg
         if concCfg.numWorkers > 0:
             self.readSemaphore = threading.BoundedSemaphore(
                 value=concCfg.maxConcurrentReads)
@@ -1585,6 +1599,7 @@ class SegFargateMgr(SegmentationConcurrencyMgr):
         Start all segmentation workers as AWS Fargate tasks
         """
         concCfg = self.concurrencyCfg
+        fargateCfg = self.fargateCfg
 
         ecsClient = boto3.client("ecs")
         self.ecsClient = ecsClient
@@ -1593,7 +1608,7 @@ class SegFargateMgr(SegmentationConcurrencyMgr):
         containerName = f'pyshepseg_{jobIDstr}_container'
         workerCmd = 'pyshepseg_segmentationworkercmd'
         containerDefs = [{'name': containerName,
-                          'image': concCfg.fgContainerImage,
+                          'image': fargateCfg.containerImage,
                           'entryPoint': ['/usr/bin/env', workerCmd]}]
 
         # Create a private cluster
@@ -1603,8 +1618,8 @@ class SegFargateMgr(SegmentationConcurrencyMgr):
         networkConf = {
             'awsvpcConfiguration': {
                 'assignPublicIp': 'DISABLED',
-                'subnets': concCfg.fgSubnets,
-                'securityGroups': concCfg.fgSecurityGroups
+                'subnets': fargateCfg.subnets,
+                'securityGroups': fargateCfg.securityGroups
             }
         }
 
@@ -1614,16 +1629,16 @@ class SegFargateMgr(SegmentationConcurrencyMgr):
             'networkMode': 'awsvpc',
             'requiresCompatibilities': ['FARGATE'],
             'containerDefinitions': containerDefs,
-            'cpu': concCfg.fgCpu,
-            'memory': concCfg.fgMemory
+            'cpu': fargateCfg.cpu,
+            'memory': fargateCfg.memory
         }
-        if concCfg.fgTaskRoleArn is not None:
-            taskDefParams['taskRoleArn'] = concCfg.fgTaskRoleArn
-        if concCfg.fgExecutionRoleArn is not None:
-            taskDefParams['executionRoleArn'] = concCfg.fgExecutionRoleArn
-        if concCfg.fgCpuArchitecture is not None:
+        if fargateCfg.taskRoleArn is not None:
+            taskDefParams['taskRoleArn'] = fargateCfg.taskRoleArn
+        if fargateCfg.executionRoleArn is not None:
+            taskDefParams['executionRoleArn'] = fargateCfg.executionRoleArn
+        if fargateCfg.cpuArchitecture is not None:
             taskDefParams['runtimePlatform'] = {'cpuArchitecture':
-                concCfg.fgCpuArchitecture}
+                fargateCfg.cpuArchitecture}
 
         taskDefResponse = self.ecsClient.register_task_definition(**taskDefParams)
         self.taskDefArn = taskDefResponse['taskDefinition']['taskDefinitionArn']
