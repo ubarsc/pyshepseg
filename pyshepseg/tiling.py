@@ -1728,10 +1728,9 @@ class SegFargateMgr(SegmentationConcurrencyMgr):
         response = self.ecsClient.describe_tasks(cluster=self.clusterName,
             tasks=self.taskArnList)
         for t in response['tasks']:
-            if 'stoppedReason' in t:
-                print('stoppedReason', t['stoppedReason'])
-            else:
-                print(t)
+            for c in t['containers']:
+                if 'exitCode' in c and 'reason' in c:
+                    print(c['exitCode'], c['reason'])
 
 
 class SegSubprocMgr(SegmentationConcurrencyMgr):
