@@ -1620,7 +1620,7 @@ class SegFargateMgr(SegmentationConcurrencyMgr):
 
         # Create a private cluster
         self.clusterName = f'pyshepseg_{jobIDstr}_cluster'
-        self.ecsClient.create_cluster({'clusterName': self.clusterName})
+        self.ecsClient.create_cluster(clusterName=self.clusterName)
 
         networkConf = {
             'awsvpcConfiguration': {
