@@ -1682,6 +1682,7 @@ class SegFargateMgr(SegmentationConcurrencyMgr):
         Shut down the workers and data channel
         """
         self.forceExit.set()
+        self.checkTaskErrors()
         self.waitClusterTasksFinished()
         self.ecsClient.delete_cluster(cluster=self.clusterName)
         if hasattr(self, 'dataChan'):
@@ -1722,6 +1723,13 @@ class SegFargateMgr(SegmentationConcurrencyMgr):
                     count = (descr['runningTasksCount'] +
                              descr['pendingTasksCount'])
         return count
+
+    def checkTaskErrors(self):
+        response = self.ecsClient.describe_tasks(cluster=self.clusterName,
+            tasks=self.taskArnList)
+        for t in response['tasks']:
+            if 'stoppedReason' in t:
+                print('stoppedReason', t['stoppedReason'])
 
 
 class SegSubprocMgr(SegmentationConcurrencyMgr):
