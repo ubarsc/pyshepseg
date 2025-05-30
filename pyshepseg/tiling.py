@@ -1731,6 +1731,8 @@ class SegFargateMgr(SegmentationConcurrencyMgr):
             for c in t['containers']:
                 if 'exitCode' in c and 'reason' in c:
                     print(c['exitCode'], c['reason'])
+                else:
+                    print(c)
 
 
 class SegSubprocMgr(SegmentationConcurrencyMgr):
