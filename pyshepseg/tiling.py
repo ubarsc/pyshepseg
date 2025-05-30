@@ -1730,6 +1730,8 @@ class SegFargateMgr(SegmentationConcurrencyMgr):
         for t in response['tasks']:
             if 'stoppedReason' in t:
                 print('stoppedReason', t['stoppedReason'])
+            else:
+                print(t)
 
 
 class SegSubprocMgr(SegmentationConcurrencyMgr):
