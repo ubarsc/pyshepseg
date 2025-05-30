@@ -1931,7 +1931,9 @@ class SegmentationResultCache:
         the cache.
         """
         key = (col, row)
+        print('waitForTile, timeout', self.timeout)
         completed = self.completionEvent[key].wait(timeout=self.timeout)
+        print('done wait')
         if completed:
             segResult = self.cache.pop(key)
             self.completionEvent[key].clear()
