@@ -960,11 +960,12 @@ class SegmentationConcurrencyMgr:
         maxSegId = 0
         histAccum = HistogramAccumulator()
 
+        workerError = False
         if self.verbose:
             print("Stitching tiles together")
         reportedRow = -1
         i = 0
-        while i < len(colRowList):
+        while i < len(colRowList) and not workerError:
             self.checkWorkerExceptions()
 
             (col, row) = colRowList[i]
@@ -1025,17 +1026,20 @@ class SegmentationConcurrencyMgr:
                 tileMaxSegId = tileDataTrimmed.max()
                 maxSegId = max(maxSegId, tileMaxSegId)
                 i += 1
+            else:
+                workerError = True
 
-        self.writeHistogramToFile(outBand, histAccum)
-        self.hasEmptySegments = self.checkForEmptySegments(histAccum.hist,
-            self.overlapSize)
-        utils.estimateStatsFromHisto(outBand, histAccum.hist)
-        self.maxSegId = maxSegId
-        outDs.FlushCache()
-        if self.returnGDALDS:
-            self.outDs = outDs
-        else:
-            del outDs
+        if not workerError:
+            self.writeHistogramToFile(outBand, histAccum)
+            self.hasEmptySegments = self.checkForEmptySegments(histAccum.hist,
+                self.overlapSize)
+            utils.estimateStatsFromHisto(outBand, histAccum.hist)
+            self.maxSegId = maxSegId
+            outDs.FlushCache()
+            if self.returnGDALDS:
+                self.outDs = outDs
+            else:
+                del outDs
 
     def recodeTile(self, tileData, maxSegId, tileRow, tileCol,
             top, bottom, left, right):
@@ -1676,6 +1680,9 @@ class SegFargateMgr(SegmentationConcurrencyMgr):
         Shut down the workers and data channel
         """
         self.forceExit.set()
+        workerErrRec = self.popFromQue(self.exceptionQue)
+        if workerErrRec is not None:
+            print(workerErrRec)
         self.waitClusterTasksFinished()
         self.ecsClient.delete_cluster(cluster=self.clusterName)
         if hasattr(self, 'dataChan'):
@@ -1933,7 +1940,7 @@ class SegmentationResultCache:
         key = (col, row)
         print('waitForTile, timeout', self.timeout)
         completed = self.completionEvent[key].wait(timeout=self.timeout)
-        print('done wait')
+        print('done wait', completed)
         if completed:
             segResult = self.cache.pop(key)
             self.completionEvent[key].clear()
