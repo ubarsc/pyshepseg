@@ -1040,6 +1040,8 @@ class SegmentationConcurrencyMgr:
                 self.outDs = outDs
             else:
                 del outDs
+        else:
+            self.checkWorkerExceptions()
 
     def recodeTile(self, tileData, maxSegId, tileRow, tileCol,
             top, bottom, left, right):
@@ -1680,9 +1682,6 @@ class SegFargateMgr(SegmentationConcurrencyMgr):
         Shut down the workers and data channel
         """
         self.forceExit.set()
-        workerErrRec = self.popFromQue(self.exceptionQue)
-        if workerErrRec is not None:
-            print(workerErrRec)
         self.waitClusterTasksFinished()
         self.ecsClient.delete_cluster(cluster=self.clusterName)
         if hasattr(self, 'dataChan'):
@@ -1938,9 +1937,7 @@ class SegmentationResultCache:
         the cache.
         """
         key = (col, row)
-        print('waitForTile, timeout', self.timeout)
         completed = self.completionEvent[key].wait(timeout=self.timeout)
-        print('done wait', completed)
         if completed:
             segResult = self.cache.pop(key)
             self.completionEvent[key].clear()
