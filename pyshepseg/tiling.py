@@ -1682,8 +1682,8 @@ class SegFargateMgr(SegmentationConcurrencyMgr):
         Shut down the workers and data channel
         """
         self.forceExit.set()
-        self.checkTaskErrors()
         self.waitClusterTasksFinished()
+        self.checkTaskErrors()
         self.ecsClient.delete_cluster(cluster=self.clusterName)
         if hasattr(self, 'dataChan'):
             self.dataChan.shutdown()
