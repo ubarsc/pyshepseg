@@ -60,25 +60,25 @@ def pyshepsegRemoteSegmentationWorker(workerID, host, port, authkey):
     The main routine to run a segmentation worker on a remote host.
 
     """
-    dataChan = NetworkDataChannel(hostname=host, portnum=port, authkey=authkey)
-
-    infile = dataChan.segDataDict.get('infile')
-    tileInfo = dataChan.segDataDict.get('tileInfo')
-    minSegmentSize = dataChan.segDataDict.get('minSegmentSize')
-    maxSpectralDiff = dataChan.segDataDict.get('maxSpectralDiff')
-    imgNullVal = dataChan.segDataDict.get('imgNullVal')
-    fourConnected = dataChan.segDataDict.get('fourConnected')
-    kmeansObj = dataChan.segDataDict.get('kmeansObj')
-    verbose = dataChan.segDataDict.get('verbose')
-    spectDistPcntile = dataChan.segDataDict.get('spectDistPcntile')
-    bandNumbers = dataChan.segDataDict.get('bandNumbers')
-    # Use our own local timings object, because the proxy one does not support
-    # the context manager protocol
-    timings = Timers()
-
-    inDs = gdal.Open(infile)
-
     try:
+        dataChan = NetworkDataChannel(hostname=host, portnum=port, authkey=authkey)
+
+        infile = dataChan.segDataDict.get('infile')
+        tileInfo = dataChan.segDataDict.get('tileInfo')
+        minSegmentSize = dataChan.segDataDict.get('minSegmentSize')
+        maxSpectralDiff = dataChan.segDataDict.get('maxSpectralDiff')
+        imgNullVal = dataChan.segDataDict.get('imgNullVal')
+        fourConnected = dataChan.segDataDict.get('fourConnected')
+        kmeansObj = dataChan.segDataDict.get('kmeansObj')
+        verbose = dataChan.segDataDict.get('verbose')
+        spectDistPcntile = dataChan.segDataDict.get('spectDistPcntile')
+        bandNumbers = dataChan.segDataDict.get('bandNumbers')
+        # Use our own local timings object, because the proxy one does not support
+        # the context manager protocol
+        timings = Timers()
+
+        inDs = gdal.Open(infile)
+
         colRow = popFromQue(dataChan.inQue)
         while colRow is not None:
             (col, row) = colRow
