@@ -554,16 +554,17 @@ def doTiledShepherdSegmentation(infile, outfile, tileSize=DFLT_TILESIZE,
         concurrencyMgr.shutdown()
 
     tiledSegResult = TiledSegmentationResult()
-    tiledSegResult.maxSegId = concurrencyMgr.maxSegId
-    tiledSegResult.numTileRows = concurrencyMgr.tileInfo.nrows
-    tiledSegResult.numTileCols = concurrencyMgr.tileInfo.ncols
-    tiledSegResult.subsamplePcnt = concurrencyMgr.subsamplePcnt
-    tiledSegResult.maxSpectralDiff = concurrencyMgr.maxSpectralDiff
-    tiledSegResult.kmeans = concurrencyMgr.kmeansObj
-    tiledSegResult.hasEmptySegments = concurrencyMgr.hasEmptySegments
-    tiledSegResult.timings = concurrencyMgr.timings
-    if returnGDALDS:
-        tiledSegResult.outDs = concurrencyMgr.outDs
+    if hasattr(concurrencyMgr, 'maxSegId'):
+        tiledSegResult.maxSegId = concurrencyMgr.maxSegId
+        tiledSegResult.numTileRows = concurrencyMgr.tileInfo.nrows
+        tiledSegResult.numTileCols = concurrencyMgr.tileInfo.ncols
+        tiledSegResult.subsamplePcnt = concurrencyMgr.subsamplePcnt
+        tiledSegResult.maxSpectralDiff = concurrencyMgr.maxSpectralDiff
+        tiledSegResult.kmeans = concurrencyMgr.kmeansObj
+        tiledSegResult.hasEmptySegments = concurrencyMgr.hasEmptySegments
+        tiledSegResult.timings = concurrencyMgr.timings
+        if returnGDALDS:
+            tiledSegResult.outDs = concurrencyMgr.outDs
     
     return tiledSegResult
 
