@@ -60,8 +60,6 @@ def pyshepsegRemoteSegmentationWorker(workerID, host, port, authkey):
     The main routine to run a segmentation worker on a remote host.
 
     """
-    timings = None
-
     try:
         dataChan = NetworkDataChannel(hostname=host, portnum=port, authkey=authkey)
 
@@ -112,14 +110,13 @@ def pyshepsegRemoteSegmentationWorker(workerID, host, port, authkey):
 
             dataChan.segResultCache.addResult(col, row, segResult)
             colRow = popFromQue(dataChan.inQue)
+
+        # Merge the local timings object with the central one.
+        dataChan.timings.merge(timings)
     except Exception as e:
         # Send a printable version of the exception back to main thread
         workerErr = WorkerErrorRecord(e, 'compute')
         dataChan.exceptionQue.put(workerErr)
-
-    # Merge the local timings object with the central one.
-    if timings is not None:
-        dataChan.timings.merge(timings)
 
 
 def popFromQue(que):
