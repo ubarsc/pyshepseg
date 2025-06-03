@@ -60,7 +60,6 @@ def pyshepsegRemoteSegmentationWorker(workerID, host, port, authkey):
     The main routine to run a segmentation worker on a remote host.
 
     """
-    print('channel address', host, port, authkey)
     dataChan = NetworkDataChannel(hostname=host, portnum=port, authkey=authkey)
 
     try:
