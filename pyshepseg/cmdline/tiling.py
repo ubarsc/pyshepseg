@@ -130,6 +130,9 @@ def getCmdargs():
     concGroup.add_argument("--fargatecfg", help=("JSON file of keyword " +
         "arguments dictionary for FargateConfig constructor " +
         "(for use with CONC_FARGATE)"))
+    concGroup.add_argument("--tilecompletiontimeout", type=int, default=60,
+        help=("Timeout (seconds) to wait for completion of each tile " +
+              "(default=%(default)s)"))
 
     cmdargs = p.parse_args()
     
@@ -191,7 +194,8 @@ def main():
     concurrencyCfg = tiling.SegmentationConcurrencyConfig(
         concurrencyType=cmdargs.concurrencytype,
         numWorkers=cmdargs.numworkers,
-        fargateCfg=fargateCfg)
+        fargateCfg=fargateCfg,
+        tileCompletionTimeout=cmdargs.tilecompletiontimeout)
     
     tiledSegResult = tiling.doTiledShepherdSegmentation(cmdargs.infile, cmdargs.outfile, 
             tileSize=cmdargs.tilesize, overlapSize=cmdargs.overlapsize, 
@@ -203,7 +207,7 @@ def main():
             simpleTileRecode=cmdargs.simplerecode, outputDriver=cmdargs.format,
             creationOptions=creationOptions, concurrencyCfg=concurrencyCfg)
     # Print timings
-    if cmdargs.verbose:
+    if cmdargs.verbose and tiledSegResult.timings is not None:
         summaryDict = tiledSegResult.timings.makeSummaryDict()
         print('\n' + utils.formatTimingRpt(summaryDict) + '\n')
 
