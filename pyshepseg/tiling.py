@@ -635,7 +635,7 @@ class FargateConfig:
     def __init__(self, containerImage=None, taskRoleArn=None,
             executionRoleArn=None, subnets=None,
             securityGroups=None, cpu='0.5 vCPU', memory='1GB',
-            cpuArchitecture=None):
+            cpuArchitecture=None, cloudwatchLogGroup=None):
         """
         AWS Fargate configuration information. For use only with CONC_FARGATE.
 
@@ -672,6 +672,12 @@ class FargateConfig:
           cpuArchitecture : str
             If given, selects the CPU architecture of the hosts to run
             worker on. Can be 'ARM64', defaults to 'X86_64'.
+          cloudwatchLogGroup : str or None
+            If not None, the name of a CloudWatch log group. This group should
+            already exist, in the region that the job is running. Logs from
+            workers will be sent to this log group. If None, no CloudWatch
+            logging is done. Intended for tracking problems, rather than
+            operational use.
 
         """
         self.containerImage = containerImage
@@ -682,6 +688,7 @@ class FargateConfig:
         self.cpu = cpu
         self.memory = memory
         self.cpuArchitecture = cpuArchitecture
+        self.logGroup = cloudwatchLogGroup
     
 
 class SegmentationConcurrencyMgr:
@@ -961,14 +968,11 @@ class SegmentationConcurrencyMgr:
         maxSegId = 0
         histAccum = HistogramAccumulator()
 
-        workerError = False
         if self.verbose:
             print("Stitching tiles together")
         reportedRow = -1
         i = 0
-        while i < len(colRowList) and not workerError:
-            self.checkWorkerExceptions()
-
+        while i < len(colRowList):
             (col, row) = colRowList[i]
 
             if self.verbose and row != reportedRow:
@@ -1028,21 +1032,25 @@ class SegmentationConcurrencyMgr:
                 maxSegId = max(maxSegId, tileMaxSegId)
                 i += 1
             else:
-                workerError = True
+                self.checkWorkerExceptions()
 
-        if not workerError:
-            self.writeHistogramToFile(outBand, histAccum)
-            self.hasEmptySegments = self.checkForEmptySegments(histAccum.hist,
-                self.overlapSize)
-            utils.estimateStatsFromHisto(outBand, histAccum.hist)
-            self.maxSegId = maxSegId
-            outDs.FlushCache()
-            if self.returnGDALDS:
-                self.outDs = outDs
-            else:
-                del outDs
+                # If no exception raise above, then raise timeout error
+                timeout = self.concurrencyCfg.tileCompletionTimeout
+                msg = ("Timeout ({} seconds) waiting for completed tile. " +
+                       "Try increasing tileCompletionTimeout, or track other " +
+                       "errors in segmentation workers").format(timeout)
+                raise PyShepSegTilingError(msg)
+
+        self.writeHistogramToFile(outBand, histAccum)
+        self.hasEmptySegments = self.checkForEmptySegments(histAccum.hist,
+            self.overlapSize)
+        utils.estimateStatsFromHisto(outBand, histAccum.hist)
+        self.maxSegId = maxSegId
+        outDs.FlushCache()
+        if self.returnGDALDS:
+            self.outDs = outDs
         else:
-            self.checkWorkerExceptions()
+            del outDs
 
     def recodeTile(self, tileData, maxSegId, tileRow, tileCol,
             top, bottom, left, right):
@@ -1615,6 +1623,8 @@ class SegFargateMgr(SegmentationConcurrencyMgr):
         concCfg = self.concurrencyCfg
         fargateCfg = concCfg.fargateCfg
 
+        session = boto3._get_default_session()
+        regionName = session.region_name
         ecsClient = boto3.client("ecs")
         self.ecsClient = ecsClient
 
@@ -1624,6 +1634,15 @@ class SegFargateMgr(SegmentationConcurrencyMgr):
         containerDefs = [{'name': containerName,
                           'image': fargateCfg.containerImage,
                           'entryPoint': ['/usr/bin/env', workerCmd]}]
+        if fargateCfg.logGroup is not None:
+            containerDefs[0]['logConfiguration'] = {
+                'logDriver': 'awslogs',
+                'options': {
+                    'awslogs-group': fargateCfg.logGroup,
+                    'awslogs-stream-prefix': f'/pyshepseg_{jobIDstr}',
+                    'awslogs-region': regionName
+                }
+            }
 
         # Create a private cluster
         self.clusterName = f'pyshepseg_{jobIDstr}_cluster'
