@@ -591,7 +591,7 @@ class SegmentationConcurrencyConfig:
     configure concurrency in either segmentation or per-segment statistics.
     """
     def __init__(self, concurrencyType=CONC_NONE, numWorkers=0,
-            maxConcurrentReads=20, tileCompletionTimeout=60,
+            maxConcurrentReads=20, tileCompletionTimeout=300,
             fargateCfg=None):
         """
         Configuration for managing segmentation concurrency.
@@ -1607,6 +1607,7 @@ class SegFargateMgr(SegmentationConcurrencyMgr):
     Run tiled segmentation with concurrency based on AWS Fargate workers.
     """
     concurrencyType = CONC_FARGATE
+    knownContainerExitCodes = {137: "Out of Memory"}
 
     def specificChecks(self):
         """
@@ -1745,12 +1746,25 @@ class SegFargateMgr(SegmentationConcurrencyMgr):
         return count
 
     def checkTaskErrors(self):
+        """
+        Check for errors reported via describe_tasks(). This mechanism
+        seems rather unreliable, particularly when reporting the 'reason',
+        but I am doing my best.
+        """
         response = self.ecsClient.describe_tasks(cluster=self.clusterName,
             tasks=self.taskArnList)
         for t in response['tasks']:
             for c in t['containers']:
-                if 'exitCode' in c and 'reason' in c:
-                    print(c['exitCode'], c['reason'])
+                if 'exitCode' in c:
+                    exitCode = c['exitCode']
+                    if 'reason' in c:
+                        reason = c['reason']
+                    elif exitCode in self.knownContainerExitCodes:
+                        reason = self.knownContainerExitCodes[exitCode]
+                    else:
+                        reason = "Unknown"
+                    msg = f"Container exit code: {exitCode}. Reason: {reason}"
+                    print(msg, file=sys.stderr)
 
 
 class SegSubprocMgr(SegmentationConcurrencyMgr):
