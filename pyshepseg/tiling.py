@@ -549,9 +549,11 @@ def doTiledShepherdSegmentation(infile, outfile, tileSize=DFLT_TILESIZE,
         returnGDALDS, concurrencyCfg)
 
     with concurrencyMgr.timings.interval('walltime'):
-        concurrencyMgr.initialize()
-        concurrencyMgr.segmentAllTiles()
-        concurrencyMgr.shutdown()
+        try:
+            concurrencyMgr.initialize()
+            concurrencyMgr.segmentAllTiles()
+        finally:
+            concurrencyMgr.shutdown()
 
     tiledSegResult = TiledSegmentationResult()
     if hasattr(concurrencyMgr, 'maxSegId'):
