@@ -1758,9 +1758,10 @@ class SegFargateMgr(SegmentationConcurrencyMgr):
             for c in t['containers']:
                 if 'exitCode' in c:
                     exitCode = c['exitCode']
-                    reason = c.get('reason', "Unknown")
-                    msg = f"Container exit code: {exitCode}. Reason: {reason}"
-                    print(msg, file=sys.stderr)
+                    if exitCode != 0:
+                        reason = c.get('reason', "Unknown")
+                        msg = f"Container exit code: {exitCode}. Reason: {reason}"
+                        print(msg, file=sys.stderr)
 
 
 class SegSubprocMgr(SegmentationConcurrencyMgr):
