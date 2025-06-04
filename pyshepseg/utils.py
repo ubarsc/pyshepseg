@@ -294,12 +294,13 @@ def formatTimingRpt(summaryDict):
 
     Return a single string of the formatted report.
     """
+    # Make a list of individual timers, hopefully in a sensible order
     isSeg = ('spectralclusters' in summaryDict)
     isStats = ('statscompletion' in summaryDict)
     if isSeg:
         hdr = "Segmentation Timings (sec)"
-        timerList = ['spectralclusters', 'reading', 'segmentation',
-            'stitchtiles']
+        timerList = ['spectralclusters', 'startworkers', 'reading',
+            'segmentation', 'stitchtiles']
     elif isStats:
         hdr = "Per-segment Stats Timings (sec)"
         timerList = ['reading', 'accumulation', 'statscompletion', 'writing']
@@ -307,6 +308,8 @@ def formatTimingRpt(summaryDict):
         # Some unknown set of timers, do something sensible
         hdr = "Timers (unknown set) (sec)"
         timerList = sorted(list(summaryDict.keys()))
+    # Remove any which are not present in summaryDict
+    timerList = [t for t in timerList if t in summaryDict]
 
     lines = [hdr]
     walltimeDict = summaryDict.get('walltime')

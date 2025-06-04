@@ -907,7 +907,8 @@ class SegmentationConcurrencyMgr:
             for colRow in colRowList:
                 self.inQue.put(colRow)
 
-            self.startWorkers()
+            with self.timings.interval('startworkers'):
+                self.startWorkers()
             with self.timings.interval('stitchtiles'):
                 self.stitchTiles()
         finally:
