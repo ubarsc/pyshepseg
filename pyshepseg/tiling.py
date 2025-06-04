@@ -593,14 +593,14 @@ class SegmentationConcurrencyConfig:
     configure concurrency in either segmentation or per-segment statistics.
     """
     def __init__(self, concurrencyType=CONC_NONE, numWorkers=0,
-            maxConcurrentReads=20, tileCompletionTimeout=300,
-            fargateCfg=None):
+            maxConcurrentReads=20, tileCompletionTimeout=60,
+            barrierTimeout=300, fargateCfg=None):
         """
         Configuration for managing segmentation concurrency.
 
         Parameters
         ----------
-          concurrencyType : One of {CONC_NONE, CONC_THREADS, CONC_FARGATE}
+          concurrencyType : One of {CONC_NONE, CONC_THREADS, CONC_FARGATE, CONC_SUBPROC}
             The mechanism used for concurrency
           numWorkers : int
             Number of segmentation workers
@@ -613,6 +613,9 @@ class SegmentationConcurrencyConfig:
             to this value, without degrading throughput.
           tileCompletionTimeout : int
             Timeout (seconds) to wait for completion of each segmentation tile
+          barrierTimeout : int
+            Timeout (seconds) to wait for all workers to start. Used with
+            CONC_FARGATE (and CONC_SUBPROC).
           fargateCfg : None or instance of FargateConfig
             Configuration for AWS Fargate (when using CONC_FARGATE)
 
@@ -621,6 +624,7 @@ class SegmentationConcurrencyConfig:
         self.numWorkers = numWorkers
         self.maxConcurrentReads = maxConcurrentReads
         self.tileCompletionTimeout = tileCompletionTimeout
+        self.barrierTimeout = barrierTimeout
         self.fargateCfg = fargateCfg
         if concurrencyType == CONC_FARGATE and fargateCfg is None:
             msg = "fargateCfg is required with CONC_FARGATE"
@@ -737,6 +741,7 @@ class SegmentationConcurrencyMgr:
                 value=concCfg.maxConcurrentReads)
         self.overlapCache = {}
         self.timings = timinghooks.Timers()
+        self.workerBarrier = None
 
         if (self.overlapSize % 2) != 0:
             raise PyShepSegTilingError("Overlap size must be an even number")
@@ -828,7 +833,8 @@ class SegmentationConcurrencyMgr:
             exceptionQue=self.exceptionQue,
             segDataDict=segDataDict,
             readSemaphore=self.readSemaphore,
-            timings=self.timings)
+            timings=self.timings,
+            workerBarrier=self.workerBarrier)
 
     @staticmethod
     def popFromQue(que):
@@ -891,6 +897,8 @@ class SegmentationConcurrencyMgr:
             timeout=self.concurrencyCfg.tileCompletionTimeout)
         self.forceExit = threading.Event()
         self.exceptionQue = queue.Queue()
+        numWorkers = self.concurrencyCfg.numWorkers
+        self.workerBarrier = threading.Barrier(numWorkers + 1)
 
         try:
             self.setupNetworkComms()
@@ -1699,11 +1707,14 @@ class SegFargateMgr(SegmentationConcurrencyMgr):
             taskResp = runTaskResponse['tasks'][0]
             self.taskArnList.append(taskResp['taskArn'])
 
+        self.workerBarrier.wait(timeout=self.concurrencyCfg.barrierTimeout)
+
     def shutdown(self):
         """
         Shut down the workers and data channel
         """
-        self.forceExit.set()
+        if hasattr(self, 'forceExit'):
+            self.forceExit.set()
         self.waitClusterTasksFinished()
         self.checkTaskErrors()
         self.ecsClient.delete_cluster(cluster=self.clusterName)
@@ -1776,14 +1787,19 @@ class SegSubprocMgr(SegmentationConcurrencyMgr):
         """
         Start all segmentation workers
         """
+        numWorkers = self.concurrencyCfg.numWorkers
+
         self.processes = {}
-        for workerID in range(self.concurrencyCfg.numWorkers):
+        for workerID in range(numWorkers):
             cmdWords = ["pyshepseg_segmentationworkercmd",
                 "--idnum", str(workerID),
                 "--channaddr", self.dataChan.addressStr()]
             self.processes[workerID] = subprocess.Popen(cmdWords,
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                 universal_newlines=True)
+
+        print('Mgr about to wait')
+        self.workerBarrier.wait(timeout=self.concurrencyCfg.barrierTimeout)
 
 
 class NetworkDataChannel:
@@ -1796,7 +1812,7 @@ class NetworkDataChannel:
     """
     def __init__(self, inQue=None, segResultCache=None, forceExit=None,
             exceptionQue=None, segDataDict=None, readSemaphore=None,
-            timings=None,
+            timings=None, workerBarrier=None,
             hostname=None, portnum=None, authkey=None):
         class DataChannelMgr(multiprocessing.managers.BaseManager):
             pass
@@ -1814,6 +1830,7 @@ class NetworkDataChannel:
             self.readSemaphore = readSemaphore
             self.segDataDict = segDataDict
             self.timings = timings
+            self.workerBarrier = workerBarrier
 
             DataChannelMgr.register("get_inque", callable=lambda: self.inQue)
             DataChannelMgr.register("get_segresultcache",
@@ -1828,6 +1845,8 @@ class NetworkDataChannel:
                 callable=lambda: self.readSemaphore)
             DataChannelMgr.register("get_timings",
                 callable=lambda: self.timings)
+            DataChannelMgr.register("get_workerbarrier",
+                callable=lambda: self.workerBarrier)
 
             self.mgr = DataChannelMgr(address=(self.hostname, 0),
                                      authkey=bytes(self.authkey, 'utf-8'))
@@ -1845,6 +1864,7 @@ class NetworkDataChannel:
             DataChannelMgr.register("get_segdatadict")
             DataChannelMgr.register("get_readsemaphore")
             DataChannelMgr.register("get_timings")
+            DataChannelMgr.register("get_workerbarrier")
 
             self.mgr = DataChannelMgr(address=(hostname, portnum),
                                      authkey=authkey)
@@ -1861,6 +1881,7 @@ class NetworkDataChannel:
             self.segDataDict = self.mgr.get_segdatadict()
             self.readSemaphore = self.mgr.get_readsemaphore()
             self.timings = self.mgr.get_timings()
+            self.workerBarrier = self.mgr.get_workerbarrier()
         else:
             msg = ("Must supply either (inQue, segResultCache, etc.)" +
                    " or ALL of (hostname, portnum and authkey)")

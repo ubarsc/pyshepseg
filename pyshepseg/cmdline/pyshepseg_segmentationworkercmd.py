@@ -73,6 +73,12 @@ def pyshepsegRemoteSegmentationWorker(workerID, host, port, authkey):
         verbose = dataChan.segDataDict.get('verbose')
         spectDistPcntile = dataChan.segDataDict.get('spectDistPcntile')
         bandNumbers = dataChan.segDataDict.get('bandNumbers')
+
+        barrierTimeout = dataChan.segDataDict.get('barrierTimeout')
+        workerBarrier = dataChan.workerBarrier
+        if hasattr(workerBarrier, 'wait'):
+            workerBarrier.wait(timeout=barrierTimeout)
+
         # Use our own local timings object, because the proxy one does not support
         # the context manager protocol
         timings = Timers()
