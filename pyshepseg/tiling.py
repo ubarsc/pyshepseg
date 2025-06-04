@@ -1609,7 +1609,6 @@ class SegFargateMgr(SegmentationConcurrencyMgr):
     Run tiled segmentation with concurrency based on AWS Fargate workers.
     """
     concurrencyType = CONC_FARGATE
-    knownContainerExitCodes = {137: "Out of Memory"}
 
     def specificChecks(self):
         """
@@ -1759,12 +1758,7 @@ class SegFargateMgr(SegmentationConcurrencyMgr):
             for c in t['containers']:
                 if 'exitCode' in c:
                     exitCode = c['exitCode']
-                    if 'reason' in c:
-                        reason = c['reason']
-                    elif exitCode in self.knownContainerExitCodes:
-                        reason = self.knownContainerExitCodes[exitCode]
-                    else:
-                        reason = "Unknown"
+                    reason = c.get('reason', "Unknown")
                     msg = f"Container exit code: {exitCode}. Reason: {reason}"
                     print(msg, file=sys.stderr)
 
