@@ -1798,7 +1798,6 @@ class SegSubprocMgr(SegmentationConcurrencyMgr):
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                 universal_newlines=True)
 
-        print('Mgr about to wait')
         self.workerBarrier.wait(timeout=self.concurrencyCfg.barrierTimeout)
 
 
