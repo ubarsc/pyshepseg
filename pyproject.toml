@@ -32,6 +32,7 @@ pyshepseg_tiling = "pyshepseg.cmdline.tiling:main"
 pyshepseg_subset = "pyshepseg.cmdline.subset:main"
 pyshepseg_runtests = "pyshepseg.cmdline.runtests:main"
 pyshepseg_variograms = "pyshepseg.cmdline.variograms:main"
+pyshepseg_segmentationworkercmd = "pyshepseg.cmdline.pyshepseg_segmentationworkercmd:mainCmd"
 
 [tool.setuptools]
 packages = ["pyshepseg", "pyshepseg.cmdline"]

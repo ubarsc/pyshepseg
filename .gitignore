@@ -6,3 +6,4 @@
 *.img
 *.pdf
 *.gdb
+*.egg-info

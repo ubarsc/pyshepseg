@@ -28,6 +28,10 @@ Utility functions for working with segmented data.
 # Just in case anyone is trying to use this with Python-2
 from __future__ import print_function, division
 
+import sys
+import inspect
+import traceback
+
 import numpy
 from . import shepseg
 
@@ -224,3 +228,113 @@ def writeColorTableFromRatColumns(segfile, redColName, greenColName,
     else:
         i = colNameList.index('Alpha')
     attrTbl.WriteArray(alpha, i)
+
+
+deprecationAlreadyWarned = set()
+
+
+def deprecationWarning(msg, stacklevel=2):
+    """
+    Print a deprecation warning to stderr. Includes the filename
+    and line number of the call to the function which called this.
+    The stacklevel argument controls how many stack levels above this
+    gives the line number.
+
+    Implemented in mimcry of warnings.warn(), which seems very flaky.
+    Sometimes it prints, and sometimes not, unless PYTHONWARNINGS is set
+    (or -W is used). This function at least seems to work consistently.
+
+    """
+    frame = inspect.currentframe()
+    for i in range(stacklevel):
+        if frame is not None:
+            frame = frame.f_back
+
+    if frame is None:
+        filename = "sys"
+        lineno = 1
+    else:
+        filename = frame.f_code.co_filename
+        lineno = frame.f_lineno
+
+    key = (filename, lineno)
+    if key not in deprecationAlreadyWarned:
+        print("{} (line {}):\n    WARNING: {}".format(filename, lineno, msg),
+            file=sys.stderr)
+        deprecationAlreadyWarned.add(key)
+
+
+class WorkerErrorRecord:
+    """
+    Hold a record of an exception raised in a remote worker.
+    """
+    def __init__(self, exc, workerType):
+        self.exc = exc
+        self.workerType = workerType
+        self.formattedTraceback = traceback.format_exception(exc)
+
+    def __str__(self):
+        headLine = "Error in {} worker".format(self.workerType)
+        lines = [headLine]
+        lines.extend([line.strip('\n') for line in self.formattedTraceback])
+        s = '\n'.join(lines) + '\n'
+        return s
+
+
+def reportWorkerException(exceptionRecord):
+    """
+    Report the given WorkerExceptionRecord object to stderr
+    """
+    print(exceptionRecord, file=sys.stderr)
+
+
+def formatTimingRpt(summaryDict):
+    """
+    Format a report on timings, given the output of Timers.makeSummaryDict()
+
+    Return a single string of the formatted report.
+    """
+    # Make a list of individual timers, hopefully in a sensible order
+    isSeg = ('spectralclusters' in summaryDict)
+    isStats = ('statscompletion' in summaryDict)
+    if isSeg:
+        hdr = "Segmentation Timings (sec)"
+        timerList = ['spectralclusters', 'startworkers', 'reading',
+            'segmentation', 'stitchtiles']
+    elif isStats:
+        hdr = "Per-segment Stats Timings (sec)"
+        timerList = ['reading', 'accumulation', 'statscompletion', 'writing']
+    else:
+        # Some unknown set of timers, do something sensible
+        hdr = "Timers (unknown set) (sec)"
+        timerList = sorted(list(summaryDict.keys()))
+    # Remove any which are not present in summaryDict
+    timerList = [t for t in timerList if t in summaryDict]
+
+    lines = [hdr]
+    walltimeDict = summaryDict.get('walltime')
+    if walltimeDict is not None:
+        walltime = walltimeDict['total']
+        lines.append(f"Walltime: {walltime:.2f}")
+    lines.append("")
+
+    # Work out column widths and format strings. Very tedious, but neater output.
+    fldWidth1 = max([len(t) for t in timerList])
+    maxTime = max([summaryDict[t]['total'] for t in timerList])
+    logMaxTime = numpy.log10(maxTime)
+    if int(logMaxTime) == logMaxTime:
+        # maxTime is exact power of 10, so force ceil() to go up anyway
+        logMaxTime += 0.1
+    fldWidth2 = 3 + int(numpy.ceil(logMaxTime))
+    colHdrFmt = "{:" + str(fldWidth1) + "s}   {:>" + str(fldWidth2) + "s}"
+    lines.append(colHdrFmt.format("Timer", "Total"))
+    lines.append((3 + fldWidth1 + fldWidth2) * '-')
+    colFmt = "{:" + str(fldWidth1) + "s}   {:" + str(fldWidth2) + ".2f}"
+
+    # Now add the table of timings.
+    for t in timerList:
+        line = colFmt.format(t, summaryDict[t]['total'])
+        lines.append(line)
+
+    outStr = '\n'.join(lines)
+    return outStr

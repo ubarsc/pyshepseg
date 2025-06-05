@@ -280,9 +280,6 @@ def makeRATcolumns(segResults, outsegfile, imagefile):
     """
     Add some columns to the RAT, with useful per-segment statistics
     """
-    # Calculate Histogram column for segfile
-    tiling.calcHistogramTiled(outsegfile, segResults.maxSegId, writeToRat=True)
-
     # Calculate per-segment mean and stddev for all bands, and store in the RAT
     meanColNames = []
     stdColNames = []

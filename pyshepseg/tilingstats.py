@@ -46,6 +46,7 @@ from .guardeddecorators import jitclass
 
 from . import tiling
 from . import shepseg
+from . import timinghooks
 
 HAVE_RIOS = False
 try:
@@ -57,6 +58,28 @@ except ImportError:
 
 gdal.UseExceptions()
 osr.UseExceptions()
+
+
+# This type is used for all numba jit-ed data which is supposed to 
+# match the data type of the imagery pixels. Int64 should be enough
+# to hold any integer type, signed or unsigned, up to uint32. 
+numbaTypeForImageType = types.int64
+# This is the numba equivalent type of shepseg.SegIdType
+segIdNumbaType = types.uint32
+
+
+class TiledStatsResult:
+    """
+    Result of tiled per-segment statistics
+
+    Attributes
+    ----------
+      timings : pyshepseg.timinghooks.Timers
+        Timings for various key parts of the per-segment stats calculation
+
+    """
+    def __init__(self):
+        self.timings = None
 
 
 def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile, 
@@ -123,6 +146,8 @@ def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile,
         What to set for segments that have no valid pixels in imgile
 
     """
+    timings = timinghooks.Timers()
+
     segds, segband, imgds, imgband = doImageAlignmentChecks(segfile, 
         imgfile, imgbandnum)
     
@@ -135,7 +160,7 @@ def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile,
     if imgNullVal is not None:
         # cast to the same type we are using for imagery
         # (GDAL records this value as double)
-        imgNullVal = tiling.numbaTypeForImageType(imgNullVal)
+        imgNullVal = numbaTypeForImageType(imgNullVal)
         
     histColNdx = checkHistColumn(existingColNames)
     segSize = attrTbl.ReadAsArray(histColNdx).astype(numpy.uint32)
@@ -152,7 +177,7 @@ def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile,
     numYtiles = int(numpy.ceil(nlines / tileSize))
     
     segDict = createSegDict()
-    pagedRat = tiling.createPagedRat()
+    pagedRat = createPagedRat()
     noDataDict = createNoDataDict()
     
     for tileRow in range(numYtiles):
@@ -161,20 +186,34 @@ def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile,
             leftPix = tileCol * tileSize
             xsize = min(tileSize, npix - leftPix)
             ysize = min(tileSize, nlines - topLine)
-            
-            tileSegments = segband.ReadAsArray(leftPix, topLine, xsize, ysize)
-            tileImageData = imgband.ReadAsArray(leftPix, topLine, xsize, ysize)
-            
-            accumulateSegDict(segDict, noDataDict, imgNullVal, tileSegments, 
-                tileImageData)
-            calcStatsForCompletedSegs(segDict, noDataDict, missingStatsValue, 
-                pagedRat, statsSelection_fast, segSize, numIntCols, numFloatCols)
-            
-            writeCompletePages(pagedRat, attrTbl, statsSelection_fast)
+
+            with timings.interval('reading'):
+                tileSegments = segband.ReadAsArray(leftPix, topLine, xsize, ysize)
+                tileImageData = imgband.ReadAsArray(leftPix, topLine, xsize, ysize)
+
+            with timings.interval('accumulation'):
+                accumulateSegDict(segDict, noDataDict, imgNullVal,
+                    tileSegments, tileImageData)
+
+            with timings.interval('statscompletion'):
+                calcStatsForCompletedSegs(segDict, noDataDict,
+                    missingStatsValue, pagedRat, statsSelection_fast,
+                    segSize, numIntCols, numFloatCols)
+
+            with timings.interval('writing'):
+                writeCompletePages(pagedRat, attrTbl, statsSelection_fast)
+
+    with timings.interval('writing'):
+        segds.FlushCache()
+        del segds
 
     # all pages should now be written. Raise an error if this not the case.
     if len(pagedRat) > 0:
         raise PyShepSegStatsError('Not all pixels found during processing')
+
+    rtn = TiledStatsResult()
+    rtn.timings = timings
+    return rtn
 
 
 def calcPerSegmentStats_riosFunc(info, inputs, outputs, otherArgs):
@@ -283,7 +322,7 @@ def calcPerSegmentStatsRIOS(imgfile, imgbandnum, segfile,
     if imgNullVal is not None:
         # cast to the same type we are using for imagery
         # (GDAL records this value as double)
-        imgNullVal = tiling.numbaTypeForImageType(imgNullVal)
+        imgNullVal = numbaTypeForImageType(imgNullVal)
         
     histColNdx = checkHistColumn(existingColNames)
     segSize = attrTbl.ReadAsArray(histColNdx).astype(numpy.uint32)
@@ -340,7 +379,7 @@ def calcPerSegmentStatsRIOS(imgfile, imgbandnum, segfile,
         
     otherArgs = applier.OtherInputs()
     otherArgs.segDict = createSegDict()
-    otherArgs.pagedRat = tiling.createPagedRat()
+    otherArgs.pagedRat = createPagedRat()
     otherArgs.noDataDict = createNoDataDict()
     otherArgs.attrTbl = tempKEAAttrTbl
     otherArgs.imgNullVal = imgNullVal
@@ -455,11 +494,11 @@ def accumulateSegDict(segDict, noDataDict, imgNullVal, tileSegments, tileImageDa
                 # even if we haven't got any non-nodata pixels yet
                 # because we loop through keys of segDict when calculating stats
                 if segId not in segDict:
-                    segDict[segId] = Dict.empty(key_type=tiling.numbaTypeForImageType, 
+                    segDict[segId] = Dict.empty(key_type=numbaTypeForImageType, 
                         value_type=types.uint32)
                 
                 imgVal = tileImageData[y, x]
-                imgVal_typed = tiling.numbaTypeForImageType(imgVal)
+                imgVal_typed = numbaTypeForImageType(imgVal)
                 if imgNullVal is not None and imgVal_typed == imgNullVal:
                     # this is the null value for the tileImageData
                     if segId not in noDataDict:
@@ -544,7 +583,7 @@ def calcStatsForCompletedSegs(segDict, noDataDict, missingStatsValue, pagedRat,
     """
     numStats = len(statsSelection_fast)
     maxSegId = len(segSize) - 1
-    segDictKeys = numpy.empty(len(segDict), dtype=tiling.segIdNumbaType)
+    segDictKeys = numpy.empty(len(segDict), dtype=segIdNumbaType)
     i = 0
     for segId in segDict:
         segDictKeys[i] = segId
@@ -553,11 +592,11 @@ def calcStatsForCompletedSegs(segDict, noDataDict, missingStatsValue, pagedRat,
         segComplete = checkSegComplete(segDict, noDataDict, segSize, segId)
         if segComplete:
             segStats = SegmentStats(segDict[segId], missingStatsValue)
-            ratPageId = tiling.getRatPageId(segId)
+            ratPageId = getRatPageId(segId)
             if ratPageId not in pagedRat:
-                numSegThisPage = min(tiling.RAT_PAGE_SIZE, 
+                numSegThisPage = min(RAT_PAGE_SIZE, 
                     (maxSegId - ratPageId + 1))
-                pagedRat[ratPageId] = tiling.RatPage(numIntCols, numFloatCols, 
+                pagedRat[ratPageId] = RatPage(numIntCols, numFloatCols, 
                     ratPageId, numSegThisPage)
             ratPage = pagedRat[ratPageId]
             for i in range(numStats):
@@ -593,8 +632,8 @@ def createSegDict():
        Dictionary of histograms used for calculating statistics.
 
     """
-    histDict = Dict.empty(key_type=tiling.numbaTypeForImageType, value_type=types.uint32)
-    segDict = Dict.empty(key_type=tiling.segIdNumbaType, value_type=histDict._dict_type)
+    histDict = Dict.empty(key_type=numbaTypeForImageType, value_type=types.uint32)
+    segDict = Dict.empty(key_type=segIdNumbaType, value_type=histDict._dict_type)
     return segDict
 
 
@@ -610,7 +649,7 @@ def createNoDataDict():
        Dictionary of nodata counts for each segment
        
     """
-    noDataDict = Dict.empty(key_type=tiling.segIdNumbaType, value_type=types.uint32)
+    noDataDict = Dict.empty(key_type=segIdNumbaType, value_type=types.uint32)
     return noDataDict
 
 
@@ -714,9 +753,9 @@ def writeCompletePages(pagedRat, attrTbl, statsSelection_fast):
                 colNumber = int(statSel[STATSEL_GLOBALCOLINDEX])
                 colType = statSel[STATSEL_COLTYPE]
                 colArrayNdx = statSel[STATSEL_COLARRAYINDEX]
-                if colType == tiling.STAT_DTYPE_INT:
+                if colType == STAT_DTYPE_INT:
                     colArr = ratPage.intcols[colArrayNdx]
-                elif colType == tiling.STAT_DTYPE_FLOAT:
+                elif colType == STAT_DTYPE_FLOAT:
                     colArr = ratPage.floatcols[colArrayNdx]
 
                 attrTbl.WriteArray(colArr, colNumber, start=startSegId)
@@ -805,15 +844,15 @@ def makeFastStatsSelection(colIndexList, statsSelection):
         statId = statIDdict[statName]
         statsSelection_fast[i, STATSEL_STATID] = statId
         
-        statType = tiling.STAT_DTYPE_INT
+        statType = STAT_DTYPE_INT
         if statName in ('mean', 'stddev'):
-            statType = tiling.STAT_DTYPE_FLOAT
+            statType = STAT_DTYPE_FLOAT
         statsSelection_fast[i, STATSEL_COLTYPE] = statType
         
-        if statType == tiling.STAT_DTYPE_INT:
+        if statType == STAT_DTYPE_INT:
             statsSelection_fast[i, STATSEL_COLARRAYINDEX] = intCount
             intCount += 1
-        elif statType == tiling.STAT_DTYPE_FLOAT:
+        elif statType == STAT_DTYPE_FLOAT:
             statsSelection_fast[i, STATSEL_COLARRAYINDEX] = floatCount
             floatCount += 1
 
@@ -840,14 +879,14 @@ def getSortedKeysAndValuesForDict(d):
         
     Returns
     -------
-      keysSorted : tiling.numbaTypeForImageType ndarray of shape (numValues,)
+      keysSorted : numbaTypeForImageType ndarray of shape (numValues,)
         Pixel values sorted
       valuesSorted : int ndarray of shape (numValues,)
         Counts of each pixel sorted by pixel value
 
     """
     size = len(d)
-    keysArray = numpy.empty(size, dtype=tiling.numbaTypeForImageType)
+    keysArray = numpy.empty(size, dtype=numbaTypeForImageType)
     valuesArray = numpy.empty(size, dtype=numpy.uint32)
     
     dictKeys = d.keys()
@@ -867,16 +906,16 @@ def getSortedKeysAndValuesForDict(d):
 # Warning - currently using uint32 or float32 for all of the types
 # which should really be dependent on the imagery datatype. 
 # Not sure whether it is possible to do better. 
-segStatsSpec = [('pixVals', tiling.numbaTypeForImageType[:]), 
+segStatsSpec = [('pixVals', numbaTypeForImageType[:]), 
                 ('counts', types.uint32[:]),
                 ('pixCount', types.uint32),
-                ('min', tiling.numbaTypeForImageType),
-                ('max', tiling.numbaTypeForImageType),
+                ('min', numbaTypeForImageType),
+                ('max', numbaTypeForImageType),
                 ('mean', types.float32),
                 ('stddev', types.float32),
-                ('median', tiling.numbaTypeForImageType),
-                ('mode', tiling.numbaTypeForImageType),
-                ('missingStatsValue', tiling.numbaTypeForImageType)
+                ('median', numbaTypeForImageType),
+                ('mode', numbaTypeForImageType),
+                ('missingStatsValue', numbaTypeForImageType)
                 ]
 
 
@@ -1179,7 +1218,7 @@ def userFuncNumEdgePixels(pts, imgNullVal, intArr, floatArr, fourConnected):
 
 SegPointSpec = [('x', types.uint32), 
     ('y', types.uint32), 
-    ('val', tiling.numbaTypeForImageType)]
+    ('val', numbaTypeForImageType)]
     
 
 @jitclass(SegPointSpec)
@@ -1215,7 +1254,7 @@ def createSegSpatialDataDict():
 
     """
     pointList = List.empty_list(SegPoint.class_type.instance_type)
-    segDict = Dict.empty(key_type=tiling.segIdNumbaType, 
+    segDict = Dict.empty(key_type=segIdNumbaType, 
                 value_type=pointList._list_type)
     return segDict
     
@@ -1268,6 +1307,8 @@ def calcPerSegmentSpatialStatsTiled(imgfile, imgbandnum, segfile,
         The value to fill in for segments that have no data.
     
     """
+    timings = timinghooks.Timers()
+
     segds, segband, imgds, imgband = doImageAlignmentChecks(segfile, 
         imgfile, imgbandnum)
 
@@ -1280,7 +1321,7 @@ def calcPerSegmentSpatialStatsTiled(imgfile, imgbandnum, segfile,
     if imgNullVal is not None:
         # cast to the same type we are using for imagery
         # (GDAL records this value as double)
-        imgNullVal = tiling.numbaTypeForImageType(imgNullVal)
+        imgNullVal = numbaTypeForImageType(imgNullVal)
     else:
         # because we need to mask out parts of tiles not part of the
         # segment we need the no data value set
@@ -1309,7 +1350,7 @@ def calcPerSegmentSpatialStatsTiled(imgfile, imgbandnum, segfile,
     numYtiles = int(numpy.ceil(nlines / tileSize))
     
     segDict = createSegSpatialDataDict()
-    pagedRat = tiling.createPagedRat()
+    pagedRat = createPagedRat()
     noDataDict = createNoDataDict()
     
     # similar logic to calcPerSegmentSpatialStatsTiled
@@ -1319,21 +1360,34 @@ def calcPerSegmentSpatialStatsTiled(imgfile, imgbandnum, segfile,
             leftPix = tileCol * tileSize
             xsize = min(tileSize, npix - leftPix)
             ysize = min(tileSize, nlines - topLine)
-            
-            tileSegments = segband.ReadAsArray(leftPix, topLine, xsize, ysize)
-            tileImageData = imgband.ReadAsArray(leftPix, topLine, xsize, ysize)
-            
-            accumulateSegSpatial(segDict, noDataDict, imgNullVal, tileSegments, 
-                tileImageData, topLine, leftPix)
-            calcStatsForCompletedSegsSpatial(segDict, noDataDict, 
-                missingStatsValue, pagedRat, segSize, userFunc, userParam, 
-                statsSelection_fast, intArr, floatArr, imgNullVal)
-            
-            writeCompletePages(pagedRat, attrTbl, statsSelection_fast)
+
+            with timings.interval('reading'):
+                tileSegments = segband.ReadAsArray(leftPix, topLine, xsize, ysize)
+                tileImageData = imgband.ReadAsArray(leftPix, topLine, xsize, ysize)
+
+            with timings.interval('accumulation'):
+                accumulateSegSpatial(segDict, noDataDict, imgNullVal,
+                    tileSegments, tileImageData, topLine, leftPix)
+
+            with timings.interval('statscompletion'):
+                calcStatsForCompletedSegsSpatial(segDict, noDataDict,
+                    missingStatsValue, pagedRat, segSize, userFunc, userParam,
+                    statsSelection_fast, intArr, floatArr, imgNullVal)
+
+            with timings.interval('writing'):
+                writeCompletePages(pagedRat, attrTbl, statsSelection_fast)
+
+    with timings.interval('writing'):
+        segds.FlushCache()
+        del segds
 
     # all pages should now be written. Raise an error if this not the case.
     if len(pagedRat) > 0:
         raise PyShepSegStatsError('Not all pixels found during processing')
+
+    rtn = TiledStatsResult()
+    rtn.timings = timings
+    return rtn
         
 
 def calcPerSegmentSpatialStats_riosFunc(info, inputs, outputs, otherArgs):
@@ -1434,7 +1488,7 @@ def calcPerSegmentSpatialStatsRIOS(imgfile, imgbandnum, segfile,
     if imgNullVal is not None:
         # cast to the same type we are using for imagery
         # (GDAL records this value as double)
-        imgNullVal = tiling.numbaTypeForImageType(imgNullVal)
+        imgNullVal = numbaTypeForImageType(imgNullVal)
     else:
         # because we need to mask out parts of tiles not part of the
         # segment we need the no data value set
@@ -1500,7 +1554,7 @@ def calcPerSegmentSpatialStatsRIOS(imgfile, imgbandnum, segfile,
 
     otherArgs = applier.OtherInputs()
     otherArgs.segDict = createSegSpatialDataDict()
-    otherArgs.pagedRat = tiling.createPagedRat()
+    otherArgs.pagedRat = createPagedRat()
     otherArgs.noDataDict = createNoDataDict()
     otherArgs.attrTbl = tempKEAAttrTbl
     otherArgs.imgNullVal = imgNullVal
@@ -1581,11 +1635,11 @@ def createUserColumnsSpatial(colNamesAndTypes, attrTbl, existingColNames):
                 
         if colType == gdal.GFT_Integer:
             statsSelection_fast[i, STATSEL_COLARRAYINDEX] = n_intCols
-            statsSelection_fast[i, STATSEL_COLTYPE] = tiling.STAT_DTYPE_INT
+            statsSelection_fast[i, STATSEL_COLTYPE] = STAT_DTYPE_INT
             n_intCols += 1
         elif colType == gdal.GFT_Real:
             statsSelection_fast[i, STATSEL_COLARRAYINDEX] = n_floatCols
-            statsSelection_fast[i, STATSEL_COLTYPE] = tiling.STAT_DTYPE_FLOAT
+            statsSelection_fast[i, STATSEL_COLTYPE] = STAT_DTYPE_FLOAT
             n_floatCols += 1
         else:
             msg = 'Unknown type ({}) for column {}'.format(colType, colName)
@@ -1630,7 +1684,7 @@ def accumulateSegSpatial(segDict, noDataDict, imgNullVal, tileSegments,
                     segDict[segId] = List.empty_list(PTS_TYPE)
                     
                 imgVal = tileImageData[y, x]
-                imgVal_typed = tiling.numbaTypeForImageType(imgVal)
+                imgVal_typed = numbaTypeForImageType(imgVal)
                 if imgNullVal is not None and imgVal_typed == imgNullVal:
                     # this is the null value for the tileImageData
                     if segId not in noDataDict:
@@ -1705,7 +1759,7 @@ def convertPtsInto2DArray(pts, imgNullVal):
         
     Returns
     -------
-      tile : tiling.numbaTypeForImageType ndarray of shape (ysize, xsize)
+      tile : numbaTypeForImageType ndarray of shape (ysize, xsize)
         Where ysize and xsize are the total extent of the tile
 
     """
@@ -1729,7 +1783,7 @@ def convertPtsInto2DArray(pts, imgNullVal):
     xsize = xmax - xmin
     ysize = ymax - ymin
     tile = numpy.full((ysize + 1, xsize + 1), imgNullVal, 
-            dtype=tiling.numbaTypeForImageType)
+            dtype=numbaTypeForImageType)
             
     # fill in the tile with the values
     for p in pts:
@@ -1827,7 +1881,7 @@ def calcStatsForCompletedSegsSpatial(segDict, noDataDict, missingStatsValue,
     """
 
     maxSegId = len(segSize) - 1
-    segDictKeys = numpy.empty(len(segDict), dtype=tiling.segIdNumbaType)
+    segDictKeys = numpy.empty(len(segDict), dtype=segIdNumbaType)
     i = 0
     for segId in segDict:
         segDictKeys[i] = segId
@@ -1835,10 +1889,10 @@ def calcStatsForCompletedSegsSpatial(segDict, noDataDict, missingStatsValue,
     for segId in segDictKeys:
         segComplete = checkSegCompleteSpatial(segDict, noDataDict, segSize, segId)
         if segComplete:
-            ratPageId = tiling.getRatPageId(segId)
+            ratPageId = getRatPageId(segId)
             if ratPageId not in pagedRat:
-                numSegThisPage = min(tiling.RAT_PAGE_SIZE, (maxSegId - ratPageId + 1))
-                pagedRat[ratPageId] = tiling.RatPage(intArr.shape[0], floatArr.shape[0], 
+                numSegThisPage = min(RAT_PAGE_SIZE, (maxSegId - ratPageId + 1))
+                pagedRat[ratPageId] = RatPage(intArr.shape[0], floatArr.shape[0], 
                     ratPageId, numSegThisPage)
             ratPage = pagedRat[ratPageId]                   
 
@@ -1855,11 +1909,11 @@ def calcStatsForCompletedSegsSpatial(segDict, noDataDict, missingStatsValue,
                 for n in range(statsSelection_fast.shape[0]):
                     colType = statsSelection_fast[n, STATSEL_COLTYPE]
                     colArrayNdx = statsSelection_fast[n, STATSEL_COLARRAYINDEX]
-                    if colType == tiling.STAT_DTYPE_INT:
-                        ratPage.setRatVal(segId, tiling.STAT_DTYPE_INT, colArrayNdx,
+                    if colType == STAT_DTYPE_INT:
+                        ratPage.setRatVal(segId, STAT_DTYPE_INT, colArrayNdx,
                             intArr[colArrayNdx])
                     else:
-                        ratPage.setRatVal(segId, tiling.STAT_DTYPE_FLOAT, colArrayNdx,
+                        ratPage.setRatVal(segId, STAT_DTYPE_FLOAT, colArrayNdx,
                             floatArr[colArrayNdx])
  
             else:
@@ -1876,7 +1930,120 @@ def calcStatsForCompletedSegsSpatial(segDict, noDataDict, missingStatsValue,
             # same for nodata (if there is one)
             if segId in noDataDict:
                 noDataDict.pop(segId)
-                
+
+
+def createPagedRat():
+    """
+    Create the dictionary for the paged RAT. Each element is a page of
+    the RAT, with entries for a range of segment IDs. The key is the 
+    segment ID of the first entry in the page. 
+
+    The returned dictionary is initially empty. 
+
+    """
+    pagedRat = Dict.empty(key_type=segIdNumbaType, 
+        value_type=RatPage.class_type.instance_type)
+    return pagedRat
+    
+
+@njit
+def getRatPageId(segId):
+    """
+    For the given segment ID, return the page ID. This is the segment
+    ID of the first segment in the page. 
+    """
+    pageId = (segId // RAT_PAGE_SIZE) * RAT_PAGE_SIZE
+    return segIdNumbaType(pageId)
+
+
+STAT_DTYPE_INT = 0
+STAT_DTYPE_FLOAT = 1
+    
+RAT_PAGE_SIZE = 100000
+ratPageSpec = [
+    ('startSegId', segIdNumbaType),
+    ('intcols', numbaTypeForImageType[:, :]),
+    ('floatcols', types.float32[:, :]),
+    ('complete', types.boolean[:])
+]
+
+
+@jitclass(ratPageSpec)
+class RatPage(object):
+    """
+    Hold a single page of the paged RAT
+    """
+    def __init__(self, numIntCols, numFloatCols, startSegId, numSeg):
+        """
+        Allocate arrays for int and float columns. Int columns are
+        stored as signed int32, floats are float32. 
+        
+        startSegId is the segment ID number of the lowest segment in this page.
+        numSeg is the number of segments within this page, normally the
+        page size, but the last page will be smaller. 
+        
+        numIntCols and numFloatCols are as returned by makeFastStatsSelection().
+        
+        """
+        self.startSegId = startSegId
+        self.intcols = numpy.empty((numIntCols, numSeg), dtype=numbaTypeForImageType)
+        self.floatcols = numpy.empty((numFloatCols, numSeg), dtype=numpy.float32)
+        self.complete = numpy.zeros(numSeg, dtype=types.boolean)
+        if startSegId == shepseg.SEGNULLVAL:
+            # The null segment is always complete
+            self.complete[0] = True
+            self.intcols[:, 0] = 0
+            self.floatcols[:, 0] = 0
+    
+    def getIndexInPage(self, segId):
+        """
+        Return the index for the given segment, within the current
+        page. 
+        """
+        return segId - self.startSegId
+
+    def setRatVal(self, segId, colType, colArrayNdx, val):
+        """
+        Set the RAT entry for the given segment,
+        to be the given value. 
+        """
+        ndxInPage = self.getIndexInPage(segId)
+        if colType == STAT_DTYPE_INT:
+            self.intcols[colArrayNdx, ndxInPage] = val
+        elif colType == STAT_DTYPE_FLOAT:
+            self.floatcols[colArrayNdx, ndxInPage] = val
+            
+    def getRatVal(self, segId, colType, colArrayNdx):
+        """
+        Get the RAT entry for the given segment.
+        """
+        ndxInPage = self.getIndexInPage(segId)
+        if colType == STAT_DTYPE_INT:
+            val = self.intcols[colArrayNdx, ndxInPage]
+        elif colType == STAT_DTYPE_FLOAT:
+            val = self.floatcols[colArrayNdx, ndxInPage]
+        return val
+    
+    def setSegmentComplete(self, segId):
+        """
+        Flag that the given segment has had all stats calculated. 
+        """
+        ndxInPage = self.getIndexInPage(segId)
+        self.complete[ndxInPage] = True
+        
+    def getSegmentComplete(self, segId):
+        """
+        Returns True if the segment has been flagged as complete
+        """
+        ndxInPage = self.getIndexInPage(segId)
+        return self.complete[ndxInPage]
+    
+    def pageComplete(self):
+        """
+        Return True if the current page has been completed
+        """
+        return self.complete.all()
+
 
 class PyShepSegStatsError(Exception):
     pass
