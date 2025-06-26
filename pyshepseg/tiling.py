@@ -639,7 +639,7 @@ class FargateConfig:
     Configuration for AWS Fargate
     """
     def __init__(self, containerImage=None, taskRoleArn=None,
-            executionRoleArn=None, subnets=None,
+            executionRoleArn=None, subnet=None,
             securityGroups=None, cpu='0.5 vCPU', memory='1GB',
             cpuArchitecture=None, cloudwatchLogGroup=None):
         """
@@ -660,9 +660,9 @@ class FargateConfig:
             ARN for an AWS role. This allows ECS to use AWS services on
             your behalf. A good start is a role including
             AmazonECSTaskExecutionRolePolicy
-          subnets : list of str
-            List of subnet ID strings associated with the VPC in which
-            workers will run.
+          subnet : str
+            Subnet ID string associated with the VPC in which workers will
+            run.
           securityGroups : list of str
             Fargate. List of security group IDs associated with the VPC.
           cpu : str
@@ -689,7 +689,7 @@ class FargateConfig:
         self.containerImage = containerImage
         self.taskRoleArn = taskRoleArn
         self.executionRoleArn = executionRoleArn
-        self.subnets = subnets
+        self.subnet = subnet
         self.securityGroups = securityGroups
         self.cpu = cpu
         self.memory = memory
@@ -1662,7 +1662,7 @@ class SegFargateMgr(SegmentationConcurrencyMgr):
         networkConf = {
             'awsvpcConfiguration': {
                 'assignPublicIp': 'DISABLED',
-                'subnets': fargateCfg.subnets,
+                'subnets': [fargateCfg.subnet],
                 'securityGroups': fargateCfg.securityGroups
             }
         }
