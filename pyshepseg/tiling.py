@@ -1729,18 +1729,12 @@ class SegFargateMgr(SegmentationConcurrencyMgr):
         """
         taskCount = self.getClusterTaskCount()
         startTime = time.time()
-        timeout = 20
+        timeout = 50
         timeExceeded = False
         while ((taskCount > 0) and (not timeExceeded)):
             time.sleep(5)
             taskCount = self.getClusterTaskCount()
             timeExceeded = (time.time() > (startTime + timeout))
-
-        # If we exceeded timeout without reaching zero,
-        # raise an exception
-        if timeExceeded and (taskCount > 0):
-            msg = ("Cluster task count timeout ({} seconds). ".format(timeout))
-            raise PyShepSegTilingError(msg)
 
     def getClusterTaskCount(self):
         """
