@@ -996,8 +996,8 @@ class SegmentationConcurrencyMgr:
 
             if self.verbose and row != reportedRow:
                 print("Stitching tile row {}".format(row))
-            maxMem = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
-            print('Max Mem Usage now', col, row, maxMem)
+                maxMem = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+                print('Max Mem Usage now', col, row, maxMem)
             reportedRow = row
 
             (xpos, ypos, xsize, ysize) = self.tileInfo.getTile(col, row)
