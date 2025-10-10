@@ -700,6 +700,7 @@ class FargateConfig:
         self.memory = memory
         self.cpuArchitecture = cpuArchitecture
         self.logGroup = cloudwatchLogGroup
+        self.tags = tags
     
 
 class SegmentationConcurrencyMgr:
