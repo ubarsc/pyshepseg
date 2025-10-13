@@ -60,6 +60,7 @@ import queue
 import socket
 import secrets
 import random
+import signal
 import resource
 from concurrent import futures
 from multiprocessing import cpu_count
@@ -642,7 +643,8 @@ class FargateConfig:
     def __init__(self, containerImage=None, taskRoleArn=None,
             executionRoleArn=None, subnet=None,
             securityGroups=None, cpu='0.5 vCPU', memory='1GB',
-            cpuArchitecture=None, cloudwatchLogGroup=None, tags=None):
+            cpuArchitecture=None, cloudwatchLogGroup=None, 
+            efsVolumeSpec=None, tags=None):
         """
         AWS Fargate configuration information. For use only with CONC_FARGATE.
 
@@ -685,6 +687,13 @@ class FargateConfig:
             workers will be sent to this log group. If None, no CloudWatch
             logging is done. Intended for tracking problems, rather than
             operational use.
+          efsVolumeSpec: list of (str, str, str, str, bool) tuples or None
+            If specified this should be a list of (name, efsid, mount, root, ro)
+            tuples. 'name' is the mountpoint name, can be anything, just for internal use.
+            'efsid' is the ID of the EFS filesystem. This should start with 'fs-'.
+            'mount' is the mountpoint in the container. 'root' is the point in the EFS
+            to mount - normally '/'. 'ro' is a boolean specifying whether to mount
+            the filesystem as read only.
           tags: dict or None
             Optional. If specified this needs to be a dictionary of key/value
             pairs which will be turned into AWS tags. These will be added to
@@ -906,6 +915,16 @@ class SegmentationConcurrencyMgr:
         numWorkers = self.concurrencyCfg.numWorkers
         self.workerBarrier = threading.Barrier(numWorkers + 1)
 
+        # install a signal handler for SIGTERM to gracefully
+        # shutdown the workers. 
+        old_sigterm = signal.getsignal(signal.SIGTERM)
+        
+        def signal_handler(signum, frame):
+            print('Handling signal', signum)
+            # now exit and rely on SystemExit being raised and 
+            # triggering the finally clause
+            sys.exit(signum)
+            
         try:
             self.setupNetworkComms()
 
@@ -920,9 +939,11 @@ class SegmentationConcurrencyMgr:
             with self.timings.interval('stitchtiles'):
                 self.stitchTiles()
         finally:
-            if hasattr(self, 'dataChan'):
-                self.dataChan.shutdown()
+            self.concurrencyCfg.shutdown()
 
+        # uninstall signal handler
+        signal.signal(signal.SIGTERM, old_sigterm)
+        
     def checkWorkerExceptions(self):
         """
         Check if any workers raised exceptions. If so, raise a local exception
@@ -1706,6 +1727,18 @@ class SegFargateMgr(SegmentationConcurrencyMgr):
         if fargateCfg.cpuArchitecture is not None:
             taskDefParams['runtimePlatform'] = {'cpuArchitecture':
                 fargateCfg.cpuArchitecture}
+        if fargateCfg.efsVolumeSpec is not None:
+            volumes = []
+            mount_points = []
+            for name, efsid, mount, root, ro in fargateCfg.efsVolumeSpec:
+                vobj = {'name': name, 'efsVolumeConfiguration': {
+                    'fileSystemId': efsid, 'rootDirectory': root}}
+                volumes.append(vobj)
+                mobj = {'sourceVolume': name, 'containerPath': mount, 'readOnly': ro}
+                mount_points.append(mobj)
+            taskDefParams['Volumes'] = volumes
+            taskDefParams['containerDefinitions'][0]['mountPoints'] = mount_points
+            
         if aws_tags is not None:
             taskDefParams['tags'] = aws_tags
             
