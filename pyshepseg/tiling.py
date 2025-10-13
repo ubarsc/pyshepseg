@@ -709,6 +709,7 @@ class FargateConfig:
         self.memory = memory
         self.cpuArchitecture = cpuArchitecture
         self.logGroup = cloudwatchLogGroup
+        self.efsVolumeSpec = efsVolumeSpec
         self.tags = tags
     
 
@@ -939,7 +940,7 @@ class SegmentationConcurrencyMgr:
             with self.timings.interval('stitchtiles'):
                 self.stitchTiles()
         finally:
-            self.concurrencyCfg.shutdown()
+            self.shutdown()
 
         # uninstall signal handler
         signal.signal(signal.SIGTERM, old_sigterm)
