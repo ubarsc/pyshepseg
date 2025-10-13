@@ -940,8 +940,10 @@ class SegmentationConcurrencyMgr:
             with self.timings.interval('stitchtiles'):
                 self.stitchTiles()
         finally:
-            self.shutdown()
-
+            # self.shutdown()
+            if hasattr(self, 'dataChan'):
+                self.dataChan.shutdown()
+                
         # uninstall signal handler
         signal.signal(signal.SIGTERM, old_sigterm)
         
@@ -1019,7 +1021,7 @@ class SegmentationConcurrencyMgr:
             if self.verbose and row != reportedRow:
                 print("Stitching tile row {}".format(row))
                 maxMem = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
-                print('Max Mem Usage now', col, row, maxMem)
+                print('Max Mem Usage now {}'.format(maxMem))
             reportedRow = row
 
             (xpos, ypos, xsize, ysize) = self.tileInfo.getTile(col, row)
@@ -1698,6 +1700,7 @@ class SegFargateMgr(SegmentationConcurrencyMgr):
 
         # Create a private cluster
         self.clusterName = f'pyshepseg_{jobIDstr}_cluster'
+        print('using cluster {}'.format(self.clusterName))
         createClusterTags = [{'key': 'pyshepseg-cluster', 'value': ''}]
         if aws_tags is not None:
             createClusterTags.extend(aws_tags)

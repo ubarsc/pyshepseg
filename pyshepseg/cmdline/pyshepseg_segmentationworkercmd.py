@@ -84,6 +84,7 @@ def pyshepsegRemoteSegmentationWorker(workerID, host, port, authkey):
         # the context manager protocol
         timings = Timers()
 
+        print('opening {}'.format(infile))
         inDs = gdal.Open(infile)
 
         colRow = popFromQue(dataChan.inQue)
