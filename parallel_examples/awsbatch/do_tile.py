@@ -108,7 +108,7 @@ def main():
         'BIGTIFF=NO', 'BLOCKXSIZE=512', 'BLOCKYSIZE=512'])
 
     # upload the tile to S3.
-    s3.upload_file(filename, cmdargs.bucket, os.path.basename(filename))
+    s3.upload_file(filename, cmdargs.bucket, 'pyshepseg_tiles/' + os.path.basename(filename))
 
     # cleanup
     shutil.rmtree(tempDir)
