@@ -1737,7 +1737,7 @@ class SegFargateMgr(SegmentationConcurrencyMgr):
                 volumes.append(vobj)
                 mobj = {'sourceVolume': name, 'containerPath': mount, 'readOnly': ro}
                 mount_points.append(mobj)
-            taskDefParams['Volumes'] = volumes
+            taskDefParams['volumes'] = volumes
             taskDefParams['containerDefinitions'][0]['mountPoints'] = mount_points
             
         if aws_tags is not None:
