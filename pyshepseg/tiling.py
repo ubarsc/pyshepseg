@@ -925,6 +925,7 @@ class SegmentationConcurrencyMgr:
             # now exit and rely on SystemExit being raised and 
             # triggering the finally clause
             sys.exit(signum)
+        signal.signal(signal.SIGTERM, signal_handler)
             
         try:
             self.setupNetworkComms()
