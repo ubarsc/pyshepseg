@@ -941,9 +941,7 @@ class SegmentationConcurrencyMgr:
             with self.timings.interval('stitchtiles'):
                 self.stitchTiles()
         finally:
-            # self.shutdown()
-            if hasattr(self, 'dataChan'):
-                self.dataChan.shutdown()
+            self.shutdown()
                 
         # uninstall signal handler
         signal.signal(signal.SIGTERM, old_sigterm)
@@ -1799,6 +1797,23 @@ class SegFargateMgr(SegmentationConcurrencyMgr):
             time.sleep(5)
             taskCount = self.getClusterTaskCount()
             timeExceeded = (time.time() > (startTime + timeout))
+
+        # If timeExceeded, then we are somehow in shutdown even though
+        # some tasks are still running. In this case, we still want to
+        # shut down, so kill off any remaining tasks, so we can still
+        # delete the cluster
+        if timeExceeded:
+            for taskArn in self.taskArnList:
+                # We are trying to avoid any exceptions raised from within
+                # shutdown, so trap all of them.
+                try:
+                    self.ecsClient.stop_task(cluster=self.clusterName,
+                        task=taskArn, reason="Stopped by shutdown")
+                except Exception as e:
+                    # I am unsure if I should just silently ignore any exception
+                    # raised here, but for now I am going to print it to stderr.
+                    msg = f"Exception '{e}' raised while stopping ECS task"
+                    print(msg, file=sys.stderr)
 
     def getClusterTaskCount(self):
         """
