@@ -687,13 +687,21 @@ class FargateConfig:
             workers will be sent to this log group. If None, no CloudWatch
             logging is done. Intended for tracking problems, rather than
             operational use.
-          efsVolumeSpec: list of (str, str, str, str, bool) tuples or None
-            If specified this should be a list of (name, efsid, mount, root, ro)
-            tuples. 'name' is the mountpoint name, can be anything, just for internal use.
-            'efsid' is the ID of the EFS filesystem. This should start with 'fs-'.
-            'mount' is the mountpoint in the container. 'root' is the point in the EFS
-            to mount - normally '/'. 'ro' is a boolean specifying whether to mount
-            the filesystem as read only.
+          efsVolumeSpec: list of tuples (str, str, str, str, bool), or None
+            This is used to specify EFS volumes to be mounted by each Fargate
+            worker task. The information here is passed to ECS.Client.register_task_definition().
+            If specified, this should be a list of tuples
+            (name, fileSystemId, containerPath, rootDirectory, readOnly).
+
+            'name' is the mountpoint name, passed to register_task_definition
+            in two places. First, as name in the volumes parameter, and
+            second as the sourceVolume field in the containerDefinitions/
+            mountPoints parameter.
+            'fileSystemId' is the ID of the EFS filesystem. This should start
+            with 'fs-'. 'containerPath' is the mountpoint in the container.
+            'rootDirectory' is the point in the EFS to mount - normally '/'.
+            'readOnly' is a boolean specifying whether to mount the filesystem
+            as read only.
           tags: dict or None
             Optional. If specified this needs to be a dictionary of key/value
             pairs which will be turned into AWS tags. These will be added to
