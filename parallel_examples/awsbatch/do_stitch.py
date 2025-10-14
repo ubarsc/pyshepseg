@@ -90,7 +90,7 @@ def main():
     # Note: this needs to match do_tile.py.
     tileFilenames = {}
     for col, row in dataFromPickle['colRowList']:
-        filename = '/vsis3/' + cmdargs.bucket + '/pyshepseg_tiles/' + '{}_{}_{}.{}'.format(
+        filename = '/vsis3/' + cmdargs.bucket + '/' + '{}_{}_{}.{}'.format(
             cmdargs.tileprefix, col, row, 'tif')
         tileFilenames[(col, row)] = filename    
 
