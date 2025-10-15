@@ -594,6 +594,7 @@ class SegmentationConcurrencyConfig:
     """
     def __init__(self, concurrencyType=CONC_NONE, numWorkers=0,
             maxConcurrentReads=20, tileCompletionTimeout=60,
+            segResultCacheSize=30, segResultCacheAddTimeout=300,
             barrierTimeout=300, fargateCfg=None):
         """
         Configuration for managing segmentation concurrency.
@@ -613,9 +614,15 @@ class SegmentationConcurrencyConfig:
             to this value, without degrading throughput.
           tileCompletionTimeout : int
             Timeout (seconds) to wait for completion of each segmentation tile
+          segResultCacheSize : int
+            Maximum number of completed segmentations in cache
+          segResultCacheAddTimeout : int
+            Timeout (seconds) to wait to add a completed segmentation into
+            the result cache
           barrierTimeout : int
             Timeout (seconds) to wait for all workers to start. Used with
             CONC_FARGATE (and CONC_SUBPROC).
+          
           fargateCfg : None or instance of FargateConfig
             Configuration for AWS Fargate (when using CONC_FARGATE)
 
@@ -624,6 +631,8 @@ class SegmentationConcurrencyConfig:
         self.numWorkers = numWorkers
         self.maxConcurrentReads = maxConcurrentReads
         self.tileCompletionTimeout = tileCompletionTimeout
+        self.segResultCacheSize = segResultCacheSize
+        self.segResultCacheAddTimeout = segResultCacheAddTimeout
         self.barrierTimeout = barrierTimeout
         self.fargateCfg = fargateCfg
         if concurrencyType == CONC_FARGATE and fargateCfg is None:
@@ -894,7 +903,9 @@ class SegmentationConcurrencyMgr:
 
         self.inQue = queue.Queue()
         self.segResultCache = SegmentationResultCache(colRowList,
-            timeout=self.concurrencyCfg.tileCompletionTimeout)
+            timeout=self.concurrencyCfg.tileCompletionTimeout,
+            size=self.concurrencyCfg.segResultCacheSize,
+            addTimeout=self.concurrencyCfg.segResultCacheAddTimeout)
         self.forceExit = threading.Event()
         self.exceptionQue = queue.Queue()
         numWorkers = self.concurrencyCfg.numWorkers
@@ -1969,8 +1980,11 @@ class SegmentationResultCache:
     a tile, it adds it directly to this cache. The writing thread can then
     pop tiles out of this when required.
     """
-    def __init__(self, colRowList, timeout=None):
+    def __init__(self, colRowList, timeout=None, size=10, addTimeout=300):
         self.timeout = timeout
+        self.size = size
+        self.cacheCount = threading.BoundedSemaphore(self.size)
+        self.addTimeout = addTimeout
         self.lock = threading.Lock()
         self.cache = {}
         self.completionEvent = {}
@@ -1981,6 +1995,16 @@ class SegmentationResultCache:
         """
         Add a single segResult object to the cache, for the given (col, row)
         """
+        # First check we have room in the cache
+        cacheCountAcquired = self.cacheCount.acquire(timeout=self.addTimeout)
+        if not cacheCountAcquired:
+            msg = ("Timeout acquiring space in SegmentationResultCache. " +
+                   "Try increasing segResultCacheAddTimeout " +
+                   "(currently {}) ".format(self.addTimeout) +
+                   "or segResultCacheSize (currently {}), ".format(self.size) +
+                   "or reducing the number of workers")
+            raise PyShepSegTilingError(msg)
+
         with self.lock:
             key = (col, row)
             self.cache[key] = segResult
@@ -1996,6 +2020,8 @@ class SegmentationResultCache:
         if completed:
             segResult = self.cache.pop(key)
             self.completionEvent[key].clear()
+            # One less tile in the cache
+            self.cacheCount.release()
         else:
             segResult = None
         return segResult
