@@ -2074,7 +2074,6 @@ class SegmentationResultCache:
             key = (col, row)
             self.cache[key] = segResult
             self.completionEvent[key].set()
-            print("in addResult, cache size = {}".format(len(self.cache)))
 
     def waitForTile(self, col, row):
         """
