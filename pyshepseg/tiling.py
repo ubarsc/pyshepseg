@@ -642,6 +642,10 @@ class SegmentationConcurrencyConfig:
         if concurrencyType != CONC_FARGATE and fargateCfg is not None:
             msg = "fargateCfg is only used with CONC_FARGATE"
             raise PyShepSegTilingError(msg)
+        if self.segResultCacheSize < (2 * self.numWorkers):
+            msg = ("segResultCacheSize < 2*numWorkers. Increase " +
+                   "segResultCacheSize to avoid risk of deadlock")
+            raise PyShepSegTilingError(msg)
 
 
 class FargateConfig:
