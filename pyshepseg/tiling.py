@@ -624,7 +624,6 @@ class SegmentationConcurrencyConfig:
           barrierTimeout : int
             Timeout (seconds) to wait for all workers to start. Used with
             CONC_FARGATE (and CONC_SUBPROC).
-          
           fargateCfg : None or instance of FargateConfig
             Configuration for AWS Fargate (when using CONC_FARGATE)
 
@@ -1639,9 +1638,12 @@ class SegThreadsMgr(SegmentationConcurrencyMgr):
         """
         Shut down the thread pool
         """
-        self.forceExit.set()
-        futures.wait(self.workerList)
-        self.threadPool.shutdown()
+        if hasattr(self, 'forceExit'):
+            self.forceExit.set()
+        if hasattr(self, 'workerList'):
+            futures.wait(self.workerList)
+        if hasattr(self, 'threadPool'):
+            self.threadPool.shutdown()
 
     def setupNetworkComms(self):
         """
@@ -1770,12 +1772,15 @@ class SegFargateMgr(SegmentationConcurrencyMgr):
         """
         if hasattr(self, 'forceExit'):
             self.forceExit.set()
-        self.waitClusterTasksFinished()
-        self.checkTaskErrors()
-        self.ecsClient.delete_cluster(cluster=self.clusterName)
+        if hasattr(self, 'ecsClient'):
+            self.waitClusterTasksFinished()
+            self.checkTaskErrors()
+            self.ecsClient.delete_cluster(cluster=self.clusterName)
         if hasattr(self, 'dataChan'):
             self.dataChan.shutdown()
-        self.ecsClient.deregister_task_definition(taskDefinition=self.taskDefArn)
+        if hasattr(self, 'ecsClient'):
+            self.ecsClient.deregister_task_definition(
+                taskDefinition=self.taskDefArn)
 
     def waitClusterTasksFinished(self):
         """
@@ -2069,6 +2074,7 @@ class SegmentationResultCache:
             key = (col, row)
             self.cache[key] = segResult
             self.completionEvent[key].set()
+            print("in addResult, cache size = {}".format(len(self.cache)))
 
     def waitForTile(self, col, row):
         """
