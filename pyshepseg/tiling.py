@@ -60,6 +60,8 @@ import queue
 import socket
 import secrets
 import random
+import signal
+import resource
 from concurrent import futures
 from multiprocessing import cpu_count
 import multiprocessing.managers
@@ -650,7 +652,8 @@ class FargateConfig:
     def __init__(self, containerImage=None, taskRoleArn=None,
             executionRoleArn=None, subnet=None,
             securityGroups=None, cpu='0.5 vCPU', memory='1GB',
-            cpuArchitecture=None, cloudwatchLogGroup=None):
+            cpuArchitecture=None, cloudwatchLogGroup=None, 
+            tags=None):
         """
         AWS Fargate configuration information. For use only with CONC_FARGATE.
 
@@ -693,7 +696,11 @@ class FargateConfig:
             workers will be sent to this log group. If None, no CloudWatch
             logging is done. Intended for tracking problems, rather than
             operational use.
-
+          tags: dict or None
+            Optional. If specified this needs to be a dictionary of key/value
+            pairs which will be turned into AWS tags. These will be added to
+            the ECS cluster, task definition and tasks. The keys and values
+            must all be strings. Requires ``ecs:TagResource`` permission.
         """
         self.containerImage = containerImage
         self.taskRoleArn = taskRoleArn
@@ -704,6 +711,7 @@ class FargateConfig:
         self.memory = memory
         self.cpuArchitecture = cpuArchitecture
         self.logGroup = cloudwatchLogGroup
+        self.tags = tags
     
 
 class SegmentationConcurrencyMgr:
@@ -911,6 +919,17 @@ class SegmentationConcurrencyMgr:
         numWorkers = self.concurrencyCfg.numWorkers
         self.workerBarrier = threading.Barrier(numWorkers + 1)
 
+        # install a signal handler for SIGTERM to gracefully
+        # shutdown the workers. 
+        old_sigterm = signal.getsignal(signal.SIGTERM)
+        
+        def signal_handler(signum, frame):
+            print('Handling signal', signum)
+            # now exit and rely on SystemExit being raised and 
+            # triggering the finally clause
+            sys.exit(signum)
+        signal.signal(signal.SIGTERM, signal_handler)
+            
         try:
             self.setupNetworkComms()
 
@@ -920,12 +939,16 @@ class SegmentationConcurrencyMgr:
 
             with self.timings.interval('startworkers'):
                 self.startWorkers()
+                maxMem = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+                print('Max Mem Usage after tiles', maxMem)
             with self.timings.interval('stitchtiles'):
                 self.stitchTiles()
         finally:
-            if hasattr(self, 'dataChan'):
-                self.dataChan.shutdown()
-
+            self.shutdown()
+                
+        # uninstall signal handler
+        signal.signal(signal.SIGTERM, old_sigterm)
+        
     def checkWorkerExceptions(self):
         """
         Check if any workers raised exceptions. If so, raise a local exception
@@ -999,6 +1022,8 @@ class SegmentationConcurrencyMgr:
 
             if self.verbose and row != reportedRow:
                 print("Stitching tile row {}".format(row))
+                maxMem = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+                print('Max Mem Usage now {}'.format(maxMem))
             reportedRow = row
 
             (xpos, ypos, xsize, ysize) = self.tileInfo.getTile(col, row)
@@ -1649,6 +1674,7 @@ class SegFargateMgr(SegmentationConcurrencyMgr):
         regionName = session.region_name
         ecsClient = boto3.client("ecs")
         self.ecsClient = ecsClient
+        self.taskArnList = []
 
         jobIDstr = random.randbytes(4).hex()
         containerName = f'pyshepseg_{jobIDstr}_container'
@@ -1666,9 +1692,22 @@ class SegFargateMgr(SegmentationConcurrencyMgr):
                 }
             }
 
+        aws_tags = None
+        if fargateCfg.tags is not None:
+            # convert to AWS format
+            aws_tags = []
+            for key, value in fargateCfg.tags.items():
+                obj = {'key': key, 'value': value}
+                aws_tags.append(obj)
+
         # Create a private cluster
         self.clusterName = f'pyshepseg_{jobIDstr}_cluster'
-        self.ecsClient.create_cluster(clusterName=self.clusterName)
+        print('using cluster {}'.format(self.clusterName))
+        createClusterTags = [{'key': 'pyshepseg-cluster', 'value': ''}]
+        if aws_tags is not None:
+            createClusterTags.extend(aws_tags)
+        self.ecsClient.create_cluster(clusterName=self.clusterName, 
+            tags=createClusterTags)
 
         networkConf = {
             'awsvpcConfiguration': {
@@ -1694,7 +1733,10 @@ class SegFargateMgr(SegmentationConcurrencyMgr):
         if fargateCfg.cpuArchitecture is not None:
             taskDefParams['runtimePlatform'] = {'cpuArchitecture':
                 fargateCfg.cpuArchitecture}
-
+            
+        if aws_tags is not None:
+            taskDefParams['tags'] = aws_tags
+            
         taskDefResponse = self.ecsClient.register_task_definition(**taskDefParams)
         self.taskDefArn = taskDefResponse['taskDefinition']['taskDefinitionArn']
 
@@ -1707,10 +1749,11 @@ class SegFargateMgr(SegmentationConcurrencyMgr):
                 "command": 'Dummy, to be over-written',
                 'name': containerName}]}
         }
-
+        if aws_tags is not None:
+            runTaskParams['tags'] = aws_tags
+        
         channAddr = self.dataChan.addressStr()
         ctrOverrides = runTaskParams['overrides']['containerOverrides'][0]
-        self.taskArnList = []
         for workerID in range(concCfg.numWorkers):
             # Construct the command args entry with the current workerID
             workerCmdArgs = ['-i', str(workerID), '--channaddr', channAddr]
@@ -1746,6 +1789,23 @@ class SegFargateMgr(SegmentationConcurrencyMgr):
             time.sleep(5)
             taskCount = self.getClusterTaskCount()
             timeExceeded = (time.time() > (startTime + timeout))
+
+        # If timeExceeded, then we are somehow in shutdown even though
+        # some tasks are still running. In this case, we still want to
+        # shut down, so kill off any remaining tasks, so we can still
+        # delete the cluster
+        if timeExceeded:
+            for taskArn in self.taskArnList:
+                # We are trying to avoid any exceptions raised from within
+                # shutdown, so trap all of them.
+                try:
+                    self.ecsClient.stop_task(cluster=self.clusterName,
+                        task=taskArn, reason="Stopped by shutdown")
+                except Exception as e:
+                    # I am unsure if I should just silently ignore any exception
+                    # raised here, but for now I am going to print it to stderr.
+                    msg = f"Exception '{e}' raised while stopping ECS task"
+                    print(msg, file=sys.stderr)
 
     def getClusterTaskCount(self):
         """

@@ -4,6 +4,7 @@ Main script for a segmentation worker running in a separate process.
 """
 import argparse
 import queue
+import resource
 
 import numpy
 from osgeo import gdal
@@ -83,6 +84,7 @@ def pyshepsegRemoteSegmentationWorker(workerID, host, port, authkey):
         # the context manager protocol
         timings = Timers()
 
+        print('opening {}'.format(infile))
         inDs = gdal.Open(infile)
 
         colRow = popFromQue(dataChan.inQue)
@@ -117,12 +119,18 @@ def pyshepsegRemoteSegmentationWorker(workerID, host, port, authkey):
             dataChan.segResultCache.addResult(col, row, segResult)
             colRow = popFromQue(dataChan.inQue)
 
+            maxMem = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+            print('Max Mem Usage now', maxMem)
+
         # Merge the local timings object with the central one.
         dataChan.timings.merge(timings)
     except Exception as e:
         # Send a printable version of the exception back to main thread
         workerErr = WorkerErrorRecord(e, 'compute')
         dataChan.exceptionQue.put(workerErr)
+
+    maxMem = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    print('Max Mem Usage for run', maxMem)
 
 
 def popFromQue(que):
