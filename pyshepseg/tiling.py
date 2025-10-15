@@ -644,7 +644,7 @@ class FargateConfig:
             executionRoleArn=None, subnet=None,
             securityGroups=None, cpu='0.5 vCPU', memory='1GB',
             cpuArchitecture=None, cloudwatchLogGroup=None, 
-            efsVolumeSpec=None, tags=None):
+            tags=None):
         """
         AWS Fargate configuration information. For use only with CONC_FARGATE.
 
@@ -687,21 +687,6 @@ class FargateConfig:
             workers will be sent to this log group. If None, no CloudWatch
             logging is done. Intended for tracking problems, rather than
             operational use.
-          efsVolumeSpec: list of tuples (str, str, str, str, bool), or None
-            This is used to specify EFS volumes to be mounted by each Fargate
-            worker task. The information here is passed to ECS.Client.register_task_definition().
-            If specified, this should be a list of tuples
-            (name, fileSystemId, containerPath, rootDirectory, readOnly).
-
-            'name' is the mountpoint name, passed to register_task_definition
-            in two places. First, as name in the volumes parameter, and
-            second as the sourceVolume field in the containerDefinitions/
-            mountPoints parameter.
-            'fileSystemId' is the ID of the EFS filesystem. This should start
-            with 'fs-'. 'containerPath' is the mountpoint in the container.
-            'rootDirectory' is the point in the EFS to mount - normally '/'.
-            'readOnly' is a boolean specifying whether to mount the filesystem
-            as read only.
           tags: dict or None
             Optional. If specified this needs to be a dictionary of key/value
             pairs which will be turned into AWS tags. These will be added to
@@ -717,7 +702,6 @@ class FargateConfig:
         self.memory = memory
         self.cpuArchitecture = cpuArchitecture
         self.logGroup = cloudwatchLogGroup
-        self.efsVolumeSpec = efsVolumeSpec
         self.tags = tags
     
 
@@ -1738,17 +1722,6 @@ class SegFargateMgr(SegmentationConcurrencyMgr):
         if fargateCfg.cpuArchitecture is not None:
             taskDefParams['runtimePlatform'] = {'cpuArchitecture':
                 fargateCfg.cpuArchitecture}
-        if fargateCfg.efsVolumeSpec is not None:
-            volumes = []
-            mount_points = []
-            for name, efsid, mount, root, ro in fargateCfg.efsVolumeSpec:
-                vobj = {'name': name, 'efsVolumeConfiguration': {
-                    'fileSystemId': efsid, 'rootDirectory': root}}
-                volumes.append(vobj)
-                mobj = {'sourceVolume': name, 'containerPath': mount, 'readOnly': ro}
-                mount_points.append(mobj)
-            taskDefParams['volumes'] = volumes
-            taskDefParams['containerDefinitions'][0]['mountPoints'] = mount_points
             
         if aws_tags is not None:
             taskDefParams['tags'] = aws_tags
