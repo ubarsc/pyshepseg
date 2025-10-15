@@ -904,7 +904,7 @@ class SegmentationConcurrencyMgr:
         Run segmentation for all tiles, and write output image. Runs a number
         of segmentation workers, each working independently on individual
         tiles. The tiles to process are sent via a Queue, and the computed
-        results are returned via a different Queue.
+        results are returned via the SegmentationResultCache.
 
         Stitching the tiles together is run in the main thread, beginning as
         soon as the first tile is completed.
