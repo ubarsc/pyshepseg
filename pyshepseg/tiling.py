@@ -1093,9 +1093,6 @@ class SegmentationConcurrencyMgr:
                        "errors in segmentation workers").format(timeout)
                 raise PyShepSegTilingError(msg)
 
-        if self.concurrencyCfg.numWorkers == 0:
-            self.timings.pairs.pop('stitchwaitfortile')
-
         with self.timings.interval('stitchtiles'):
             self.writeHistogramToFile(outBand, histAccum)
             self.hasEmptySegments = self.checkForEmptySegments(histAccum.hist,
@@ -1506,8 +1503,7 @@ class SegNoConcurrencyMgr(SegmentationConcurrencyMgr):
 
             tileNum += 1
 
-        with self.timings.interval('stitchtiles'):
-            self.stitchTiles()
+        self.stitchTiles()
 
         shutil.rmtree(self.tempDir)
 
