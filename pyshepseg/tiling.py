@@ -136,8 +136,8 @@ class TiledSegmentationResult(object):
         numbering. A warning message will also have been printed.
       timings : pyshepseg.timinghooks.Timers
         Timings for various key parts of the segmentation process
-      outDs: gdal.Dataset
-        Open GDAL dataset object to the output file. May not be set -
+      outDs : gdal.Dataset or None
+        Open GDAL dataset object to the output file. May be None,
         see the returnGDALDS parameter to doTiledShepherdSegmentation.
 
     """
