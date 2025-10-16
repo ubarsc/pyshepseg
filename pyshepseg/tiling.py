@@ -664,7 +664,53 @@ class SegmentationConcurrencyConfig:
 
 class FargateConfig:
     """
-    Configuration for AWS Fargate
+    Configuration for AWS Fargate (i.e. for use with CONC_FARGATE).
+
+    Parameters
+    ----------
+      containerImage : str
+        URI of the container image to use for segmentation workers. This
+        container must have pyshepseg installed. It can be the same
+        container as used for the main script, as the entry point is
+        over-written.
+      taskRoleArn : str
+        ARN for an AWS role. This allows your code to use AWS services.
+        This role should include policies such as AmazonS3FullAccess,
+        covering any AWS services the segmentation workers will need.
+      executionRoleArn : str
+        ARN for an AWS role. This allows ECS to use AWS services on
+        your behalf. A good start is a role including
+        AmazonECSTaskExecutionRolePolicy
+      subnet : str
+        Subnet ID string associated with the VPC in which workers will
+        run.
+      securityGroups : list of str
+        Fargate. List of security group IDs associated with the VPC.
+      cpu : str
+        Number of CPU units requested for each segmentation worker,
+        expressed in AWS's own units. For example, '0.5 vCPU', or
+        '1024' (which corresponds to the same thing). Both must be strings.
+        This helps Fargate to select a suitable VM instance type.
+      memory : str
+        Amount of memory requested for each segmentation worker,
+        expressed in MiB, or with a units suffix. For example, '1024'
+        or its equivalent '1GB'. This helps Fargate to select a suitable
+        VM instance type.
+      cpuArchitecture : str
+        If given, selects the CPU architecture of the hosts to run
+        worker on. Can be 'ARM64', defaults to 'X86_64'.
+      cloudwatchLogGroup : str or None
+        If not None, the name of a CloudWatch log group. This group should
+        already exist, in the region that the job is running. Logs from
+        workers will be sent to this log group. If None, no CloudWatch
+        logging is done. Intended for tracking problems, rather than
+        operational use.
+      tags: dict or None
+        Optional. If specified this needs to be a dictionary of key/value
+        pairs which will be turned into AWS tags. These will be added to
+        the ECS cluster, task definition and tasks. The keys and values
+        must all be strings. Requires ``ecs:TagResource`` permission.
+
     """
     def __init__(self, containerImage=None, taskRoleArn=None,
             executionRoleArn=None, subnet=None,
@@ -673,51 +719,6 @@ class FargateConfig:
             tags=None):
         """
         AWS Fargate configuration information. For use only with CONC_FARGATE.
-
-        Parameters
-        ----------
-          containerImage : str
-            URI of the container image to use for segmentation workers. This
-            container must have pyshepseg installed. It can be the same
-            container as used for the main script, as the entry point is
-            over-written.
-          taskRoleArn : str
-            ARN for an AWS role. This allows your code to use AWS services.
-            This role should include policies such as AmazonS3FullAccess,
-            covering any AWS services the segmentation workers will need.
-          executionRoleArn : str
-            ARN for an AWS role. This allows ECS to use AWS services on
-            your behalf. A good start is a role including
-            AmazonECSTaskExecutionRolePolicy
-          subnet : str
-            Subnet ID string associated with the VPC in which workers will
-            run.
-          securityGroups : list of str
-            Fargate. List of security group IDs associated with the VPC.
-          cpu : str
-            Number of CPU units requested for each segmentation worker,
-            expressed in AWS's own units. For example, '0.5 vCPU', or
-            '1024' (which corresponds to the same thing). Both must be strings.
-            This helps Fargate to select a suitable VM instance type.
-          memory : str
-            Amount of memory requested for each segmentation worker,
-            expressed in MiB, or with a units suffix. For example, '1024'
-            or its equivalent '1GB'. This helps Fargate to select a suitable
-            VM instance type.
-          cpuArchitecture : str
-            If given, selects the CPU architecture of the hosts to run
-            worker on. Can be 'ARM64', defaults to 'X86_64'.
-          cloudwatchLogGroup : str or None
-            If not None, the name of a CloudWatch log group. This group should
-            already exist, in the region that the job is running. Logs from
-            workers will be sent to this log group. If None, no CloudWatch
-            logging is done. Intended for tracking problems, rather than
-            operational use.
-          tags: dict or None
-            Optional. If specified this needs to be a dictionary of key/value
-            pairs which will be turned into AWS tags. These will be added to
-            the ECS cluster, task definition and tasks. The keys and values
-            must all be strings. Requires ``ecs:TagResource`` permission.
         """
         self.containerImage = containerImage
         self.taskRoleArn = taskRoleArn
