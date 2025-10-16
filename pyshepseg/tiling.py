@@ -591,8 +591,48 @@ def selectConcurrencyClass(concurrencyType, baseClass):
 
 class SegmentationConcurrencyConfig:
     """
-    Configuration for concurrency. This class can be used independantly to
-    configure concurrency in either segmentation or per-segment statistics.
+    Configuration for concurrency in segmentation of multiple tiles.
+
+    The segmentation of each tile can be performed concurrently by individual
+    workers. However, the stitching together of the resulting tiles is
+    inherently sequential, and with sufficient workers, this easily becomes
+    the dominant operation. Adding more workers after this simply increases
+    the memory usage for tiles waiting to be stitched (up to segResultCacheSize),
+    without any further speedup.
+
+    It is recommended that the user begin with a small number of workers, and
+    inspect the timings (see :func:`pyshepseg.utils.formatTimingRpt`) and
+    increase the number of workers so as to reduce ``stitchwaitfortile`` time.
+    When this no longer decreases, there is no further benefit to adding more
+    workers.
+
+    Parameters
+    ----------
+      concurrencyType : One of {CONC_NONE, CONC_THREADS, CONC_FARGATE, CONC_SUBPROC}
+        The mechanism used for concurrency
+      numWorkers : int
+        Number of segmentation workers
+      maxConcurrentReads : int
+        Maximum number of concurrent reads. Each segmentation worker
+        does its own reading of input data. Since the number of workers
+        can be quite large, this could load the read device too heavily.
+        Given that the read step is a very small component of each
+        worker's activity, we can limit the number of concurrent reads
+        to this value, without degrading throughput.
+      tileCompletionTimeout : int
+        Timeout (seconds) to wait for completion of each segmentation tile
+      segResultCacheSize : int
+        Maximum number of completed tile segmentations in cache
+      segResultCacheAddTimeout : int
+        Timeout (seconds) to wait to add a completed segmentation into
+        the result cache. If this timeout is reached, it may indicate that there
+        are too many workers.
+      barrierTimeout : int
+        Timeout (seconds) to wait for all workers to start. Used with
+        CONC_FARGATE (and CONC_SUBPROC).
+      fargateCfg : None or instance of FargateConfig
+        Configuration for AWS Fargate (when using CONC_FARGATE)
+
     """
     def __init__(self, concurrencyType=CONC_NONE, numWorkers=0,
             maxConcurrentReads=20, tileCompletionTimeout=60,
@@ -600,32 +640,6 @@ class SegmentationConcurrencyConfig:
             barrierTimeout=300, fargateCfg=None):
         """
         Configuration for managing segmentation concurrency.
-
-        Parameters
-        ----------
-          concurrencyType : One of {CONC_NONE, CONC_THREADS, CONC_FARGATE, CONC_SUBPROC}
-            The mechanism used for concurrency
-          numWorkers : int
-            Number of segmentation workers
-          maxConcurrentReads : int
-            Maximum number of concurrent reads. Each segmentation worker
-            does its own reading of input data. Since the number of workers
-            can be quite large, this could load the read device too heavily.
-            Given that the read step is a very small component of each
-            worker's activity, we can limit the number of concurrent reads
-            to this value, without degrading throughput.
-          tileCompletionTimeout : int
-            Timeout (seconds) to wait for completion of each segmentation tile
-          segResultCacheSize : int
-            Maximum number of completed segmentations in cache
-          segResultCacheAddTimeout : int
-            Timeout (seconds) to wait to add a completed segmentation into
-            the result cache
-          barrierTimeout : int
-            Timeout (seconds) to wait for all workers to start. Used with
-            CONC_FARGATE (and CONC_SUBPROC).
-          fargateCfg : None or instance of FargateConfig
-            Configuration for AWS Fargate (when using CONC_FARGATE)
 
         """
         self.concurrencyType = concurrencyType
