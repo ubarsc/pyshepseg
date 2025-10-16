@@ -69,6 +69,8 @@ def getCmdargs():
     p.add_argument("--statsreadworkers", type=int, default=0, 
         help="Number or RIOS readworkers to use while calculating stats. " + 
             "(default=%(default)s)")
+    p.add_argument("--KmeansObj", required=False,
+        help="bucket:path to Kmeans object pkl")
 
     cmdargs = p.parse_args()
     if cmdargs.bands is not None:
@@ -94,12 +96,21 @@ def main():
     # ie: GTiff.
     inPath = '/vsis3/' + cmdargs.bucket + '/' + cmdargs.infile
 
+    kMeansObj = None
+    if cmdargs.KmeansObj is not None:
+        bucket, kmeansKey = cmdargs.KmeansObj.split(':')
+        with io.BytesIO() as fileobj:
+            s3.download_fileobj(bucket, kmeansKey, fileobj)
+            fileobj.seek(0)
+            kMeansObj = pickle.load(fileobj)
+
     # run the initial part of the tiled segmentation
     inDs, bandNumbers, kmeansObj, subsamplePcnt, imgNullVal, tileInfo = (
         tiling.doTiledShepherdSegmentation_prepare(inPath, 
         bandNumbers=cmdargs.bands, tileSize=cmdargs.tilesize, 
         overlapSize=cmdargs.overlapsize, 
-        numClusters=cmdargs.numClusters))
+        numClusters=cmdargs.numClusters,
+        kmeansObj=kMeansObj))
 
     # pickle the required input data that each of the tiles will need
     colRowList = sorted(tileInfo.tiles.keys(), key=lambda x: (x[1], x[0]))

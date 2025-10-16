@@ -64,6 +64,8 @@ def getCmdargs():
     p.add_argument("--statsreadworkers", type=int, default=0, 
         help="Number or RIOS readworkers to use while calculating stats. " + 
             "(default=%(default)s)")
+    p.add_argument("--KmeansObj", required=False,
+        help="s3:// path to Kmeans object pkl")
 
     cmdargs = p.parse_args()
 
@@ -106,6 +108,8 @@ def main():
         cmd.extend(['--tileprefix', cmdargs.tileprefix])
     if cmdargs.noremove:
         cmd.append('--noremove')
+    if cmdargs.KmeansObj is not None:
+        cmd.extend(['--KmeansObj', cmdargs.KmeansObj])
 
     # submit the prepare job
     response = batch.submit_job(jobName="pyshepseg_prepare",
