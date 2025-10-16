@@ -705,7 +705,7 @@ class FargateConfig:
         workers will be sent to this log group. If None, no CloudWatch
         logging is done. Intended for tracking problems, rather than
         operational use.
-      tags: dict or None
+      tags : dict or None
         Optional. If specified this needs to be a dictionary of key/value
         pairs which will be turned into AWS tags. These will be added to
         the ECS cluster, task definition and tasks. The keys and values
