@@ -944,8 +944,8 @@ class SegmentationConcurrencyMgr:
                 self.startWorkers()
                 maxMem = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
                 print('Max Mem Usage after tiles', maxMem)
-            with self.timings.interval('stitchtiles'):
-                self.stitchTiles()
+
+            self.stitchTiles()
         finally:
             self.shutdown()
                 
@@ -1030,7 +1030,8 @@ class SegmentationConcurrencyMgr:
             reportedRow = row
 
             (xpos, ypos, xsize, ysize) = self.tileInfo.getTile(col, row)
-            tileData = self.getTileSegmentation(col, row)
+            with self.timings.interval('stitchwaitfortile'):
+                tileData = self.getTileSegmentation(col, row)
 
             if tileData is not None:
                 top = marginSize
@@ -1060,26 +1061,27 @@ class SegmentationConcurrencyMgr:
                     right = xsize
                     rightName = None
 
-                if self.simpleTileRecode:
-                    nullmask = (tileData == shepseg.SEGNULLVAL)
-                    tileData += maxSegId
-                    tileData[nullmask] = shepseg.SEGNULLVAL
-                else:
-                    tileData = self.recodeTile(tileData, maxSegId, row, col,
-                                top, bottom, left, right)
+                with self.timings.interval('stitchtiles'):
+                    if self.simpleTileRecode:
+                        nullmask = (tileData == shepseg.SEGNULLVAL)
+                        tileData += maxSegId
+                        tileData[nullmask] = shepseg.SEGNULLVAL
+                    else:
+                        tileData = self.recodeTile(tileData, maxSegId, row, col,
+                                    top, bottom, left, right)
 
-                tileDataTrimmed = tileData[top:bottom, left:right]
-                outBand.WriteArray(tileDataTrimmed, xout, yout)
-                self.writeOverviews(outBand, tileDataTrimmed, xout, yout)
-                histAccum.doHistAccum(tileDataTrimmed)
+                    tileDataTrimmed = tileData[top:bottom, left:right]
+                    outBand.WriteArray(tileDataTrimmed, xout, yout)
+                    self.writeOverviews(outBand, tileDataTrimmed, xout, yout)
+                    histAccum.doHistAccum(tileDataTrimmed)
 
-                if rightName is not None:
-                    self.saveOverlap(rightName, tileData[:, -self.overlapSize:])
-                if bottomName is not None:
-                    self.saveOverlap(bottomName, tileData[-self.overlapSize:, :])
+                    if rightName is not None:
+                        self.saveOverlap(rightName, tileData[:, -self.overlapSize:])
+                    if bottomName is not None:
+                        self.saveOverlap(bottomName, tileData[-self.overlapSize:, :])
 
-                tileMaxSegId = tileDataTrimmed.max()
-                maxSegId = max(maxSegId, tileMaxSegId)
+                    tileMaxSegId = tileDataTrimmed.max()
+                    maxSegId = max(maxSegId, tileMaxSegId)
                 i += 1
             else:
                 self.checkWorkerExceptions()
@@ -1091,12 +1093,17 @@ class SegmentationConcurrencyMgr:
                        "errors in segmentation workers").format(timeout)
                 raise PyShepSegTilingError(msg)
 
-        self.writeHistogramToFile(outBand, histAccum)
-        self.hasEmptySegments = self.checkForEmptySegments(histAccum.hist,
-            self.overlapSize)
-        utils.estimateStatsFromHisto(outBand, histAccum.hist)
-        self.maxSegId = maxSegId
-        outDs.FlushCache()
+        if self.concurrencyCfg.numWorkers == 0:
+            self.timings.pairs.pop('stitchwaitfortile')
+
+        with self.timings.interval('stitchtiles'):
+            self.writeHistogramToFile(outBand, histAccum)
+            self.hasEmptySegments = self.checkForEmptySegments(histAccum.hist,
+                self.overlapSize)
+            utils.estimateStatsFromHisto(outBand, histAccum.hist)
+            self.maxSegId = maxSegId
+            outDs.FlushCache()
+
         if self.returnGDALDS:
             self.outDs = outDs
         else:

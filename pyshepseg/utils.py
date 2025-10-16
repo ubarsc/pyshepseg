@@ -300,7 +300,7 @@ def formatTimingRpt(summaryDict):
     if isSeg:
         hdr = "Segmentation Timings (sec)"
         timerList = ['spectralclusters', 'startworkers', 'reading',
-            'segmentation', 'stitchtiles']
+            'segmentation', 'stitchwaitfortile', 'stitchtiles']
     elif isStats:
         hdr = "Per-segment Stats Timings (sec)"
         timerList = ['reading', 'accumulation', 'statscompletion', 'writing']
