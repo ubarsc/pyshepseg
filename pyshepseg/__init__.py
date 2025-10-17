@@ -29,6 +29,6 @@ see the pyshepseg.tiling module.
 
 """
 
-SHEPSEG_VERSION = '2.0.3'
+SHEPSEG_VERSION = '2.0.4'
 __version__ = SHEPSEG_VERSION
 

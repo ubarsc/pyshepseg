@@ -1,6 +1,33 @@
 Pyshepseg Release Notes
 =======================
 
+Version 2.0.4 (2025-10-17)
+--------------------------
+
+New Features
+  * Integrated concurrency for tiled segmentation, supporting threads within
+    process or AWS Fargate segmentation workers
+    (`#75 <https://github.com/ubarsc/pyshepseg/pull/75)>`_,
+    `#76 <https://github.com/ubarsc/pyshepseg/pull/76)>`_,
+    `#77 <https://github.com/ubarsc/pyshepseg/pull/77)>`_,
+    `#79 <https://github.com/ubarsc/pyshepseg/pull/79)>`_,
+    `#80 <https://github.com/ubarsc/pyshepseg/pull/80)>`_). See
+    `SegmentationConcurrencyConfig <https://www.pyshepseg.org/en/latest/pyshepseg_tiling.html#pyshepseg.tiling.SegmentationConcurrencyConfig>`_
+    for usage details.
+    Eventually this will make the AWSBatch-based concurrency
+    obsolete, but there may be more to do before then.
+  * Improved flexibility of AWSBatch-based concurrency for per-segment stats
+    (`#69 <https://github.com/ubarsc/pyshepseg/pull/69)>`_,
+    `#71 <https://github.com/ubarsc/pyshepseg/pull/71)>`_,
+    `#72 <https://github.com/ubarsc/pyshepseg/pull/72)>`_,
+    `#74 <https://github.com/ubarsc/pyshepseg/pull/74)>`_).
+
+Bug Fixes
+  * Only open segmentation file as update when necessary, otherwise read-only
+    (`#73 <https://github.com/ubarsc/pyshepseg/pull/73)>`_).
+  * Avoid using repr on numpy scalars, as numpy-2.0 changed its behaviour
+    too radically (`#67 <https://github.com/ubarsc/pyshepseg/pull/67)>`_).
+
 Version 2.0.3 (2024-12-06)
 --------------------------
 
