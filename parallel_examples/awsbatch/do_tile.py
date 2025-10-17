@@ -87,7 +87,7 @@ def main():
     # but this would add more complexity.
     s3_filename = '{}_{}_{}.{}'.format(cmdargs.tileprefix, 
         col, row, 'tif')
-    filename = os.path.join(tempDir, os.path.basename(filename_s3))
+    filename = os.path.join(tempDir, os.path.basename(s3_filename))
 
     # test if int
     maxSpectDiff = cmdargs.maxSpectDiff
