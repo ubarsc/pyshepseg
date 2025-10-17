@@ -85,9 +85,9 @@ def main():
     # - they must match. Potentially a database or similar
     # could have been used to notify of the names of tiles 
     # but this would add more complexity.
-    filename = '{}_{}_{}.{}'.format(cmdargs.tileprefix, 
+    s3_filename = '{}_{}_{}.{}'.format(cmdargs.tileprefix, 
         col, row, 'tif')
-    filename = os.path.join(tempDir, filename)
+    filename = os.path.join(tempDir, os.path.basename(filename_s3))
 
     # test if int
     maxSpectDiff = cmdargs.maxSpectDiff
@@ -108,7 +108,7 @@ def main():
         'BIGTIFF=NO', 'BLOCKXSIZE=512', 'BLOCKYSIZE=512'])
 
     # upload the tile to S3.
-    s3.upload_file(filename, cmdargs.bucket, os.path.basename(filename))
+    s3.upload_file(filename, cmdargs.bucket, s3_filename)
 
     # cleanup
     shutil.rmtree(tempDir)
