@@ -1,4 +1,3 @@
 include LICENSE.txt
 include CHANGES.txt
 include README.md
-include parallel_examples/* parallel_examples/awsbatch/*
