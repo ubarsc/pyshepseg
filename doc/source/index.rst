@@ -178,12 +178,12 @@ Concurrency
 
 There is some support for performing segmentation in parallel using threads, subprocesses
 or AWS Fargate. See the docstrings
-for :func:`pyshepseg.tiling.doTiledShepherdSegmentation` and :func:`pyshepseg.tiling.SegmentationConcurrencyConfig`
+for :func:`pyshepseg.tiling.doTiledShepherdSegmentation` and :class:`pyshepseg.tiling.SegmentationConcurrencyConfig`
 for more information.
 
-In addition, read concurrency is available when doing statistics from files with
-high latency (for instance, AWS S3) using `RIOS <https://rioshome.org/>`_. See the docstring for 
-:func:`pyshepseg.tiling.calcPerSegmentSpatialStatsRIOS` for more information.
+In addition, **experimental** read concurrency is available when doing statistics from files with
+high latency (for instance, AWS S3) using `RIOS <https://www.rioshome.org/>`_. See the docstring for 
+:func:`pyshepseg.tilingstats.calcPerSegmentSpatialStatsRIOS` for more information.
 
 
 Modules in this Package
