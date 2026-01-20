@@ -125,6 +125,13 @@ class OpenRatContainer:
         self.attrTbl = attrTbl
         self.rz = rz
         self.colNdxLookup = {}
+        if rz is not None:
+            # Fake colNdx for existing column names
+            colNames = rz.getColumnNames()
+            for i in range(len(colNames)):
+                self.colNdxLookup[i] = colNames[i]
+        self.zarrColType = {
+            gdal.GFT_Integer: numpy.int32, gdal.GFT_Real: numpy.float32}
 
     def SetRowCount(self, rowCount):
         """
@@ -145,11 +152,44 @@ class OpenRatContainer:
             colCount = self.attrTbl.GetColumnCount()
         return colCount
 
+    def colExists(self, colName):
+        """
+        Check if the named column already exists in the RAT
+        """
+        if self.rz is not None:
+            exists = self.rz.colExists(colName)
+        elif self.attrTbl is not None:
+            existingColNames = [self.attrTbl.GetNameOfCol(i) 
+                for i in range(self.attrTbl.GetColumnCount())]
+            exists = (colName in existingColNames)
+        return exists
+
     def setColNdxLookup(self, colNdx, colName):
         """
         Record the colNdx/colName connection
         """
-        self.colNdxLookup[colNdx] = colName
+        if colNdx not in self.colNdxLookup:
+            self.colNdxLookup[colNdx] = colName
+
+    def getColNdx(self, colName):
+        """
+        Get the column index for the given name. The index is only meaningful
+        for GDAL-based RAT, but we fake it for Zarr-based, so we can
+        continue to use it as the basic identifier in the numba-compiled
+        sections of code (i.e. the statsSelection_fast structure).
+        """
+        colNdx = None
+        if self.rz is not None:
+            for (ndx, name) in self.colNdxLookup.items():
+                if name == colName:
+                    colNdx = ndx
+        elif self.attrTbl is not None:
+            nCols = self.attrTbl.GetColumnCount()
+            for ndx in range(nCols):
+                name = self.attrTbl.GetNameOfCol(ndx)
+                if name == colName:
+                    colNdx = ndx
+        return colNdx
 
     def CreateColumn(self, colName, colType):
         """
@@ -157,7 +197,10 @@ class OpenRatContainer:
         use GFU_Generic usage
         """
         if self.rz is not None:
-            self.rz.createColumn(colName, colType)
+            numpyType = self.zarrColType[colType]
+            numCols = self.GetColumnCount()
+            self.rz.createColumn(colName, numpyType)
+            self.colNdxLookup[numCols + 1] = colName
         elif self.attrTbl is not None:
             self.attrTbl.CreateColumn(colName, colType, gdal.GFU_Generic)
 
@@ -190,7 +233,8 @@ class OpenRatContainer:
 
 
 def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile, 
-            statsSelection, missingStatsValue=-9999):
+            statsSelection, missingStatsValue=-9999,
+            outFile=None, outFileIsZarr=False):
     """
     Calculate selected per-segment statistics for the given band 
     of the imgfile, against the given segment raster file. 
@@ -271,8 +315,13 @@ def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile,
         
     histColNdx = checkHistColumn(existingColNames)
     segSize = attrTbl.ReadAsArray(histColNdx).astype(numpy.uint32)
-    openRat = OpenRatContainer(ds=segds, band=segband, attrTbl=attrTbl)
-    
+    if outFileIsZarr and outFile is not None:
+        rz = ratzarr.RatZarr(outFile)
+        openRat = OpenRatContainer(rz=rz)
+    else:
+        openRat = OpenRatContainer(ds=segds, band=segband, attrTbl=attrTbl)
+    openRat.SetRowCount(segSize.size)
+
     # Create columns, as required
     colIndexList = createStatColumns(statsSelection, openRat, existingColNames)
     (statsSelection_fast, numIntCols, numFloatCols) = (
@@ -827,17 +876,15 @@ def createStatColumns(statsSelection, openRat, existingColNames):
     colIndexList = []
     for selection in statsSelection:
         (colName, statName) = selection[:2]
-        if colName not in existingColNames:
+        if not openRat.colExists(colName):
             colType = gdal.GFT_Integer
             if statName in ('mean', 'stddev'):
                 colType = gdal.GFT_Real
             openRat.CreateColumn(colName, colType)
-            colNdx = openRat.GetColumnCount() - 1
         else:
             print('Column {} already exists'.format(colName))
-            colNdx = existingColNames.index(colName)
+        colNdx = openRat.getColNdx(colName)
         colIndexList.append(colNdx)
-        openRat.setColNdxLookup(colNdx, colName)
     return colIndexList
 
 

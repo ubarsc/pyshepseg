@@ -14,6 +14,10 @@ import argparse
 import numpy
 
 from osgeo import gdal
+try:
+    import ratzarr
+except ImportError:
+    ratzarr = None
 
 from pyshepseg import shepseg, tiling, tilingstats, utils, subset
 
@@ -126,11 +130,20 @@ def main():
     utils.writeColorTableFromRatColumns(outsegfile, meanColNames[0], 
         meanColNames[1], meanColNames[2])
 
+    # Test Zarr stats output
+    if ratzarr is not None:
+        print("Testing Zarr stats output")
+        tmpZarrFile = "tmp_stats.zarr"
+        makeRATcolumns(segResults, outsegfile, imagefile,
+                       outZarrFile=tmpZarrFile)
+
     if not cmdargs.keep:
         print("Removing generated data")
         for fn in tmpdatafiles:
             drvr = gdal.IdentifyDriver(fn)
             drvr.Delete(fn)
+        if ratzarr is not None:
+            ratzarr.RatZarr.delete(tmpZarrFile)
 
     # Exit with an explicit status code, so that Github workflow
     # can recognise if something went wrong. 
@@ -276,7 +289,7 @@ def readSeg(segfile, xoff=0, yoff=0, win_xsize=None, win_ysize=None):
     return seg
 
 
-def makeRATcolumns(segResults, outsegfile, imagefile):
+def makeRATcolumns(segResults, outsegfile, imagefile, outZarrFile=None):
     """
     Add some columns to the RAT, with useful per-segment statistics
     """
@@ -289,8 +302,9 @@ def makeRATcolumns(segResults, outsegfile, imagefile):
         meanColNames.append(meanCol)
         stdColNames.append(stdCol)
         statsSelection = [(meanCol, "mean"), (stdCol, "stddev")]
+        outFileIzZarr = outZarrFile is not None
         tilingstats.calcPerSegmentStatsTiled(imagefile, (i + 1), outsegfile, 
-            statsSelection)
+            statsSelection, outFile=outZarrFile, outFileIsZarr=outFileIzZarr)
     
     return (meanColNames, stdColNames)
 
