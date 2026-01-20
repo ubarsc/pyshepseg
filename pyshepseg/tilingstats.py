@@ -56,6 +56,14 @@ try:
 except ImportError:
     pass
 
+try:
+    import ratzarr
+    HAVE_RATZARR = True
+except ImportError:
+    ratzarr = None
+    HAVE_RATZARR = False
+
+
 gdal.UseExceptions()
 osr.UseExceptions()
 
@@ -80,6 +88,105 @@ class TiledStatsResult:
     """
     def __init__(self):
         self.timings = None
+
+
+class OpenRatContainer:
+    """
+    Hold all data structures for an open RAT, hiding the distinction
+    between GDAL-based and Zarr-based RATs.
+    """
+    def __init__(self, ds=None, band=None, attrTbl=None, rz=None):
+        """
+        Hold all data structures for an open RAT, hiding the distinction
+        between GDAL-based and Zarr-based RATs. The constructor takes
+        ......
+
+        Fix this up once completed ..........
+
+        Parameters
+        ----------
+          ratFile : str or None
+            Name of RAT file. Include 's3://...' if required (RatZarr only)
+          isZarr : bool
+            True if the ratFile is a RatZarr file
+          gdalDrvr : gdal.Driver or None
+            The GDAL driver to use to create the output file
+          
+        """
+        allGDALobjects = ((ds is not None) and (band is not None) and
+                          (attrTbl is not None))
+        ratZarrGiven = (rz is not None)
+        if not (allGDALobjects or ratZarrGiven):
+            msg = "Must supply either rz or all of ds, band & attrTbl"
+            raise PyShepSegStatsError(msg)
+
+        self.ds = ds
+        self.band = band
+        self.attrTbl = attrTbl
+        self.rz = rz
+        self.colNdxLookup = {}
+
+    def SetRowCount(self, rowCount):
+        """
+        Set the row count for the table
+        """
+        if self.rz is not None:
+            self.rz.setRowCount(rowCount)
+        elif self.attrTbl is not None:
+            self.attrTbl.SetRowCount(rowCount)
+
+    def GetColumnCount(self):
+        """
+        Return the current number of columns in the RAT
+        """
+        if self.rz is not None:
+            colCount = len(self.rz.getColumnNames())
+        elif self.attrTbl is not None:
+            colCount = self.attrTbl.GetColumnCount()
+        return colCount
+
+    def setColNdxLookup(self, colNdx, colName):
+        """
+        Record the colNdx/colName connection
+        """
+        self.colNdxLookup[colNdx] = colName
+
+    def CreateColumn(self, colName, colType):
+        """
+        Create the column with the given name and type. For GDAL RAT, always
+        use GFU_Generic usage
+        """
+        if self.rz is not None:
+            self.rz.createColumn(colName, colType)
+        elif self.attrTbl is not None:
+            self.attrTbl.CreateColumn(colName, colType, gdal.GFU_Generic)
+
+    def WriteArray(self, colArr, colNumber, start):
+        """
+        Intended to look like GDAL's RAT WriteArray function.
+
+        When the output RAT is a GDAL file, parameters are passed straight
+        through. When using a RatZarr file, the colNdx is translated to
+        a column name and the data written to that column.
+
+        """
+        if self.rz is not None:
+            colName = self.colNdxLookup[colNumber]
+            self.rz.writeBlock(colName, colArr, start)
+        elif self.attrTbl is not None:
+            self.attrTbl.WriteArray(colArr, colNumber, start=start)
+
+    def close(self):
+        """
+        Close the open file handles
+        """
+        if self.ds is not None:
+            self.ds.FlushCache()
+            self.ds = None
+            self.band = None
+            self.attrTbl = None
+        elif self.rz is not None:
+            self.rz = None
 
 
 def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile, 
@@ -164,9 +271,10 @@ def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile,
         
     histColNdx = checkHistColumn(existingColNames)
     segSize = attrTbl.ReadAsArray(histColNdx).astype(numpy.uint32)
+    openRat = OpenRatContainer(ds=segds, band=segband, attrTbl=attrTbl)
     
     # Create columns, as required
-    colIndexList = createStatColumns(statsSelection, attrTbl, existingColNames)
+    colIndexList = createStatColumns(statsSelection, openRat, existingColNames)
     (statsSelection_fast, numIntCols, numFloatCols) = (
         makeFastStatsSelection(colIndexList, statsSelection))
 
@@ -201,11 +309,11 @@ def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile,
                     segSize, numIntCols, numFloatCols)
 
             with timings.interval('writing'):
-                writeCompletePages(pagedRat, attrTbl, statsSelection_fast)
+                writeCompletePages(pagedRat, openRat, statsSelection_fast)
 
     with timings.interval('writing'):
-        segds.FlushCache()
-        del segds
+        del segds, segband, attrTbl
+        openRat.close()
 
     # all pages should now be written. Raise an error if this not the case.
     if len(pagedRat) > 0:
@@ -228,13 +336,13 @@ def calcPerSegmentStats_riosFunc(info, inputs, outputs, otherArgs):
         otherArgs.statsSelection_fast, otherArgs.segSize, 
         otherArgs.numIntCols, otherArgs.numFloatCols)
     
-    writeCompletePages(otherArgs.pagedRat, otherArgs.attrTbl, 
+    writeCompletePages(otherArgs.pagedRat, otherArgs.openRat, 
         otherArgs.statsSelection_fast)
 
 
 def calcPerSegmentStatsRIOS(imgfile, imgbandnum, segfile, 
             statsSelection, concurrencyStyle=None, 
-            missingStatsValue=-9999, outFile=None):
+            missingStatsValue=-9999, outFile=None, outFileIsZarr=False):
     """
     Calculate selected per-segment statistics for the given band 
     of the imgfile, against the given segment raster file. 
@@ -305,10 +413,15 @@ def calcPerSegmentStatsRIOS(imgfile, imgbandnum, segfile,
         Name of a separate output file in which to write RAT columns. Should
         not exist, as it will be created here. Created as KEA, so should
         use .kea suffix. This is a temporary hack, should do better.
+      outFileIsZarr : bool
+        Set to True if the outFile should be written as RatZarr format.
 
     """
     if not HAVE_RIOS:
         raise PyShepSegStatsError('RIOS needs to be installed for this function')
+    if outFileIsZarr and not HAVE_RATZARR:
+        msg = "outFileIsZarr requested, but ratzarr package unavailable"
+        raise PyShepSegStatsError(msg)
     
     segds, segband, imgds, imgband = doImageAlignmentChecks(segfile, 
         imgfile, imgbandnum, update=False)
@@ -340,7 +453,7 @@ def calcPerSegmentStatsRIOS(imgfile, imgbandnum, segfile,
     # segments and increases memory use dramatically. 
     controls.setWindowSize(tiling.TILESIZE, tiling.TILESIZE)
     
-    # now create a new temporary file for saving the new columns too
+    # now create a new temporary file for saving the new columns to
     if outFile is None:
         tempFileMgr = applier.TempfileManager(controls.tempdir)
         tempKEA = tempFileMgr.mktempfile(prefix='pyshepseg_tilingstats_', suffix='.kea')
@@ -350,16 +463,23 @@ def calcPerSegmentStatsRIOS(imgfile, imgbandnum, segfile,
             if drvr is not None:
                 drvr.Delete(outFile)
         tempKEA = outFile
-    keaDriver = gdal.GetDriverByName('KEA')
-    tempKEADS = keaDriver.Create(tempKEA, 10, 10, 1, gdal.GDT_UInt32)
-    tempKEABand = tempKEADS.GetRasterBand(1)
-    tempKEABand.SetMetadataItem('LAYER_TYPE', 'thematic')
-    tempKEAAttrTbl = tempKEABand.GetDefaultRAT()
+    if outFileIsZarr:
+        rz = ratzarr.RatZarr(outFile)
+        openRat = OpenRatContainer(rz=rz)
+    else:
+        keaDriver = gdal.GetDriverByName('KEA')
+        tempKEADS = keaDriver.Create(tempKEA, 10, 10, 1, gdal.GDT_UInt32)
+        tempKEABand = tempKEADS.GetRasterBand(1)
+        tempKEABand.SetMetadataItem('LAYER_TYPE', 'thematic')
+        tempKEAAttrTbl = tempKEABand.GetDefaultRAT()
+        openRat = OpenRatContainer(ds=tempKEADS, band=tempKEABand,
+            attrTbl=tempKEAAttrTbl)
+
     # make same size as original
-    tempKEAAttrTbl.SetRowCount(segSize.size)
+    openRat.SetRowCount(segSize.size)
     
     # Create columns (should be temp file)
-    colIndexList = createStatColumns(statsSelection, tempKEAAttrTbl, [])
+    colIndexList = createStatColumns(statsSelection, openRat, [])
     (statsSelection_fast, numIntCols, numFloatCols) = (
         makeFastStatsSelection(colIndexList, statsSelection))
         
@@ -381,7 +501,7 @@ def calcPerSegmentStatsRIOS(imgfile, imgbandnum, segfile,
     otherArgs.segDict = createSegDict()
     otherArgs.pagedRat = createPagedRat()
     otherArgs.noDataDict = createNoDataDict()
-    otherArgs.attrTbl = tempKEAAttrTbl
+    otherArgs.openRat = openRat
     otherArgs.imgNullVal = imgNullVal
     otherArgs.missingStatsValue = missingStatsValue
     otherArgs.statsSelection_fast = statsSelection_fast
@@ -679,7 +799,7 @@ def checkHistColumn(existingColNames):
     return histColNdx
 
 
-def createStatColumns(statsSelection, attrTbl, existingColNames):
+def createStatColumns(statsSelection, openRat, existingColNames):
     """
     Create requested statistic columns on the segmentation image RAT.
     Statistic columns are of type gdal.GFT_Real for mean and stddev, 
@@ -692,8 +812,8 @@ def createStatColumns(statsSelection, attrTbl, existingColNames):
     ----------
       statsSelection : list of tuples
         Same as passed to :func:`calcPerSegmentStatsTiled`
-      attrTbl : gdal.RasterAttributeTable
-        The Raster Attribute Table object for the file
+      attrTbl : OpenRatContainer
+        The Raster Attribute Table object for the file .... ????
       existingColNames : list of strings
         A list of the existing column names
         
@@ -711,16 +831,17 @@ def createStatColumns(statsSelection, attrTbl, existingColNames):
             colType = gdal.GFT_Integer
             if statName in ('mean', 'stddev'):
                 colType = gdal.GFT_Real
-            attrTbl.CreateColumn(colName, colType, gdal.GFU_Generic)
-            colNdx = attrTbl.GetColumnCount() - 1
+            openRat.CreateColumn(colName, colType)
+            colNdx = openRat.GetColumnCount() - 1
         else:
             print('Column {} already exists'.format(colName))
             colNdx = existingColNames.index(colName)
         colIndexList.append(colNdx)
+        openRat.setColNdxLookup(colNdx, colName)
     return colIndexList
 
 
-def writeCompletePages(pagedRat, attrTbl, statsSelection_fast):
+def writeCompletePages(pagedRat, openRat, statsSelection_fast):
     """
     Check for completed pages, and write them to the attribute table.
     Remove them from the pagedRat after writing.
@@ -758,7 +879,7 @@ def writeCompletePages(pagedRat, attrTbl, statsSelection_fast):
                 elif colType == STAT_DTYPE_FLOAT:
                     colArr = ratPage.floatcols[colArrayNdx]
 
-                attrTbl.WriteArray(colArr, colNumber, start=startSegId)
+                openRat.WriteArray(colArr, colNumber, start=startSegId)
             
             # Remove page after writing. 
             pagedRat.pop(pageId)
