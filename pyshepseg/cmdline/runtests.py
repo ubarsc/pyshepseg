@@ -136,7 +136,8 @@ def main():
         tmpZarrFile = "tmp_stats.zarr"
         makeRATcolumns(segResults, outsegfile, imagefile,
                        outZarrFile=tmpZarrFile)
-        allStatsCols = meanColNames + stdColNames
+        makeSpatialRATColumns(outsegfile, imagefile, outZarrFile=tmpZarrFile)
+        allStatsCols = meanColNames + stdColNames + [eastingCol, northingCol]
         errMsgList = checkZarrColumns(outsegfile, tmpZarrFile, allStatsCols)
         if len(errMsgList) > 0:
             for msg in errMsgList:
@@ -308,14 +309,14 @@ def makeRATcolumns(segResults, outsegfile, imagefile, outZarrFile=None):
         meanColNames.append(meanCol)
         stdColNames.append(stdCol)
         statsSelection = [(meanCol, "mean"), (stdCol, "stddev")]
-        outFileIzZarr = outZarrFile is not None
+        outFileIsZarr = (outZarrFile is not None)
         tilingstats.calcPerSegmentStatsTiled(imagefile, (i + 1), outsegfile, 
-            statsSelection, outFile=outZarrFile, outFileIsZarr=outFileIzZarr)
+            statsSelection, outFile=outZarrFile, outFileIsZarr=outFileIsZarr)
     
     return (meanColNames, stdColNames)
 
 
-def makeSpatialRATColumns(segfile, imagefile):
+def makeSpatialRATColumns(segfile, imagefile, outZarrFile=None):
     """
     Create some RAT columns for checking the spatial stats 
     functionality. 
@@ -334,8 +335,10 @@ def makeSpatialRATColumns(segfile, imagefile):
     colNamesAndTypes = [(eastingCol, gdal.GFT_Real), 
                 (northingCol, gdal.GFT_Real)]
     # call calcPerSegmentSpatialStatsTiled to do the stats
+    outFileIsZarr = outZarrFile is not None
     tilingstats.calcPerSegmentSpatialStatsTiled(imagefile, 1, segfile,
-           colNamesAndTypes, tilingstats.userFuncMeanCoord, transform)
+           colNamesAndTypes, tilingstats.userFuncMeanCoord, transform,
+           outFile=outZarrFile, outFileIsZarr=outFileIsZarr)
     
     # return the names of the columns
     return (eastingCol, northingCol)
@@ -474,14 +477,8 @@ def checkZarrColumns(segfile, tmpZarrFile, allStatsCols):
     """
     errMsgList = []
 
-    ds = gdal.Open(segfile)
-    band = ds.GetRasterBand(1)
-    attrTbl = band.GetDefaultRAT()
-    gdalColNames = [attrTbl.GetNameOfCol(i)
-        for i in range(attrTbl.GetColumnCount())]
     rz = ratzarr.RatZarr(tmpZarrFile)
     for colName in allStatsCols:
-        gdalColNdx = gdalColNames.index(colName)
         gdalCol = readColumn(segfile, colName)
         zarrCol = rz.readBlock(colName, 0, rz.rowCount)
         pcntDiff = vecPcntDiff(gdalCol, zarrCol)
@@ -509,6 +506,7 @@ def vecPcntDiff(v1, v2):
     else:
         raise ValueError(f"vecPcntDiff error: {d} {l1} {l2}")
     return pcntDiff
+
 
 if __name__ == "__main__":
     main()

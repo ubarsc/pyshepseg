@@ -174,6 +174,25 @@ class OpenRatContainer:
                     colNdx = ndx
         return colNdx
 
+    def checkColType(self, colName, colType):
+        """
+        Check that the given column (pre-existing) is compatible with
+        the given GDAL column type (gdal.GFT_*). Raise exception if not.
+        """
+        if self.rz is not None:
+            numpyType = self.zarrColType[colType]
+            self.rz.openColumn[colName]
+            colNumpyType = self.rz.columnCache[colName].dtype
+            typeMatch = (numpyType == colNumpyType)
+        elif self.attrTbl is not None:
+            colNdx = self.getColNdx(colName)
+            colGdalType = self.attrTbl.GetTypeOfCol(colNdx)
+            typeMatch = (colType == colGdalType)
+
+        if not typeMatch:
+            msg = f"Column {colName} already exists, but with different type"
+            raise PyShepSegStatsError(msg)
+
     def CreateColumn(self, colName, colType):
         """
         Create the column with the given name and type. For GDAL RAT, always
@@ -279,7 +298,8 @@ def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile,
       missingStatsValue : int or float
         What to set for segments that have no valid pixels in imgile
       outFile : str
-        Name of a separate output file in which to write RAT columns. If this
+        Name of a separate output file in which to write RAT columns. If
+        this is None, then columns are written back to segfile. If this
         is to be a GDAL file, it should not exist, and will be created using
         the KEA driver, so should have '.kea' extension. If outFileIsZarr
         if set to True, those restrictions do not apply, and it will be a
@@ -288,6 +308,10 @@ def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile,
         Set to True if the outFile should be written as RatZarr format.
 
     """
+    if outFileIsZarr and not HAVE_RATZARR:
+        msg = "outFileIsZarr requested, but ratzarr package unavailable"
+        raise PyShepSegStatsError(msg)
+
     timings = timinghooks.Timers()
 
     segds, segband, imgds, imgband = doImageAlignmentChecks(segfile, 
@@ -450,7 +474,8 @@ def calcPerSegmentStatsRIOS(imgfile, imgbandnum, segfile,
       missingStatsValue : int or float
         What to set for segments that have no valid pixels in imgile
       outFile : str
-        Name of a separate output file in which to write RAT columns. If this
+        Name of a separate output file in which to write RAT columns. If
+        this is None, then columns are written back to segfile. If this
         is to be a GDAL file, it should not exist, and will be created using
         the KEA driver, so should have '.kea' extension. If outFileIsZarr
         if set to True, those restrictions do not apply, and it will be a
@@ -1421,7 +1446,8 @@ def createSegSpatialDataDict():
     
 
 def calcPerSegmentSpatialStatsTiled(imgfile, imgbandnum, segfile,
-        colNamesAndTypes, userFunc, userParam=None, missingStatsValue=-9999):
+        colNamesAndTypes, userFunc, userParam=None, missingStatsValue=-9999,
+        outFile=None, outFileIsZarr=False):
     """
     Similar to the :func:`calcPerSegmentStatsTiled` function 
     but allows the user to calculate spatial statistics on the data
@@ -1466,8 +1492,21 @@ def calcPerSegmentSpatialStatsTiled(imgfile, imgbandnum, segfile,
         This includes: arrays, scalars and @jitclass decorated classes.
       missingStatsValue : int
         The value to fill in for segments that have no data.
+      outFile : str
+        Name of a separate output file in which to write RAT columns. If
+        this is None, then columns are written back to segfile. If this
+        is to be a GDAL file, it should not exist, and will be created using
+        the KEA driver, so should have '.kea' extension. If outFileIsZarr
+        if set to True, those restrictions do not apply, and it will be a
+        RatZarr file, and will either be created or updated as appropriate.
+      outFileIsZarr : bool
+        Set to True if the outFile should be written as RatZarr format.
     
     """
+    if outFileIsZarr and not HAVE_RATZARR:
+        msg = "outFileIsZarr requested, but ratzarr package unavailable"
+        raise PyShepSegStatsError(msg)
+
     timings = timinghooks.Timers()
 
     segds, segband, imgds, imgband = doImageAlignmentChecks(segfile, 
@@ -1496,11 +1535,17 @@ def calcPerSegmentSpatialStatsTiled(imgfile, imgbandnum, segfile,
     
     histColNdx = checkHistColumn(existingColNames)
     segSize = attrTbl.ReadAsArray(histColNdx).astype(numpy.uint32)
+    if outFileIsZarr and outFile is not None:
+        rz = ratzarr.RatZarr(outFile)
+        openRat = OpenRatContainer(rz=rz)
+    else:
+        openRat = OpenRatContainer(ds=segds, band=segband, attrTbl=attrTbl)
+    openRat.SetRowCount(segSize.size)
     
     # Create columns, as required 
     n_intCols, n_floatCols, statsSelection_fast = createUserColumnsSpatial(
-        colNamesAndTypes, attrTbl, existingColNames)
-    # create temprorary arrays for userfunc
+        colNamesAndTypes, openRat, existingColNames)
+    # create temporary arrays for userfunc
     intArr = numpy.empty(n_intCols, dtype=numpy.int32)
     floatArr = numpy.empty(n_floatCols, dtype=numpy.float64)
         
@@ -1536,7 +1581,7 @@ def calcPerSegmentSpatialStatsTiled(imgfile, imgbandnum, segfile,
                     statsSelection_fast, intArr, floatArr, imgNullVal)
 
             with timings.interval('writing'):
-                writeCompletePages(pagedRat, attrTbl, statsSelection_fast)
+                writeCompletePages(pagedRat, openRat, statsSelection_fast)
 
     with timings.interval('writing'):
         segds.FlushCache()
@@ -1573,7 +1618,7 @@ def calcPerSegmentSpatialStats_riosFunc(info, inputs, outputs, otherArgs):
 
 def calcPerSegmentSpatialStatsRIOS(imgfile, imgbandnum, segfile,
         colNamesAndTypes, userFunc, userParam=None, concurrencyStyle=None, 
-        missingStatsValue=-9999, outFile=None):
+        missingStatsValue=-9999, outFile=None, outFileIsZarr=False):
     """
     Similar to the :func:`calcPerSegmentStatsTiledRIOS` function 
     but allows the user to calculate spatial statistics on the data
@@ -1629,13 +1674,21 @@ def calcPerSegmentSpatialStatsRIOS(imgfile, imgbandnum, segfile,
       missingStatsValue : int
         The value to fill in for segments that have no data.
       outFile : str
-        Name of a separate output file in which to write RAT columns. Should
-        not exist, as it will be created here. Created as KEA, so should
-        use .kea suffix. This is a temporary hack, should do better.
-    
+        Name of a separate output file in which to write RAT columns. If
+        this is None, then columns are written back to segfile. If this
+        is to be a GDAL file, it should not exist, and will be created using
+        the KEA driver, so should have '.kea' extension. If outFileIsZarr
+        if set to True, those restrictions do not apply, and it will be a
+        RatZarr file, and will either be created or updated as appropriate.
+      outFileIsZarr : bool
+        Set to True if the outFile should be written as RatZarr format.
+
     """
     if not HAVE_RIOS:
         raise PyShepSegStatsError('RIOS needs to be installed for this function')
+    if outFileIsZarr and not HAVE_RATZARR:
+        msg = "outFileIsZarr requested, but ratzarr package unavailable"
+        raise PyShepSegStatsError(msg)
     
     segds, segband, imgds, imgband = doImageAlignmentChecks(segfile, 
         imgfile, imgbandnum, update=False)
@@ -1745,7 +1798,7 @@ def calcPerSegmentSpatialStatsRIOS(imgfile, imgbandnum, segfile,
         ratapplier.copyRAT(tempKEA, segfile)
 
 
-def createUserColumnsSpatial(colNamesAndTypes, attrTbl, existingColNames):
+def createUserColumnsSpatial(colNamesAndTypes, openRat, existingColNames):
     """
     Used by :func:`calcPerSegmentSpatialStatsTiled` to create columns specified
     in the ``colNamesAndTypes`` structure. 
@@ -1757,8 +1810,8 @@ def createUserColumnsSpatial(colNamesAndTypes, attrTbl, existingColNames):
     ----------
       colNamesAndTypes : list of (colName, colType) tuples
         Same as passed to :func:`calcPerSegmentSpatialStatsTiled`.
-      attrTbl : gdal.RasterAttributeTable
-        The Raster Attribute Table object for the file
+      openRat : OpenRatContainer
+        The file handle(s) for the RAT file
       existingColNames : list of strings
         A list of the existing column names
         
@@ -1778,16 +1831,12 @@ def createUserColumnsSpatial(colNamesAndTypes, attrTbl, existingColNames):
     statsSelection_fast = numpy.empty((numStats, 5), dtype=numpy.uint32)
     
     for i, (colName, colType) in enumerate(colNamesAndTypes):
-        if colName not in existingColNames:
-            attrTbl.CreateColumn(colName, colType, gdal.GFU_Generic)
-            colNdx = attrTbl.GetColumnCount() - 1
+        if not openRat.colExists(colName):
+            openRat.CreateColumn(colName, colType)
         else:
-            colNdx = existingColNames.index(colName)
-            if colType == attrTbl.GetTypeOfCol(colNdx):
-                print('Column {} already exists'.format(colName))
-            else:
-                msg = 'Column {} already exists and is of differing type'.format(colName)
-                raise PyShepSegStatsError(msg)
+            openRat.checkColType(colName, colType)
+            print('Column {} already exists'.format(colName))
+        colNdx = openRat.getColNdx(colName)
 
         statsSelection_fast[i, STATSEL_GLOBALCOLINDEX] = colNdx
         # not used
