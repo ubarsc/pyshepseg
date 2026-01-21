@@ -112,34 +112,11 @@ def main():
     print('Make stats columns')
     (meanColNames, stdColNames) = makeRATcolumns(outsegfile, imagefile)
     allStatsCols = meanColNames + stdColNames
-    if HAVE_RIOS:
-        print('Make stats columns with RIOS')
-        tmpRatFile = 'tmp_statsRIOS.kea'
-        tmpdatafiles.append(tmpRatFile)
-        makeRATcolumns(outsegfile, imagefile, outFile=tmpRatFile,
-                       useRIOS=True)
-        errMsgList = checkRatColumns(outsegfile, tmpRatFile, False, allStatsCols)
-        if len(errMsgList) > 0:
-            for msg in errMsgList:
-                print(msg)
-            errorStatus = 1
-    
+
     # some columns that test the spatial stats
     print('Make spatial stats columns')
     (eastingCol, northingCol) = makeSpatialRATColumns(outsegfile, imagefile)
     allSpatialCols = [eastingCol, northingCol]
-    if HAVE_RIOS:
-        print('Make spatial stats columns with RIOS')
-        tmpSpatialRatFile = 'tmp_spatialstatsRIOS.kea'
-        tmpdatafiles.append(tmpSpatialRatFile)
-        makeSpatialRATColumns(outsegfile, imagefile, outFile=tmpSpatialRatFile,
-            useRIOS=True)
-        errMsgList = checkRatColumns(outsegfile, tmpSpatialRatFile, False,
-            allSpatialCols)
-        if len(errMsgList) > 0:
-            for msg in errMsgList:
-                print(msg)
-            errorStatus = 1
 
     # check the segmentation via the non-spatial stats
     pcntMatch = checkSegmentation(imagefile, outsegfile, meanColNames,
@@ -154,7 +131,31 @@ def main():
     if not checkSpatialColumns(outsegfile, eastingCol, northingCol):
         print('Mean coordinates of segments differ')
         errorStatus = 1
-        
+
+    if HAVE_RIOS:
+        print('Make stats columns with RIOS')
+        tmpRatFile = 'tmp_statsRIOS.kea'
+        tmpdatafiles.append(tmpRatFile)
+        makeRATcolumns(outsegfile, imagefile, outFile=tmpRatFile,
+                       useRIOS=True)
+        errMsgList = checkRatColumns(outsegfile, tmpRatFile, False, allStatsCols)
+        if len(errMsgList) > 0:
+            for msg in errMsgList:
+                print(msg)
+            errorStatus = 1
+
+        print('Make spatial stats columns with RIOS')
+        tmpSpatialRatFile = 'tmp_spatialstatsRIOS.kea'
+        tmpdatafiles.append(tmpSpatialRatFile)
+        makeSpatialRATColumns(outsegfile, imagefile, outFile=tmpSpatialRatFile,
+            useRIOS=True)
+        errMsgList = checkRatColumns(outsegfile, tmpSpatialRatFile, False,
+            allSpatialCols)
+        if len(errMsgList) > 0:
+            for msg in errMsgList:
+                print(msg)
+            errorStatus = 1
+
     print("Checking subset functionality")
     if not checkSubset(outsegfile, subset_segfile):
         print('Unable to match new values from subset')
@@ -166,7 +167,7 @@ def main():
 
     # Test Zarr stats output
     if ratzarr is not None:
-        print("Testing Zarr stats output")
+        print("Test Zarr stats output (basic & spatial)")
         tmpZarrFile = "tmp_stats.zarr"
         makeRATcolumns(outsegfile, imagefile,
                        outFile=tmpZarrFile, outFileIsZarr=True)
@@ -178,8 +179,9 @@ def main():
             for msg in errMsgList:
                 print(msg)
             errorStatus = 1
+
     if HAVE_RIOS and ratzarr is not None:
-        print("Test Zarr stats output using RIOS")
+        print("Test Zarr stats output using RIOS (basic & spatial)")
         tmpZarrRIOSFile = "tmp_statsRIOS.zarr"
         makeRATcolumns(outsegfile, imagefile,
                        outFile=tmpZarrRIOSFile, outFileIsZarr=True)
