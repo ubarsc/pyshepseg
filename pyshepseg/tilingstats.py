@@ -575,9 +575,8 @@ def calcPerSegmentStatsRIOS(imgfile, imgbandnum, segfile,
     otherArgs.numIntCols = numIntCols
     otherArgs.numFloatCols = numFloatCols
         
-    rtn = applier.apply(calcPerSegmentStats_riosFunc, inputs, outputs, 
+    rtnRios = applier.apply(calcPerSegmentStats_riosFunc, inputs, outputs,
         controls=controls, otherArgs=otherArgs)
-    print(rtn.timings.formatReport())
 
     openRat.close()
 
@@ -588,6 +587,10 @@ def calcPerSegmentStatsRIOS(imgfile, imgbandnum, segfile,
     if outFile is None:
         # now merge the stats from the tempfile band info segfile
         ratapplier.copyRAT(tempKEA, segfile)
+
+    rtn = TiledStatsResult()
+    rtn.timings = rtnRios.timings
+    return rtn
 
 
 def doImageAlignmentChecks(segfile, imgfile, imgbandnum, update=True):
@@ -1783,9 +1786,8 @@ def calcPerSegmentSpatialStatsRIOS(imgfile, imgbandnum, segfile,
     otherArgs.userFunc = userFunc
     otherArgs.userParam = userParam
 
-    rtn = applier.apply(calcPerSegmentSpatialStats_riosFunc, inputs, outputs, 
-        controls=controls, otherArgs=otherArgs)
-    print(rtn.timings.formatReport())
+    rtnRios = applier.apply(calcPerSegmentSpatialStats_riosFunc, inputs,
+        outputs, controls=controls, otherArgs=otherArgs)
 
     openRat.close()
             
@@ -1796,6 +1798,10 @@ def calcPerSegmentSpatialStatsRIOS(imgfile, imgbandnum, segfile,
     if outFile is None:
         # now merge the stats from the tempfile band info segfile
         ratapplier.copyRAT(tempKEA, segfile)
+
+    rtn = TiledStatsResult()
+    rtn.timings = rtnRios.timings
+    return rtn
 
 
 def createUserColumnsSpatial(colNamesAndTypes, openRat, existingColNames):
