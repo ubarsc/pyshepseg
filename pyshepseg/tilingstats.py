@@ -99,19 +99,19 @@ class OpenRatContainer:
         """
         Hold all data structures for an open RAT, hiding the distinction
         between GDAL-based and Zarr-based RATs. The constructor takes
-        ......
-
-        Fix this up once completed ..........
+        either a single RatZarr object rz, or a full set of GDAL objects
+        ds, band and attrTbl.
 
         Parameters
         ----------
-          ratFile : str or None
-            Name of RAT file. Include 's3://...' if required (RatZarr only)
-          isZarr : bool
-            True if the ratFile is a RatZarr file
-          gdalDrvr : gdal.Driver or None
-            The GDAL driver to use to create the output file
-          
+          ds : gdal.Dataset or None
+            Open Dataset object
+          band : gdal.Band or None
+            Open band on ds
+          attrTbl : gdal.RasterAttributeTable or None
+            Open attribute table on band
+          rz : ratzarr.RatZarr or None
+            Open RatZarr object
         """
         allGDALobjects = ((ds is not None) and (band is not None) and
                           (attrTbl is not None))
