@@ -131,7 +131,7 @@ class OpenRatContainer:
             for i in range(len(colNames)):
                 self.colNdxLookup[i] = colNames[i]
         self.zarrColType = {
-            gdal.GFT_Integer: numpy.int32, gdal.GFT_Real: numpy.float32}
+            gdal.GFT_Integer: numpy.int64, gdal.GFT_Real: numpy.float64}
 
     def SetRowCount(self, rowCount):
         """
@@ -141,16 +141,6 @@ class OpenRatContainer:
             self.rz.setRowCount(rowCount)
         elif self.attrTbl is not None:
             self.attrTbl.SetRowCount(rowCount)
-
-    def GetColumnCount(self):
-        """
-        Return the current number of columns in the RAT
-        """
-        if self.rz is not None:
-            colCount = len(self.rz.getColumnNames())
-        elif self.attrTbl is not None:
-            colCount = self.attrTbl.GetColumnCount()
-        return colCount
 
     def colExists(self, colName):
         """
@@ -163,13 +153,6 @@ class OpenRatContainer:
                 for i in range(self.attrTbl.GetColumnCount())]
             exists = (colName in existingColNames)
         return exists
-
-    def setColNdxLookup(self, colNdx, colName):
-        """
-        Record the colNdx/colName connection
-        """
-        if colNdx not in self.colNdxLookup:
-            self.colNdxLookup[colNdx] = colName
 
     def getColNdx(self, colName):
         """
@@ -198,7 +181,7 @@ class OpenRatContainer:
         """
         if self.rz is not None:
             numpyType = self.zarrColType[colType]
-            numCols = self.GetColumnCount()
+            numCols = len(self.rz.getColumnNames())
             self.rz.createColumn(colName, numpyType)
             self.colNdxLookup[numCols + 1] = colName
         elif self.attrTbl is not None:
