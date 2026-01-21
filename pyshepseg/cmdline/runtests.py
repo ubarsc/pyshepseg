@@ -326,7 +326,7 @@ def makeRATcolumns(outsegfile, imagefile, outFile=None, outFileIsZarr=False,
         stdColNames.append(stdCol)
         statsSelection = [(meanCol, "mean"), (stdCol, "stddev")]
         if useRIOS:
-            concStyle = ConcurrencyStyle(numReadWorkers=2)
+            concStyle = ConcurrencyStyle(numReadWorkers=1)
             tilingstats.calcPerSegmentStatsRIOS(
                 imagefile, (i + 1), outsegfile, statsSelection,
                 concurrencyStyle=concStyle,
