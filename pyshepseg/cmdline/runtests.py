@@ -136,6 +136,12 @@ def main():
         tmpZarrFile = "tmp_stats.zarr"
         makeRATcolumns(segResults, outsegfile, imagefile,
                        outZarrFile=tmpZarrFile)
+        allStatsCols = meanColNames + stdColNames
+        errMsgList = checkZarrColumns(outsegfile, tmpZarrFile, allStatsCols)
+        if len(errMsgList) > 0:
+            for msg in errMsgList:
+                print(msg)
+            errorStatus = 1
 
     if not cmdargs.keep:
         print("Removing generated data")
@@ -460,6 +466,49 @@ def readColumn(segfile, colName):
     
     return col
 
+
+def checkZarrColumns(segfile, tmpZarrFile, allStatsCols):
+    """
+    Check that the contents of the stats columns is the same in the segfile
+    and the Zarr file
+    """
+    errMsgList = []
+
+    ds = gdal.Open(segfile)
+    band = ds.GetRasterBand(1)
+    attrTbl = band.GetDefaultRAT()
+    gdalColNames = [attrTbl.GetNameOfCol(i)
+        for i in range(attrTbl.GetColumnCount())]
+    rz = ratzarr.RatZarr(tmpZarrFile)
+    for colName in allStatsCols:
+        gdalColNdx = gdalColNames.index(colName)
+        gdalCol = readColumn(segfile, colName)
+        zarrCol = rz.readBlock(colName, 0, rz.rowCount)
+        pcntDiff = vecPcntDiff(gdalCol, zarrCol)
+        if pcntDiff > 0.00000001:
+            msg = f"'{colName}': Zarr col differs from GDAL col by {pcntDiff}%"
+            errMsgList.append(msg)
+    return errMsgList
+
+
+def vecPcntDiff(v1, v2):
+    """
+    Calculate a percentage difference between two vectors
+    """
+    def vecLen(v):
+        return numpy.sqrt((v**2).sum())
+
+    d = vecLen(v1 - v2)
+    l1 = vecLen(v1)
+    l2 = vecLen(v2)
+    meanLen = (l1 + l2) / 2
+    if meanLen > 0:
+        pcntDiff = 100 * d / meanLen
+    elif d == 0:
+        pcntDiff = 0
+    else:
+        raise ValueError(f"vecPcntDiff error: {d} {l1} {l2}")
+    return pcntDiff
 
 if __name__ == "__main__":
     main()
