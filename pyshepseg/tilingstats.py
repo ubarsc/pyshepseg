@@ -300,10 +300,10 @@ def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile,
       outFile : str
         Name of a separate output file in which to write RAT columns. If
         this is None, then columns are written back to segfile. If this
-        is to be a GDAL file, it should not exist, and will be created using
-        the KEA driver, so should have '.kea' extension. If outFileIsZarr
-        if set to True, those restrictions do not apply, and it will be a
-        RatZarr file, and will either be created or updated as appropriate.
+        is to be a GDAL file, it will be created using the KEA driver,
+        so should have '.kea' extension. If outFileIsZarr if set to True,
+        the output file will be a RatZarr file, and will either be created
+        or updated as appropriate.
       outFileIsZarr : bool
         Set to True if the outFile should be written as RatZarr format.
 
@@ -333,6 +333,8 @@ def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile,
     if outFileIsZarr and outFile is not None:
         rz = ratzarr.RatZarr(outFile)
         openRat = OpenRatContainer(rz=rz)
+    elif outFile is not None:
+        openRat = makeOutRatKea(outFile)
     else:
         openRat = OpenRatContainer(ds=segds, band=segband, attrTbl=attrTbl)
     openRat.SetRowCount(segSize.size)
@@ -400,7 +402,7 @@ def calcPerSegmentStats_riosFunc(info, inputs, outputs, otherArgs):
         otherArgs.statsSelection_fast, otherArgs.segSize, 
         otherArgs.numIntCols, otherArgs.numFloatCols)
     
-    writeCompletePages(otherArgs.pagedRat, otherArgs.openRat, 
+    writeCompletePages(otherArgs.pagedRat, otherArgs.openRat,
         otherArgs.statsSelection_fast)
 
 
@@ -476,10 +478,10 @@ def calcPerSegmentStatsRIOS(imgfile, imgbandnum, segfile,
       outFile : str
         Name of a separate output file in which to write RAT columns. If
         this is None, then columns are written back to segfile. If this
-        is to be a GDAL file, it should not exist, and will be created using
-        the KEA driver, so should have '.kea' extension. If outFileIsZarr
-        if set to True, those restrictions do not apply, and it will be a
-        RatZarr file, and will either be created or updated as appropriate.
+        is to be a GDAL file, it will be created using the KEA driver,
+        so should have '.kea' extension. If outFileIsZarr if set to True,
+        the output file will be a RatZarr file, and will either be created
+        or updated as appropriate.
       outFileIsZarr : bool
         Set to True if the outFile should be written as RatZarr format.
 
@@ -534,13 +536,7 @@ def calcPerSegmentStatsRIOS(imgfile, imgbandnum, segfile,
         rz = ratzarr.RatZarr(outFile)
         openRat = OpenRatContainer(rz=rz)
     else:
-        keaDriver = gdal.GetDriverByName('KEA')
-        tempKEADS = keaDriver.Create(tempKEA, 10, 10, 1, gdal.GDT_UInt32)
-        tempKEABand = tempKEADS.GetRasterBand(1)
-        tempKEABand.SetMetadataItem('LAYER_TYPE', 'thematic')
-        tempKEAAttrTbl = tempKEABand.GetDefaultRAT()
-        openRat = OpenRatContainer(ds=tempKEADS, band=tempKEABand,
-            attrTbl=tempKEAAttrTbl)
+        openRat = makeOutRatKea(tempKEA)
 
     # make same size as original
     openRat.SetRowCount(segSize.size)
@@ -580,9 +576,6 @@ def calcPerSegmentStatsRIOS(imgfile, imgbandnum, segfile,
         controls=controls, otherArgs=otherArgs)
     print(rtn.timings.formatReport())
 
-    del tempKEAAttrTbl
-    del tempKEABand
-    del tempKEADS
     openRat.close()
 
     # all pages should now be written. Raise an error if this not the case.
@@ -1496,10 +1489,10 @@ def calcPerSegmentSpatialStatsTiled(imgfile, imgbandnum, segfile,
       outFile : str
         Name of a separate output file in which to write RAT columns. If
         this is None, then columns are written back to segfile. If this
-        is to be a GDAL file, it should not exist, and will be created using
-        the KEA driver, so should have '.kea' extension. If outFileIsZarr
-        if set to True, those restrictions do not apply, and it will be a
-        RatZarr file, and will either be created or updated as appropriate.
+        is to be a GDAL file, it will be created using the KEA driver,
+        so should have '.kea' extension. If outFileIsZarr if set to True,
+        the output file will be a RatZarr file, and will either be created
+        or updated as appropriate.
       outFileIsZarr : bool
         Set to True if the outFile should be written as RatZarr format.
     
@@ -1539,6 +1532,8 @@ def calcPerSegmentSpatialStatsTiled(imgfile, imgbandnum, segfile,
     if outFileIsZarr and outFile is not None:
         rz = ratzarr.RatZarr(outFile)
         openRat = OpenRatContainer(rz=rz)
+    elif outFile is not None:
+        openRat = makeOutRatKea(outFile)
     else:
         openRat = OpenRatContainer(ds=segds, band=segband, attrTbl=attrTbl)
     openRat.SetRowCount(segSize.size)
@@ -1613,7 +1608,7 @@ def calcPerSegmentSpatialStats_riosFunc(info, inputs, outputs, otherArgs):
         otherArgs.statsSelection_fast, otherArgs.intArr, otherArgs.floatArr,
         otherArgs.imgNullVal)
     
-    writeCompletePages(otherArgs.pagedRat, otherArgs.attrTbl, 
+    writeCompletePages(otherArgs.pagedRat, otherArgs.openRat,
         otherArgs.statsSelection_fast)
 
 
@@ -1677,10 +1672,10 @@ def calcPerSegmentSpatialStatsRIOS(imgfile, imgbandnum, segfile,
       outFile : str
         Name of a separate output file in which to write RAT columns. If
         this is None, then columns are written back to segfile. If this
-        is to be a GDAL file, it should not exist, and will be created using
-        the KEA driver, so should have '.kea' extension. If outFileIsZarr
-        if set to True, those restrictions do not apply, and it will be a
-        RatZarr file, and will either be created or updated as appropriate.
+        is to be a GDAL file, it will be created using the KEA driver,
+        so should have '.kea' extension. If outFileIsZarr if set to True,
+        the output file will be a RatZarr file, and will either be created
+        or updated as appropriate.
       outFileIsZarr : bool
         Set to True if the outFile should be written as RatZarr format.
 
@@ -1745,19 +1740,14 @@ def calcPerSegmentSpatialStatsRIOS(imgfile, imgbandnum, segfile,
         rz = ratzarr.RatZarr(outFile)
         openRat = OpenRatContainer(rz=rz)
     else:
-        keaDriver = gdal.GetDriverByName('KEA')
-        tempKEADS = keaDriver.Create(tempKEA, 10, 10, 1, gdal.GDT_UInt32)
-        tempKEABand = tempKEADS.GetRasterBand(1)
-        tempKEABand.SetMetadataItem('LAYER_TYPE', 'thematic')
-        tempKEAAttrTbl = tempKEABand.GetDefaultRAT()
-        openRat = OpenRatContainer(ds=tempKEADS, band=tempKEABand,
-                                   attrTbl=tempKEAAttrTbl)
+        openRat = makeOutRatKea(tempKEA)
+
     # make same size as original
     openRat.SetRowCount(segSize.size)
     
     # Create columns, as required (in temp file)
     n_intCols, n_floatCols, statsSelection_fast = createUserColumnsSpatial(
-        colNamesAndTypes, tempKEAAttrTbl, [])
+        colNamesAndTypes, openRat, [])
         
     inputs = applier.FilenameAssociations()
     inputs.segfile = segfile
@@ -1777,7 +1767,7 @@ def calcPerSegmentSpatialStatsRIOS(imgfile, imgbandnum, segfile,
     otherArgs.segDict = createSegSpatialDataDict()
     otherArgs.pagedRat = createPagedRat()
     otherArgs.noDataDict = createNoDataDict()
-    otherArgs.attrTbl = tempKEAAttrTbl
+    otherArgs.openRat = openRat
     otherArgs.imgNullVal = imgNullVal
     otherArgs.missingStatsValue = missingStatsValue
     otherArgs.statsSelection_fast = statsSelection_fast
@@ -1792,9 +1782,6 @@ def calcPerSegmentSpatialStatsRIOS(imgfile, imgbandnum, segfile,
         controls=controls, otherArgs=otherArgs)
     print(rtn.timings.formatReport())
 
-    del tempKEAAttrTbl
-    del tempKEABand
-    del tempKEADS
     openRat.close()
             
     # all pages should now be written. Raise an error if this not the case.
@@ -2261,6 +2248,31 @@ class RatPage(object):
         Return True if the current page has been completed
         """
         return self.complete.all()
+
+
+def makeOutRatKea(outFile):
+    """
+    Create a small KEA file to write a RAT into. Return a single object
+    with all the open GDAL handles on it.
+
+    Parameters
+    ----------
+      outFile : str
+        Name of output KEA file
+
+    Returns
+    -------
+      openRat : OpenRatContainer
+        Holds all the open GDAL handles
+    """
+    keaDriver = gdal.GetDriverByName('KEA')
+    outKEADS = keaDriver.Create(outFile, 10, 10, 1, gdal.GDT_UInt32)
+    outKEABand = outKEADS.GetRasterBand(1)
+    outKEABand.SetMetadataItem('LAYER_TYPE', 'thematic')
+    outKEAAttrTbl = outKEABand.GetDefaultRAT()
+    openRat = OpenRatContainer(ds=outKEADS, band=outKEABand,
+        attrTbl=outKEAAttrTbl)
+    return openRat
 
 
 class PyShepSegStatsError(Exception):
