@@ -278,6 +278,14 @@ def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile,
 
       missingStatsValue : int or float
         What to set for segments that have no valid pixels in imgile
+      outFile : str
+        Name of a separate output file in which to write RAT columns. If this
+        is to be a GDAL file, it should not exist, and will be created using
+        the KEA driver, so should have '.kea' extension. If outFileIsZarr
+        if set to True, those restrictions do not apply, and it will be a
+        RatZarr file, and will either be created or updated as appropriate.
+      outFileIsZarr : bool
+        Set to True if the outFile should be written as RatZarr format.
 
     """
     timings = timinghooks.Timers()
@@ -442,9 +450,11 @@ def calcPerSegmentStatsRIOS(imgfile, imgbandnum, segfile,
       missingStatsValue : int or float
         What to set for segments that have no valid pixels in imgile
       outFile : str
-        Name of a separate output file in which to write RAT columns. Should
-        not exist, as it will be created here. Created as KEA, so should
-        use .kea suffix. This is a temporary hack, should do better.
+        Name of a separate output file in which to write RAT columns. If this
+        is to be a GDAL file, it should not exist, and will be created using
+        the KEA driver, so should have '.kea' extension. If outFileIsZarr
+        if set to True, those restrictions do not apply, and it will be a
+        RatZarr file, and will either be created or updated as appropriate.
       outFileIsZarr : bool
         Set to True if the outFile should be written as RatZarr format.
 
