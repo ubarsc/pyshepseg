@@ -521,22 +521,25 @@ def calcPerSegmentStatsRIOS(imgfile, imgbandnum, segfile,
     # RIOS default is 256x256. This leads to too many incomplete
     # segments and increases memory use dramatically. 
     controls.setWindowSize(tiling.TILESIZE, tiling.TILESIZE)
-    
-    # now create a new temporary file for saving the new columns to
+
     if outFile is None:
+        # Create a new temporary file for saving the new columns to
         tempFileMgr = applier.TempfileManager(controls.tempdir)
-        tempKEA = tempFileMgr.mktempfile(prefix='pyshepseg_tilingstats_', suffix='.kea')
-    else:
-        if os.path.exists(outFile):
-            drvr = gdal.IdentifyDriver(outFile)
-            if drvr is not None:
-                drvr.Delete(outFile)
-        tempKEA = outFile
-    if outFileIsZarr:
-        rz = ratzarr.RatZarr(outFile)
-        openRat = OpenRatContainer(rz=rz)
-    else:
+        tempKEA = tempFileMgr.mktempfile(prefix='pyshepseg_tilingstats_',
+                                         suffix='.kea')
         openRat = makeOutRatKea(tempKEA)
+    else:
+        if outFileIsZarr:
+            rz = ratzarr.RatZarr(outFile)
+            openRat = OpenRatContainer(rz=rz)
+        elif not os.path.exists(outFile):
+            openRat = makeOutRatKea(outFile)
+        else:
+            ds = gdal.Open(outFile, gdal.GA_Update)
+            band = ds.GetRasterBand(1)
+            attrTbl = band.GetDefaultRAT()
+            openRat = OpenRatContainer(ds=ds, band=band, attrTbl=attrTbl)
+            del ds, band, attrTbl
 
     # make same size as original
     openRat.SetRowCount(segSize.size)
