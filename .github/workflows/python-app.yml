@@ -22,7 +22,8 @@ jobs:
     - name: Install dependencies
       shell: bash -l {0}
       run: |
-        conda install flake8 numba scikit-learn gdal libgdal-kea
+        conda install flake8 numba scikit-learn gdal libgdal-kea zarr rios
+        pip install git+https://github.com/ubarsc/ratzarr.git
     - name: Lint with flake8
       shell: bash -l {0}
       run: |
