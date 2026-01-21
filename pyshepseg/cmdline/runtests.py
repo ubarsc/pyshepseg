@@ -111,12 +111,18 @@ def main():
     # some columns that test the stats
     print('Make stats columns')
     (meanColNames, stdColNames) = makeRATcolumns(outsegfile, imagefile)
+    allStatsCols = meanColNames + stdColNames
     if HAVE_RIOS:
         print('Make stats columns with RIOS')
         tmpRatFile = 'tmp_statsRIOS.kea'
         tmpdatafiles.append(tmpRatFile)
         makeRATcolumns(outsegfile, imagefile, outFile=tmpRatFile,
                        useRIOS=True)
+        errMsgList = checkRatColumns(outsegfile, tmpRatFile, False, allStatsCols)
+        if len(errMsgList) > 0:
+            for msg in errMsgList:
+                print(msg)
+            errorStatus = 1
     
     # some columns that test the spatial stats
     print('Make spatial stats columns')
@@ -153,7 +159,7 @@ def main():
                        outFile=tmpZarrFile, outFileIsZarr=True)
         makeSpatialRATColumns(outsegfile, imagefile, outZarrFile=tmpZarrFile)
         allStatsCols = meanColNames + stdColNames + [eastingCol, northingCol]
-        errMsgList = checkZarrColumns(outsegfile, tmpZarrFile, allStatsCols)
+        errMsgList = checkRatColumns(outsegfile, tmpZarrFile, True, allStatsCols)
         if len(errMsgList) > 0:
             for msg in errMsgList:
                 print(msg)
@@ -391,7 +397,7 @@ def checkSegmentation(imgfile, segfile, meanColNames, stdColNames):
         bandobj = ds.GetRasterBand(i + 1)
         img = bandobj.ReadAsArray()
 
-        segmeans = readColumn(segfile, meanColNames[i])
+        segmeans = readColumn(segfile, meanColNames[i], False)
 
         # An img of the segmean for this band, for each pixel. 
         segColour = segmeans[seg]
@@ -432,8 +438,8 @@ def checkSpatialColumns(segfile, eastingCol, northingCol):
     
     """
     # read in the data to check
-    eastingData = readColumn(segfile, eastingCol)
-    northingData = readColumn(segfile, northingCol)
+    eastingData = readColumn(segfile, eastingCol, False)
+    northingData = readColumn(segfile, northingCol, False)
 
     # read in the segfile
     seg = readSeg(segfile)
@@ -466,7 +472,7 @@ def checkSubset(outsegfile, subset_segfile):
     """
     subset.subsetImage(outsegfile, subset_segfile, 4000, 4000, 1000, 1000, 'KEA',
         origSegIdColName='orig_val')
-    lookupcol = readColumn(subset_segfile, 'orig_val')
+    lookupcol = readColumn(subset_segfile, 'orig_val', False)
     oldvals = readSeg(outsegfile, 4000, 4000, 1000, 1000)
     newvals = readSeg(subset_segfile)
     if newvals.min() != 1:
@@ -477,36 +483,43 @@ def checkSubset(outsegfile, subset_segfile):
     return (new2oldvals == oldvals).all()
     
 
-def readColumn(segfile, colName):
+def readColumn(ratfile, colName, fileIsRatZarr):
     """
-    Read the given column from the given segmentation image file.
+    Read the given column from the given RAT file. Copes with either
+    a GDAL-based RAT or a RatZarr file, determined by the fileIsRatZarr
+    parameter.
+
     Return an array of the column values. 
     """
-    ds = gdal.Open(segfile)
-    band = ds.GetRasterBand(1)
-    attrTbl = band.GetDefaultRAT()
-    numCols = attrTbl.GetColumnCount()
-    colNameList = [attrTbl.GetNameOfCol(i) for i in range(numCols)]
-    colNdx = colNameList.index(colName)
-    col = attrTbl.ReadAsArray(colNdx)
+    if fileIsRatZarr:
+        rz = ratzarr.RatZarr(ratfile)
+        col = rz.readBlock(colName, 0, rz.rowCount)
+    else:
+        ds = gdal.Open(ratfile)
+        band = ds.GetRasterBand(1)
+        attrTbl = band.GetDefaultRAT()
+        numCols = attrTbl.GetColumnCount()
+        colNameList = [attrTbl.GetNameOfCol(i) for i in range(numCols)]
+        colNdx = colNameList.index(colName)
+        col = attrTbl.ReadAsArray(colNdx)
     
     return col
 
 
-def checkZarrColumns(segfile, tmpZarrFile, allStatsCols):
+def checkRatColumns(segfile, ratfile, fileIsRatZarr, allStatsCols):
     """
     Check that the contents of the stats columns is the same in the segfile
-    and the Zarr file
+    and the given rat file. The segfile is assumed to be GDAL-based,
+    but the ratfile could be RatZarr.
     """
     errMsgList = []
 
-    rz = ratzarr.RatZarr(tmpZarrFile)
     for colName in allStatsCols:
-        gdalCol = readColumn(segfile, colName)
-        zarrCol = rz.readBlock(colName, 0, rz.rowCount)
-        pcntDiff = vecPcntDiff(gdalCol, zarrCol)
+        refCol = readColumn(segfile, colName, False)
+        testCol = readColumn(ratfile, colName, fileIsRatZarr)
+        pcntDiff = vecPcntDiff(refCol, testCol)
         if pcntDiff > 0.00000001:
-            msg = f"'{colName}': Zarr col differs from GDAL col by {pcntDiff}%"
+            msg = f"'{colName}': Differs from reference by {pcntDiff}%"
             errMsgList.append(msg)
     return errMsgList
 
