@@ -127,6 +127,19 @@ def main():
     # some columns that test the spatial stats
     print('Make spatial stats columns')
     (eastingCol, northingCol) = makeSpatialRATColumns(outsegfile, imagefile)
+    allSpatialCols = [eastingCol, northingCol]
+    if HAVE_RIOS:
+        print('Make spatial stats columns with RIOS')
+        tmpSpatialRatFile = 'tmp_spatialstatsRIOS.kea'
+        tmpdatafiles.append(tmpSpatialRatFile)
+        makeSpatialRATColumns(outsegfile, imagefile, outFile=tmpSpatialRatFile,
+            useRIOS=True)
+        errMsgList = checkRatColumns(outsegfile, tmpSpatialRatFile, False,
+            allSpatialCols)
+        if len(errMsgList) > 0:
+            for msg in errMsgList:
+                print(msg)
+            errorStatus = 1
 
     # check the segmentation via the non-spatial stats
     pcntMatch = checkSegmentation(imagefile, outsegfile, meanColNames,
@@ -157,9 +170,24 @@ def main():
         tmpZarrFile = "tmp_stats.zarr"
         makeRATcolumns(outsegfile, imagefile,
                        outFile=tmpZarrFile, outFileIsZarr=True)
-        makeSpatialRATColumns(outsegfile, imagefile, outZarrFile=tmpZarrFile)
+        makeSpatialRATColumns(outsegfile, imagefile, outFile=tmpZarrFile,
+                       outFileIsZarr=True)
         allStatsCols = meanColNames + stdColNames + [eastingCol, northingCol]
         errMsgList = checkRatColumns(outsegfile, tmpZarrFile, True, allStatsCols)
+        if len(errMsgList) > 0:
+            for msg in errMsgList:
+                print(msg)
+            errorStatus = 1
+    if HAVE_RIOS and ratzarr is not None:
+        print("Test Zarr stats output using RIOS")
+        tmpZarrRIOSFile = "tmp_statsRIOS.zarr"
+        makeRATcolumns(outsegfile, imagefile,
+                       outFile=tmpZarrRIOSFile, outFileIsZarr=True)
+        makeSpatialRATColumns(outsegfile, imagefile, outFile=tmpZarrRIOSFile,
+                       outFileIsZarr=True, useRIOS=True)
+        allStatsCols = meanColNames + stdColNames + [eastingCol, northingCol]
+        errMsgList = checkRatColumns(outsegfile, tmpZarrRIOSFile, True,
+                                     allStatsCols)
         if len(errMsgList) > 0:
             for msg in errMsgList:
                 print(msg)
@@ -172,6 +200,7 @@ def main():
             drvr.Delete(fn)
         if ratzarr is not None:
             ratzarr.RatZarr.delete(tmpZarrFile)
+            ratzarr.RatZarr.delete(tmpZarrRIOSFile)
 
     # Exit with an explicit status code, so that Github workflow
     # can recognise if something went wrong. 
@@ -345,7 +374,8 @@ def makeRATcolumns(outsegfile, imagefile, outFile=None, outFileIsZarr=False,
     return (meanColNames, stdColNames)
 
 
-def makeSpatialRATColumns(segfile, imagefile, outZarrFile=None):
+def makeSpatialRATColumns(segfile, imagefile, outFile=None,
+        outFileIsZarr=False, useRIOS=False):
     """
     Create some RAT columns for checking the spatial stats 
     functionality. 
@@ -364,10 +394,16 @@ def makeSpatialRATColumns(segfile, imagefile, outZarrFile=None):
     colNamesAndTypes = [(eastingCol, gdal.GFT_Real), 
                 (northingCol, gdal.GFT_Real)]
     # call calcPerSegmentSpatialStatsTiled to do the stats
-    outFileIsZarr = outZarrFile is not None
-    tilingstats.calcPerSegmentSpatialStatsTiled(imagefile, 1, segfile,
+    if useRIOS:
+        concStyle = ConcurrencyStyle(numReadWorkers=1)
+        tilingstats.calcPerSegmentSpatialStatsRIOS(imagefile, 1, segfile,
            colNamesAndTypes, tilingstats.userFuncMeanCoord, transform,
-           outFile=outZarrFile, outFileIsZarr=outFileIsZarr)
+           concurrencyStyle=concStyle,
+           outFile=outFile, outFileIsZarr=outFileIsZarr)
+    else:
+        tilingstats.calcPerSegmentSpatialStatsTiled(imagefile, 1, segfile,
+           colNamesAndTypes, tilingstats.userFuncMeanCoord, transform,
+           outFile=outFile, outFileIsZarr=outFileIsZarr)
     
     # return the names of the columns
     return (eastingCol, northingCol)
