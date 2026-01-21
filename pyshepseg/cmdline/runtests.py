@@ -15,6 +15,13 @@ import numpy
 
 from osgeo import gdal
 try:
+    from rios.applier import ConcurrencyStyle
+    HAVE_RIOS = True
+except ImportError:
+    ConcurrencyStyle = None
+    HAVE_RIOS = False
+
+try:
     import ratzarr
 except ImportError:
     ratzarr = None
@@ -98,13 +105,21 @@ def main():
     # Note that we use fourConnected=False, to avoid disconnecting the 
     # pointy ends of long thin slivers, which can arise due to how we
     # generated the original segments. 
-    segResults = tiling.doTiledShepherdSegmentation(imagefile, outsegfile, 
+    tiling.doTiledShepherdSegmentation(imagefile, outsegfile,
         numClusters=numClusters, fixedKMeansInit=True, fourConnected=False)
     
     # some columns that test the stats
-    (meanColNames, stdColNames) = makeRATcolumns(segResults, outsegfile, imagefile)
+    print('Make stats columns')
+    (meanColNames, stdColNames) = makeRATcolumns(outsegfile, imagefile)
+    if HAVE_RIOS:
+        print('Make stats columns with RIOS')
+        tmpRatFile = 'tmp_statsRIOS.kea'
+        tmpdatafiles.append(tmpRatFile)
+        makeRATcolumns(outsegfile, imagefile, outFile=tmpRatFile,
+                       useRIOS=True)
     
     # some columns that test the spatial stats
+    print('Make spatial stats columns')
     (eastingCol, northingCol) = makeSpatialRATColumns(outsegfile, imagefile)
 
     # check the segmentation via the non-spatial stats
@@ -134,8 +149,8 @@ def main():
     if ratzarr is not None:
         print("Testing Zarr stats output")
         tmpZarrFile = "tmp_stats.zarr"
-        makeRATcolumns(segResults, outsegfile, imagefile,
-                       outZarrFile=tmpZarrFile)
+        makeRATcolumns(outsegfile, imagefile,
+                       outFile=tmpZarrFile, outFileIsZarr=True)
         makeSpatialRATColumns(outsegfile, imagefile, outZarrFile=tmpZarrFile)
         allStatsCols = meanColNames + stdColNames + [eastingCol, northingCol]
         errMsgList = checkZarrColumns(outsegfile, tmpZarrFile, allStatsCols)
@@ -296,7 +311,8 @@ def readSeg(segfile, xoff=0, yoff=0, win_xsize=None, win_ysize=None):
     return seg
 
 
-def makeRATcolumns(segResults, outsegfile, imagefile, outZarrFile=None):
+def makeRATcolumns(outsegfile, imagefile, outFile=None, outFileIsZarr=False,
+        useRIOS=False):
     """
     Add some columns to the RAT, with useful per-segment statistics
     """
@@ -309,9 +325,16 @@ def makeRATcolumns(segResults, outsegfile, imagefile, outZarrFile=None):
         meanColNames.append(meanCol)
         stdColNames.append(stdCol)
         statsSelection = [(meanCol, "mean"), (stdCol, "stddev")]
-        outFileIsZarr = (outZarrFile is not None)
-        tilingstats.calcPerSegmentStatsTiled(imagefile, (i + 1), outsegfile, 
-            statsSelection, outFile=outZarrFile, outFileIsZarr=outFileIsZarr)
+        if useRIOS:
+            concStyle = ConcurrencyStyle(numReadWorkers=2)
+            tilingstats.calcPerSegmentStatsRIOS(
+                imagefile, (i + 1), outsegfile, statsSelection,
+                concurrencyStyle=concStyle,
+                outFile=outFile, outFileIsZarr=outFileIsZarr)
+        else:
+            tilingstats.calcPerSegmentStatsTiled(
+                imagefile, (i + 1), outsegfile, statsSelection,
+                outFile=outFile, outFileIsZarr=outFileIsZarr)
     
     return (meanColNames, stdColNames)
 
