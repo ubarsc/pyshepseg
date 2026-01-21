@@ -300,10 +300,10 @@ def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile,
       outFile : str
         Name of a separate output file in which to write RAT columns. If
         this is None, then columns are written back to segfile. If this
-        is to be a GDAL file, it will be created using the KEA driver,
-        so should have '.kea' extension. If outFileIsZarr if set to True,
-        the output file will be a RatZarr file, and will either be created
-        or updated as appropriate.
+        is to be a GDAL file, it will be updated if it exists, or created
+        using the KEA driver (so should have '.kea' extension). If
+        outFileIsZarr if set to True, the output file will be a RatZarr file,
+        and will either be created or updated as appropriate.
       outFileIsZarr : bool
         Set to True if the outFile should be written as RatZarr format.
 
@@ -478,10 +478,10 @@ def calcPerSegmentStatsRIOS(imgfile, imgbandnum, segfile,
       outFile : str
         Name of a separate output file in which to write RAT columns. If
         this is None, then columns are written back to segfile. If this
-        is to be a GDAL file, it will be created using the KEA driver,
-        so should have '.kea' extension. If outFileIsZarr if set to True,
-        the output file will be a RatZarr file, and will either be created
-        or updated as appropriate.
+        is to be a GDAL file, it will be updated if it exists, or created
+        using the KEA driver (so should have '.kea' extension). If
+        outFileIsZarr if set to True, the output file will be a RatZarr file,
+        and will either be created or updated as appropriate.
       outFileIsZarr : bool
         Set to True if the outFile should be written as RatZarr format.
 
@@ -1495,10 +1495,10 @@ def calcPerSegmentSpatialStatsTiled(imgfile, imgbandnum, segfile,
       outFile : str
         Name of a separate output file in which to write RAT columns. If
         this is None, then columns are written back to segfile. If this
-        is to be a GDAL file, it will be created using the KEA driver,
-        so should have '.kea' extension. If outFileIsZarr if set to True,
-        the output file will be a RatZarr file, and will either be created
-        or updated as appropriate.
+        is to be a GDAL file, it will be updated if it exists, or created
+        using the KEA driver (so should have '.kea' extension). If
+        outFileIsZarr if set to True, the output file will be a RatZarr file,
+        and will either be created or updated as appropriate.
       outFileIsZarr : bool
         Set to True if the outFile should be written as RatZarr format.
     
@@ -1678,10 +1678,10 @@ def calcPerSegmentSpatialStatsRIOS(imgfile, imgbandnum, segfile,
       outFile : str
         Name of a separate output file in which to write RAT columns. If
         this is None, then columns are written back to segfile. If this
-        is to be a GDAL file, it will be created using the KEA driver,
-        so should have '.kea' extension. If outFileIsZarr if set to True,
-        the output file will be a RatZarr file, and will either be created
-        or updated as appropriate.
+        is to be a GDAL file, it will be updated if it exists, or created
+        using the KEA driver (so should have '.kea' extension). If
+        outFileIsZarr if set to True, the output file will be a RatZarr file,
+        and will either be created or updated as appropriate.
       outFileIsZarr : bool
         Set to True if the outFile should be written as RatZarr format.
 
