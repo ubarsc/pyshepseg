@@ -579,10 +579,11 @@ def calcPerSegmentStatsRIOS(imgfile, imgbandnum, segfile,
     rtn = applier.apply(calcPerSegmentStats_riosFunc, inputs, outputs, 
         controls=controls, otherArgs=otherArgs)
     print(rtn.timings.formatReport())
-        
+
     del tempKEAAttrTbl
     del tempKEABand
     del tempKEADS
+    openRat.close()
 
     # all pages should now be written. Raise an error if this not the case.
     if len(otherArgs.pagedRat) > 0:
@@ -1584,8 +1585,8 @@ def calcPerSegmentSpatialStatsTiled(imgfile, imgbandnum, segfile,
                 writeCompletePages(pagedRat, openRat, statsSelection_fast)
 
     with timings.interval('writing'):
-        segds.FlushCache()
-        del segds
+        del segds, segband, attrTbl
+        openRat.close()
 
     # all pages should now be written. Raise an error if this not the case.
     if len(pagedRat) > 0:
@@ -1740,13 +1741,19 @@ def calcPerSegmentSpatialStatsRIOS(imgfile, imgbandnum, segfile,
             if drvr is not None:
                 drvr.Delete(outFile)
         tempKEA = outFile
-    keaDriver = gdal.GetDriverByName('KEA')
-    tempKEADS = keaDriver.Create(tempKEA, 10, 10, 1, gdal.GDT_UInt32)
-    tempKEABand = tempKEADS.GetRasterBand(1)
-    tempKEABand.SetMetadataItem('LAYER_TYPE', 'thematic')
-    tempKEAAttrTbl = tempKEABand.GetDefaultRAT()
+    if outFileIsZarr:
+        rz = ratzarr.RatZarr(outFile)
+        openRat = OpenRatContainer(rz=rz)
+    else:
+        keaDriver = gdal.GetDriverByName('KEA')
+        tempKEADS = keaDriver.Create(tempKEA, 10, 10, 1, gdal.GDT_UInt32)
+        tempKEABand = tempKEADS.GetRasterBand(1)
+        tempKEABand.SetMetadataItem('LAYER_TYPE', 'thematic')
+        tempKEAAttrTbl = tempKEABand.GetDefaultRAT()
+        openRat = OpenRatContainer(ds=tempKEADS, band=tempKEABand,
+                                   attrTbl=tempKEAAttrTbl)
     # make same size as original
-    tempKEAAttrTbl.SetRowCount(segSize.size)
+    openRat.SetRowCount(segSize.size)
     
     # Create columns, as required (in temp file)
     n_intCols, n_floatCols, statsSelection_fast = createUserColumnsSpatial(
@@ -1784,10 +1791,11 @@ def calcPerSegmentSpatialStatsRIOS(imgfile, imgbandnum, segfile,
     rtn = applier.apply(calcPerSegmentSpatialStats_riosFunc, inputs, outputs, 
         controls=controls, otherArgs=otherArgs)
     print(rtn.timings.formatReport())
-        
+
     del tempKEAAttrTbl
     del tempKEABand
     del tempKEADS
+    openRat.close()
             
     # all pages should now be written. Raise an error if this not the case.
     if len(otherArgs.pagedRat) > 0:
