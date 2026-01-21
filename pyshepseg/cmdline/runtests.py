@@ -155,6 +155,8 @@ def main():
             for msg in errMsgList:
                 print(msg)
             errorStatus = 1
+    else:
+        print("Skipped RIOS tests")
 
     print("Checking subset functionality")
     if not checkSubset(outsegfile, subset_segfile):
@@ -179,6 +181,8 @@ def main():
             for msg in errMsgList:
                 print(msg)
             errorStatus = 1
+    else:
+        print("Skipped Zarr tests")
 
     if HAVE_RIOS and ratzarr is not None:
         print("Test Zarr stats output using RIOS (basic & spatial)")
@@ -194,6 +198,8 @@ def main():
             for msg in errMsgList:
                 print(msg)
             errorStatus = 1
+    else:
+        print("Skipped RIOS+Zarr tests")
 
     if not cmdargs.keep:
         print("Removing generated data")
