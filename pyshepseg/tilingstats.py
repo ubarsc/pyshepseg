@@ -879,8 +879,8 @@ def createStatColumns(statsSelection, openRat, existingColNames):
     ----------
       statsSelection : list of tuples
         Same as passed to :func:`calcPerSegmentStatsTiled`
-      attrTbl : OpenRatContainer
-        The Raster Attribute Table object for the file .... ????
+      openRat : OpenRatContainer
+        The file handle(s) for the RAT file
       existingColNames : list of strings
         A list of the existing column names
         
