@@ -331,7 +331,10 @@ def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile,
     histColNdx = checkHistColumn(existingColNames)
     segSize = attrTbl.ReadAsArray(histColNdx).astype(numpy.uint32)
     if outFileIsZarr and outFile is not None:
+        preExisting = ratzarr.RatZarr.isValidRatZarr(outFile)
         rz = ratzarr.RatZarr(outFile)
+        if not preExisting:
+            rz.setChunkSize(RAT_PAGE_SIZE)
         openRat = OpenRatContainer(rz=rz)
     elif outFile is not None:
         openRat = makeOutRatKea(outFile)
@@ -530,7 +533,10 @@ def calcPerSegmentStatsRIOS(imgfile, imgbandnum, segfile,
         openRat = makeOutRatKea(tempKEA)
     else:
         if outFileIsZarr:
+            preExisting = ratzarr.RatZarr.isValidRatZarr(outFile)
             rz = ratzarr.RatZarr(outFile)
+            if not preExisting:
+                rz.setChunkSize(RAT_PAGE_SIZE)
             openRat = OpenRatContainer(rz=rz)
         elif not os.path.exists(outFile):
             openRat = makeOutRatKea(outFile)
@@ -1536,7 +1542,10 @@ def calcPerSegmentSpatialStatsTiled(imgfile, imgbandnum, segfile,
     histColNdx = checkHistColumn(existingColNames)
     segSize = attrTbl.ReadAsArray(histColNdx).astype(numpy.uint32)
     if outFileIsZarr and outFile is not None:
+        preExisting = ratzarr.RatZarr.isValidRatZarr(outFile)
         rz = ratzarr.RatZarr(outFile)
+        if not preExisting:
+            rz.setChunkSize(RAT_PAGE_SIZE)
         openRat = OpenRatContainer(rz=rz)
     elif outFile is not None:
         openRat = makeOutRatKea(outFile)
@@ -1739,7 +1748,10 @@ def calcPerSegmentSpatialStatsRIOS(imgfile, imgbandnum, segfile,
         openRat = makeOutRatKea(tempKEA)
     else:
         if outFileIsZarr:
+            preExisting = ratzarr.RatZarr.isValidRatZarr(outFile)
             rz = ratzarr.RatZarr(outFile)
+            if not preExisting:
+                rz.setChunkSize(RAT_PAGE_SIZE)
             openRat = OpenRatContainer(rz=rz)
         elif not os.path.exists(outFile):
             openRat = makeOutRatKea(outFile)
