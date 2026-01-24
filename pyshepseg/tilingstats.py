@@ -181,7 +181,7 @@ class OpenRatContainer:
         """
         if self.rz is not None:
             numpyType = self.zarrColType[colType]
-            self.rz.openColumn[colName]
+            self.rz.openColumn(colName)
             colNumpyType = self.rz.columnCache[colName].dtype
             typeMatch = (numpyType == colNumpyType)
         elif self.attrTbl is not None:
