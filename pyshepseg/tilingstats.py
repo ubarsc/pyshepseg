@@ -35,6 +35,11 @@ and :func:`calcPerSegmentSpatialStatsTiled`.
 
 import sys
 import os
+import threading
+import queue
+from concurrent import futures
+import tempfile
+
 import numpy
 from osgeo import gdal
 from osgeo import osr
@@ -234,7 +239,7 @@ class OpenRatContainer:
 
 def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile, 
             statsSelection, missingStatsValue=-9999,
-            outFile=None, outFileIsZarr=False):
+            outFile=None, outFileIsZarr=False, readCfg=None):
     """
     Calculate selected per-segment statistics for the given band 
     of the imgfile, against the given segment raster file. 
@@ -304,6 +309,8 @@ def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile,
         and will either be created or updated as appropriate.
       outFileIsZarr : bool
         Set to True if the outFile should be written as RatZarr format.
+      readCfg : StatsReadConfig
+        Config for read manager
 
     """
     if outFileIsZarr and not HAVE_RATZARR:
@@ -312,9 +319,16 @@ def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile,
 
     timings = timinghooks.Timers()
 
-    (imgNullVal, segSize) = doImageChecks(segfile, imgfile, imgbandnum)
+    (imgNullVal, segSize, nlines, npix) = doImageChecks(
+        segfile, imgfile, imgbandnum)
+    tileSize = tiling.TILESIZE
+    numXtiles = int(numpy.ceil(npix / tileSize))
+    numYtiles = int(numpy.ceil(nlines / tileSize))
 
-    segds = None
+    if readCfg is None:
+        readCfg = StatsReadConfig()
+    copyColsToSeg = False
+    openForUpdate = False
     if outFileIsZarr and outFile is not None:
         preExisting = ratzarr.RatZarr.isValidRatZarr(outFile)
         rz = ratzarr.RatZarr(outFile)
@@ -322,18 +336,35 @@ def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile,
             rz.setChunkSize(RAT_PAGE_SIZE)
         openRat = OpenRatContainer(rz=rz)
     elif outFile is not None:
-        openRat = makeOutRatKea(outFile)
+        if os.path.exists(outFile):
+            ds = gdal.Open(outFile, gdal.GA_Update)
+            openRat = OpenRatContainer(ds=ds, band=ds.GetRasterBand(1))
+            del ds
+        else:
+            openRat = makeOutRatKea(outFile)
+    elif readCfg.numWorkers > 0:
+        # Create a new temporary file for saving the new columns to
+        tempKEA = tempfile.mkstemp(prefix='pyshepseg_tilingstats_',
+                                   suffix='.kea')
+        openRat = makeOutRatKea(tempKEA)
+        copyColsToSeg = True
     else:
+        openForUpdate = True
+
+    if openForUpdate:
         segds = gdal.Open(segfile, gdal.GA_Update)
         segband = segds.GetRasterBand(1)
         openRat = OpenRatContainer(ds=segds, band=segband)
-    openRat.SetRowCount(segSize.size)
+        readMgr = StatsReadManager(imgfile, imgbandnum, segfile=segds,
+            segband=segband, readCfg=readCfg, tileSize=tileSize,
+            numXtiles=numXtiles, numYtiles=numYtiles)
+        del segds, segband
+    else:
+        readMgr = StatsReadManager(imgfile, imgbandnum, segfile=segfile,
+            segbandnum=1, readCfg=readCfg, tileSize=tileSize,
+            numXtiles=numXtiles, numYtiles=numYtiles)
 
-    if segds is None:
-        segds = gdal.Open(segfile)
-        segband = segds.GetRasterBand(1)
-    imgds = gdal.Open(imgfile)
-    imgband = imgds.GetRasterBand(imgbandnum)
+    openRat.SetRowCount(segSize.size)
 
     # Create columns, as required
     colIndexList = createStatColumns(statsSelection, openRat)
@@ -341,25 +372,14 @@ def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile,
         makeFastStatsSelection(colIndexList, statsSelection))
 
     # Loop over all tiles in image
-    tileSize = tiling.TILESIZE
-    (nlines, npix) = (segband.YSize, segband.XSize)
-    numXtiles = int(numpy.ceil(npix / tileSize))
-    numYtiles = int(numpy.ceil(nlines / tileSize))
-    
     segDict = createSegDict()
     pagedRat = createPagedRat()
     noDataDict = createNoDataDict()
     
     for tileRow in range(numYtiles):
         for tileCol in range(numXtiles):
-            topLine = tileRow * tileSize
-            leftPix = tileCol * tileSize
-            xsize = min(tileSize, npix - leftPix)
-            ysize = min(tileSize, nlines - topLine)
-
             with timings.interval('reading'):
-                tileSegments = segband.ReadAsArray(leftPix, topLine, xsize, ysize)
-                tileImageData = imgband.ReadAsArray(leftPix, topLine, xsize, ysize)
+                (tileSegments, tileImageData) = readMgr.popNextTile()
 
             with timings.interval('accumulation'):
                 accumulateSegDict(segDict, noDataDict, imgNullVal,
@@ -374,8 +394,12 @@ def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile,
                 writeCompletePages(pagedRat, openRat, statsSelection_fast)
 
     with timings.interval('writing'):
-        del segds, segband
+        readMgr.close()
         openRat.close()
+
+    if copyColsToSeg:
+        # Copy the cols back from temp file
+        raise NotImplementedError(f"Can't copy cols back from {tempKEA}")
 
     # all pages should now be written. Raise an error if this not the case.
     if len(pagedRat) > 0:
@@ -488,7 +512,8 @@ def calcPerSegmentStatsRIOS(imgfile, imgbandnum, segfile,
         msg = "outFileIsZarr requested, but ratzarr package unavailable"
         raise PyShepSegStatsError(msg)
 
-    (imgNullVal, segSize) = doImageChecks(segfile, imgfile, imgbandnum)
+    (imgNullVal, segSize, nlines, npix) = doImageChecks(
+        segfile, imgfile, imgbandnum)
 
     controls = applier.ApplierControls()
     controls.selectInputImageLayers([imgbandnum], 'imgfile')
@@ -639,7 +664,9 @@ def doImageChecks(segfile, imgfile, imgbandnum):
         raise PyShepSegStatsError(msg)
     segSize = attrTbl.ReadAsArray(histColNdx).astype(numpy.uint32)
 
-    return (imgNullVal, segSize)
+    (nlines, npix) = (segband.YSize, segband.XSize)
+
+    return (imgNullVal, segSize, nlines, npix)
 
 
 @njit
@@ -1473,7 +1500,11 @@ def calcPerSegmentSpatialStatsTiled(imgfile, imgbandnum, segfile,
 
     timings = timinghooks.Timers()
 
-    (imgNullVal, segSize) = doImageChecks(segfile, imgfile, imgbandnum)
+    (imgNullVal, segSize, nlines, npix) = doImageChecks(
+        segfile, imgfile, imgbandnum)
+    tileSize = tiling.TILESIZE
+    numXtiles = int(numpy.ceil(npix / tileSize))
+    numYtiles = int(numpy.ceil(nlines / tileSize))
 
     if 'targetoptions' not in userFunc.__dict__:
         raise PyShepSegStatsError("userFunc must be @jit or @njit decorated")
@@ -1496,6 +1527,7 @@ def calcPerSegmentSpatialStatsTiled(imgfile, imgbandnum, segfile,
         openRat = OpenRatContainer(ds=segds, band=segband)
     openRat.SetRowCount(segSize.size)
 
+    # Temporary, until I incorporate readmgr
     if segds is None:
         segds = gdal.Open(segfile)
         segband = segds.GetRasterBand(1)
@@ -1510,16 +1542,12 @@ def calcPerSegmentSpatialStatsTiled(imgfile, imgbandnum, segfile,
     floatArr = numpy.empty(n_floatCols, dtype=numpy.float64)
         
     # Loop over all tiles in image
-    tileSize = tiling.TILESIZE
-    (nlines, npix) = (segband.YSize, segband.XSize)
-    numXtiles = int(numpy.ceil(npix / tileSize))
-    numYtiles = int(numpy.ceil(nlines / tileSize))
     
     segDict = createSegSpatialDataDict()
     pagedRat = createPagedRat()
     noDataDict = createNoDataDict()
     
-    # similar logic to calcPerSegmentSpatialStatsTiled
+    # similar logic to calcPerSegmentStatsTiled
     for tileRow in range(numYtiles):
         for tileCol in range(numXtiles):
             topLine = tileRow * tileSize
@@ -1650,7 +1678,8 @@ def calcPerSegmentSpatialStatsRIOS(imgfile, imgbandnum, segfile,
         msg = "outFileIsZarr requested, but ratzarr package unavailable"
         raise PyShepSegStatsError(msg)
 
-    (imgNullVal, segSize) = doImageChecks(segfile, imgfile, imgbandnum)
+    (imgNullVal, segSize, nlines, npix) = doImageChecks(
+        segfile, imgfile, imgbandnum)
 
     if 'targetoptions' not in userFunc.__dict__:
         raise PyShepSegStatsError("userFunc must be @jit or @njit decorated")
@@ -2215,6 +2244,245 @@ def makeOutRatKea(outFile):
     outKEABand.SetMetadataItem('LAYER_TYPE', 'thematic')
     openRat = OpenRatContainer(ds=outKEADS, band=outKEABand)
     return openRat
+
+
+class StatsReadConfig:
+    """
+    Configuration for running read workers in per-segment statistics
+    """
+    def __init__(self, numWorkers=0, bufferInsertTimeout=60,
+                 bufferPopTimeout=60):
+        """
+        Set up configuration information for running read workers
+
+        Parameters
+        ----------
+          numWorkers : int
+            Number of read workers to use. If zero, reading of each tile is
+            done sequentially with processing.
+          bufferInsertTimeout : int
+            Number of seconds to wait to insert tile data into read buffer.
+            Only relevant if using read workers.
+          bufferPopTimeout : int
+            Number of seconds to wait to get tile data from read buffer.
+            Only relevant if using read workers.
+
+        """
+        self.numWorkers = numWorkers
+        self.bufferInsertTimeout = bufferInsertTimeout
+        self.bufferPopTimeout = bufferPopTimeout
+
+
+class StatsReadManager:
+    """
+    Manage reading data blocks for per-segment stats
+    """
+    def __init__(self, imgfile, imgbandnum, segfile=None, segbandnum=1,
+            segband=None, readCfg=None, tileSize=None,
+            numXtiles=None, numYtiles=None):
+        """
+        Open the input imgfile and segfile, optionally starting some
+        read workers. It is assumed that the two rasters have same size/shape
+        and pixel alignment.
+
+        Parameters
+        ----------
+          imgfile : str or gdal.Dataset
+            Name or open gdal.Dataset of the imagery on which to collect
+            statistics.
+          imgbandnum : int
+            Band number (starts at 1) of imgfile on which to collect statistics
+          segfile : str or gdal.Dataset
+            Name or open gdal.Dataset of segmentation raster. This file
+            has the segment ID of each pixel.
+          segbandnum : int
+            Band number (starts at 1) of the band in segfile for the RAT.
+            Default is 1 (the usual case).
+          readCfg : Instance of StatsReadConfig
+            Configuration of read workers.
+          tileSize : int
+            Size (in pixels) of tiles i.e. shape is (tileSize, tileSize)
+          numXtiles : int
+            Number of tiles in X direction across the images
+          numYtiles : int
+            Number of tiles in Y direction across the images
+        """
+        self.imgfile = imgfile
+        self.imgbandnum = imgbandnum
+        self.segfile = segfile
+        self.segbandnum = segbandnum
+        if readCfg is None:
+            readCfg = StatsReadConfig()
+        self.readCfg = readCfg
+        self.tileSize = tileSize
+        self.numXtiles = numXtiles
+        self.numYtiles = numYtiles
+        self.nextRow = None
+        self.nextCol = None
+
+        self.lock = threading.Lock()
+
+        if readCfg.numWorkers > 0:
+            self.startReadWorkers()
+        else:
+            if isinstance(self.segfile, gdal.Dataset):
+                self.segDs = self.segfile
+            else:
+                self.segDs = gdal.Open(self.segfile)
+            if segband is not None:
+                self.segBand = segband
+            else:
+                self.segBand = self.segDs.GetRasterBand(self.segbandnum)
+            self.imgDs = gdal.Open(self.imgfile)
+            self.imgBand = self.imgDs.GetRasterBand(self.imgbandnum)
+            self.nextRow = 0
+            self.nextCol = 0
+
+    def startReadWorkers(self):
+        """
+        Start the requested read workers, and set up the buffer they
+        will feed into.
+        """
+        numWorkers = self.readCfg.numWorkers
+        # Set up all we need for the buffer
+        self.buffer = {}
+        self.buffLock = threading.Lock()
+        bufferMax = 2 * numWorkers
+        self.buffCount = threading.BoundedSemaphore(bufferMax)
+        self.tileAvailableQue = queue.Queue()
+        self.readQue = queue.Queue()
+
+        # Make a queue of tiles to read, in order
+        for tileRow in range(self.numYtiles):
+            for tileCol in range(self.numXtiles):
+                self.readQue.put((tileRow, tileCol))
+
+        # Now start the workers
+        self.threadPool = futures.ThreadPoolExecutor(max_workers=numWorkers)
+        self.workerList = []
+        for i in range(numWorkers):
+            worker = self.threadPool.submit(self.worker)
+            self.workerList.append(worker)
+
+    def readTile(self, segBand, imgBand, tileRow, tileCol):
+        """
+        Read a single tile from the two input rasters. The tile row/col
+        numbers refer to a grid of tiles, so the first row of tiles
+        is row 0, the second row is row 1, etc.
+
+        Parameters
+        ----------
+          segBand, imgBand : gdal.Band
+            GDAL Band objects for segmentation and image rasters
+          tileRow : int
+            Row number of requested tile
+          tileCol : int
+            Col number of requested tile
+
+        Returns
+        -------
+          tilePair : tuple of numpy.ndarray
+            Raster tiles as (tileSegments, tileImageData)
+        """
+        topRow = tileRow * self.tileSize
+        leftCol = tileCol * self.tileSize
+        xsize = min(self.tileSize, segBand.XSize - leftCol)
+        ysize = min(self.tileSize, segBand.YSize - topRow)
+
+        tileSegments = segBand.ReadAsArray(leftCol, topRow, xsize, ysize)
+        tileImageData = imgBand.ReadAsArray(leftCol, topRow, xsize, ysize)
+
+        return (tileSegments, tileImageData)
+
+    def worker(self):
+        """
+        Function running in each read worker
+        """
+        # Each read worker opens the input files itself (readonly), because
+        # GDAL's Dataset objects are not thread-safe and cannot be shared.
+        segDs = gdal.Open(self.segfile)
+        segBand = segDs.GetRasterBand(self.segbandnum)
+        imgDs = gdal.Open(self.imgfile)
+        imgBand = imgDs.GetRasterBand(self.imgbandnum)
+
+        try:
+            tileRowCol = self.readQue.get(block=False)
+        except queue.Empty:
+            tileRowCol = None
+        while tileRowCol is not None:
+            (tileRow, tileCol) = tileRowCol
+            # Read both tiles from the raster files
+            (tileSegments, tileImageData) = self.readTile(
+                segBand, imgBand, tileRow, tileCol)
+
+            # Put the tile data into the buffer
+            timeout = self.readCfg.bufferInsertTimeout
+            acquired = self.buffCount.acquire(timeout=timeout)
+            if not acquired:
+                msg = (f"Timeout ({timeout} sec) waiting to insert in buffer. " +
+                       "Try increasing bufferInsertTimeout")
+                raise PyShepSegStatsError(msg)
+            with self.buffLock:
+                self.buffer[tileRowCol] = (tileSegments, tileImageData)
+                self.tileAvailableQue.put(tileRowCol)
+
+            # Get next tile row/col to read
+            try:
+                tileRowCol = self.readQue.get(block=False)
+            except queue.Empty:
+                tileRowCol = None
+
+        del segBand, imgBand
+        segDs = imgDs = None
+
+    def popNextTile(self):
+        """
+        Get the data for the next tile. If using read workers, pop the next
+        available tile out of the buffer, otherwise just read in directly
+        from the files.
+
+        In the buffer case, note that we may lose the strict tile ordering,
+        if a tile is available out of normal sequence. This is not generally
+        a serious problem, and avoids a potential deadlock condition if we
+        attempted to adhere to a strict order but read workers delivered them
+        a long way out of order. Mostly would not be a problem, but serious if
+        if it did occur.
+
+        """
+        numWorkers = self.readCfg.numWorkers
+        if numWorkers > 0:
+            timeout = self.readCfg.bufferPopTimeout
+            try:
+                tileRowCol = self.tileAvailableQue.get(timeout=timeout)
+            except queue.Empty:
+                msg = (f"Timeout ({timeout} seconds) waiting " +
+                       "for next tile data. Try increasing bufferPopTimeout")
+                raise PyShepSegStatsError(msg)
+
+            with self.buffLock:
+                tileData = self.buffer.pop(tileRowCol)
+                (tileSegments, tileImageData) = tileData
+                self.buffCount.release()
+        else:
+            # No read workers, just read the tile directly
+            (tileSegments, tileImageData) = self.readTile(
+                self.segBand, self.imgBand, self.nextRow, self.nextCol)
+            # Increment next tile
+            self.nextCol += 1
+            if self.nextCol >= self.numXtiles:
+                self.nextCol = 0
+                self.nextRow += 1
+
+        return (tileSegments, tileImageData)
+
+    def close(self):
+        """
+        Close the GDAL objects
+        """
+        self.segBand = None
+        self.segDs = None
+        self.imgBand = None
+        self.imgDs = None
 
 
 class PyShepSegStatsError(Exception):

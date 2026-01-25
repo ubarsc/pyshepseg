@@ -132,6 +132,17 @@ def main():
         print('Mean coordinates of segments differ')
         errorStatus = 1
 
+    print('Make stats columns with readWorkers')
+    tmpRatFile = 'tmp_statsReadWorkers.kea'
+    tmpdatafiles.append(tmpRatFile)
+    makeRATcolumns(outsegfile, imagefile, outFile=tmpRatFile,
+                   numReadWorkers=1)
+    errMsgList = checkRatColumns(outsegfile, tmpRatFile, False, allStatsCols)
+    if len(errMsgList) > 0:
+        for msg in errMsgList:
+            print(msg)
+        errorStatus = 1
+
     if HAVE_RIOS:
         print('Make stats columns with RIOS')
         tmpRatFile = 'tmp_statsRIOS.kea'
@@ -355,7 +366,7 @@ def readSeg(segfile, xoff=0, yoff=0, win_xsize=None, win_ysize=None):
 
 
 def makeRATcolumns(outsegfile, imagefile, outFile=None, outFileIsZarr=False,
-        useRIOS=False):
+        useRIOS=False, numReadWorkers=0):
     """
     Add some columns to the RAT, with useful per-segment statistics
     """
@@ -375,9 +386,11 @@ def makeRATcolumns(outsegfile, imagefile, outFile=None, outFileIsZarr=False,
                 concurrencyStyle=concStyle,
                 outFile=outFile, outFileIsZarr=outFileIsZarr)
         else:
+            readCfg = tilingstats.StatsReadConfig(numWorkers=numReadWorkers)
             tilingstats.calcPerSegmentStatsTiled(
                 imagefile, (i + 1), outsegfile, statsSelection,
-                outFile=outFile, outFileIsZarr=outFileIsZarr)
+                outFile=outFile, outFileIsZarr=outFileIsZarr,
+                readCfg=readCfg)
     
     return (meanColNames, stdColNames)
 
