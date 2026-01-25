@@ -310,7 +310,7 @@ def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile,
       outFileIsZarr : bool
         Set to True if the outFile should be written as RatZarr format.
       readCfg : StatsReadConfig
-        Config for read manager
+        Config for read manager. Default will run with no read workers.
 
     """
     if outFileIsZarr and not HAVE_RATZARR:
@@ -379,7 +379,7 @@ def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile,
     for tileRow in range(numYtiles):
         for tileCol in range(numXtiles):
             with timings.interval('reading'):
-                (tileSegments, tileImageData) = readMgr.popNextTile()
+                (tileRowCol, tileSegments, tileImageData) = readMgr.popNextTile()
 
             with timings.interval('accumulation'):
                 accumulateSegDict(segDict, noDataDict, imgNullVal,
@@ -511,6 +511,9 @@ def calcPerSegmentStatsRIOS(imgfile, imgbandnum, segfile,
     if outFileIsZarr and not HAVE_RATZARR:
         msg = "outFileIsZarr requested, but ratzarr package unavailable"
         raise PyShepSegStatsError(msg)
+    print("WARNING: calcPerSegmentStatsRIOS is deprecated, and likely",
+          "to be removed some time after Jan 2027")
+    print("See calcPerSegmentStatsTiled instead, with readCfg")
 
     (imgNullVal, segSize, nlines, npix) = doImageChecks(
         segfile, imgfile, imgbandnum)
@@ -1438,7 +1441,7 @@ def createSegSpatialDataDict():
 
 def calcPerSegmentSpatialStatsTiled(imgfile, imgbandnum, segfile,
         colNamesAndTypes, userFunc, userParam=None, missingStatsValue=-9999,
-        outFile=None, outFileIsZarr=False):
+        outFile=None, outFileIsZarr=False, readCfg=None):
     """
     Similar to the :func:`calcPerSegmentStatsTiled` function 
     but allows the user to calculate spatial statistics on the data
@@ -1492,6 +1495,8 @@ def calcPerSegmentSpatialStatsTiled(imgfile, imgbandnum, segfile,
         and will either be created or updated as appropriate.
       outFileIsZarr : bool
         Set to True if the outFile should be written as RatZarr format.
+      readCfg : StatsReadConfig
+        Config for read manager. Default will run with no read workers.
     
     """
     if outFileIsZarr and not HAVE_RATZARR:
@@ -1512,7 +1517,10 @@ def calcPerSegmentSpatialStatsTiled(imgfile, imgbandnum, segfile,
     if len(colNamesAndTypes) == 0:
         raise PyShepSegStatsError("Must specify one or more columns")
 
-    segds = None
+    if readCfg is None:
+        readCfg = StatsReadConfig()
+    copyColsToSeg = False
+    openForUpdate = False
     if outFileIsZarr and outFile is not None:
         preExisting = ratzarr.RatZarr.isValidRatZarr(outFile)
         rz = ratzarr.RatZarr(outFile)
@@ -1520,19 +1528,35 @@ def calcPerSegmentSpatialStatsTiled(imgfile, imgbandnum, segfile,
             rz.setChunkSize(RAT_PAGE_SIZE)
         openRat = OpenRatContainer(rz=rz)
     elif outFile is not None:
-        openRat = makeOutRatKea(outFile)
+        if os.path.exists(outFile):
+            ds = gdal.Open(outFile, gdal.GA_Update)
+            openRat = OpenRatContainer(ds=ds, band=ds.GetRasterBand(1))
+            del ds
+        else:
+            openRat = makeOutRatKea(outFile)
+    elif readCfg.numWorkers > 0:
+        # Create a new temporary file for saving the new columns to
+        tempKEA = tempfile.mkstemp(prefix='pyshepseg_tilingstats_',
+                                   suffix='.kea')
+        openRat = makeOutRatKea(tempKEA)
+        copyColsToSeg = True
     else:
+        openForUpdate = True
+
+    if openForUpdate:
         segds = gdal.Open(segfile, gdal.GA_Update)
         segband = segds.GetRasterBand(1)
         openRat = OpenRatContainer(ds=segds, band=segband)
-    openRat.SetRowCount(segSize.size)
+        readMgr = StatsReadManager(imgfile, imgbandnum, segfile=segds,
+            segband=segband, readCfg=readCfg, tileSize=tileSize,
+            numXtiles=numXtiles, numYtiles=numYtiles)
+        del segds, segband
+    else:
+        readMgr = StatsReadManager(imgfile, imgbandnum, segfile=segfile,
+            segbandnum=1, readCfg=readCfg, tileSize=tileSize,
+            numXtiles=numXtiles, numYtiles=numYtiles)
 
-    # Temporary, until I incorporate readmgr
-    if segds is None:
-        segds = gdal.Open(segfile)
-        segband = segds.GetRasterBand(1)
-    imgds = gdal.Open(imgfile)
-    imgband = imgds.GetRasterBand(imgbandnum)
+    openRat.SetRowCount(segSize.size)
 
     # Create columns, as required 
     n_intCols, n_floatCols, statsSelection_fast = createUserColumnsSpatial(
@@ -1550,14 +1574,11 @@ def calcPerSegmentSpatialStatsTiled(imgfile, imgbandnum, segfile,
     # similar logic to calcPerSegmentStatsTiled
     for tileRow in range(numYtiles):
         for tileCol in range(numXtiles):
-            topLine = tileRow * tileSize
-            leftPix = tileCol * tileSize
-            xsize = min(tileSize, npix - leftPix)
-            ysize = min(tileSize, nlines - topLine)
 
             with timings.interval('reading'):
-                tileSegments = segband.ReadAsArray(leftPix, topLine, xsize, ysize)
-                tileImageData = imgband.ReadAsArray(leftPix, topLine, xsize, ysize)
+                (tileRowCol, tileSegments, tileImageData) = readMgr.popNextTile()
+                topLine = tileRowCol[0] * tileSize
+                leftPix = tileRowCol[1] * tileSize
 
             with timings.interval('accumulation'):
                 accumulateSegSpatial(segDict, noDataDict, imgNullVal,
@@ -1572,8 +1593,12 @@ def calcPerSegmentSpatialStatsTiled(imgfile, imgbandnum, segfile,
                 writeCompletePages(pagedRat, openRat, statsSelection_fast)
 
     with timings.interval('writing'):
-        del segds, segband
+        readMgr.close()
         openRat.close()
+
+    if copyColsToSeg:
+        # Copy the cols back from temp file
+        raise NotImplementedError(f"Can't copy cols back from {tempKEA}")
 
     # all pages should now be written. Raise an error if this not the case.
     if len(pagedRat) > 0:
@@ -1677,6 +1702,9 @@ def calcPerSegmentSpatialStatsRIOS(imgfile, imgbandnum, segfile,
     if outFileIsZarr and not HAVE_RATZARR:
         msg = "outFileIsZarr requested, but ratzarr package unavailable"
         raise PyShepSegStatsError(msg)
+    print("WARNING: calcPerSegmentSpatialStatsRIOS is deprecated, and likely",
+          "to be removed some time after Jan 2027.")
+    print("See calcPerSegmentSpatialStatsTiled instead, with readCfg")
 
     (imgNullVal, segSize, nlines, npix) = doImageChecks(
         segfile, imgfile, imgbandnum)
@@ -2463,6 +2491,7 @@ class StatsReadManager:
                 self.buffCount.release()
         else:
             # No read workers, just read the tile directly
+            tileRowCol = (self.nextRow, self.nextCol)
             (tileSegments, tileImageData) = self.readTile(
                 self.segBand, self.imgBand, self.nextRow, self.nextCol)
             # Increment next tile
@@ -2471,7 +2500,7 @@ class StatsReadManager:
                 self.nextCol = 0
                 self.nextRow += 1
 
-        return (tileSegments, tileImageData)
+        return (tileRowCol, tileSegments, tileImageData)
 
     def close(self):
         """

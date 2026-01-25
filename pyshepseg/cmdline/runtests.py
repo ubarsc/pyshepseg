@@ -143,6 +143,18 @@ def main():
             print(msg)
         errorStatus = 1
 
+    print('Make spatial stats columns with readWorkers')
+    tmpSpatialRatFile = 'tmp_spatialstatsReadWorkers.kea'
+    tmpdatafiles.append(tmpSpatialRatFile)
+    makeSpatialRATColumns(outsegfile, imagefile, outFile=tmpSpatialRatFile,
+        numReadWorkers=1)
+    errMsgList = checkRatColumns(outsegfile, tmpSpatialRatFile, False,
+        allSpatialCols)
+    if len(errMsgList) > 0:
+        for msg in errMsgList:
+            print(msg)
+        errorStatus = 1
+
     if HAVE_RIOS:
         print('Make stats columns with RIOS')
         tmpRatFile = 'tmp_statsRIOS.kea'
@@ -185,9 +197,23 @@ def main():
         makeRATcolumns(outsegfile, imagefile,
                        outFile=tmpZarrFile, outFileIsZarr=True)
         makeSpatialRATColumns(outsegfile, imagefile, outFile=tmpZarrFile,
-                       outFileIsZarr=True)
+                              outFileIsZarr=True)
         allStatsCols = meanColNames + stdColNames + [eastingCol, northingCol]
         errMsgList = checkRatColumns(outsegfile, tmpZarrFile, True, allStatsCols)
+        if len(errMsgList) > 0:
+            for msg in errMsgList:
+                print(msg)
+            errorStatus = 1
+
+        print('Make Zarr stats columns (basic & spatial) with readWorkers')
+        tmpRatFile = 'tmp_statsReadWorkers.zarr'
+        tmpdatafiles.append(tmpRatFile)
+        makeRATcolumns(outsegfile, imagefile, outFile=tmpRatFile,
+                       numReadWorkers=1, outFileIsZarr=True)
+        makeSpatialRATColumns(outsegfile, imagefile, outFile=tmpRatFile,
+                              numReadWorkers=1, outFileIsZarr=True)
+        errMsgList = checkRatColumns(outsegfile, tmpRatFile, True,
+            allSpatialCols)
         if len(errMsgList) > 0:
             for msg in errMsgList:
                 print(msg)
@@ -396,7 +422,7 @@ def makeRATcolumns(outsegfile, imagefile, outFile=None, outFileIsZarr=False,
 
 
 def makeSpatialRATColumns(segfile, imagefile, outFile=None,
-        outFileIsZarr=False, useRIOS=False):
+        outFileIsZarr=False, useRIOS=False, numReadWorkers=0):
     """
     Create some RAT columns for checking the spatial stats 
     functionality. 
@@ -422,9 +448,10 @@ def makeSpatialRATColumns(segfile, imagefile, outFile=None,
            concurrencyStyle=concStyle,
            outFile=outFile, outFileIsZarr=outFileIsZarr)
     else:
+        readCfg = tilingstats.StatsReadConfig(numWorkers=numReadWorkers)
         tilingstats.calcPerSegmentSpatialStatsTiled(imagefile, 1, segfile,
            colNamesAndTypes, tilingstats.userFuncMeanCoord, transform,
-           outFile=outFile, outFileIsZarr=outFileIsZarr)
+           outFile=outFile, outFileIsZarr=outFileIsZarr, readCfg=readCfg)
     
     # return the names of the columns
     return (eastingCol, northingCol)
