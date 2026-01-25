@@ -2320,8 +2320,6 @@ class StatsReadManager:
         self.nextRow = None
         self.nextCol = None
 
-        self.lock = threading.Lock()
-
         if readCfg.numWorkers > 0:
             self.startReadWorkers()
         else:
