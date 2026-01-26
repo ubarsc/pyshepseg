@@ -324,7 +324,7 @@ def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile,
 
     (readMgr, openRat, copyColsToSeg, tempKEA) = openEverything(
         readCfg, outFile, outFileIsZarr, tileSize, numXtiles, numYtiles,
-        imgfile, imgbandnum, segfile)
+        imgfile, imgbandnum, segfile, timings)
 
     openRat.SetRowCount(segSize.size)
 
@@ -374,7 +374,7 @@ def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile,
 
 
 def openEverything(readCfg, outFile, outFileIsZarr, tileSize, numXtiles,
-        numYtiles, imgfile, imgbandnum, segfile):
+        numYtiles, imgfile, imgbandnum, segfile, timings):
     """
     Open all the input and output files, ready for the stats routines to
     do their work.
@@ -413,12 +413,12 @@ def openEverything(readCfg, outFile, outFileIsZarr, tileSize, numXtiles,
         openRat = OpenRatContainer(ds=segds, band=segband)
         readMgr = StatsReadManager(imgfile, imgbandnum, segfile=segds,
             segband=segband, readCfg=readCfg, tileSize=tileSize,
-            numXtiles=numXtiles, numYtiles=numYtiles)
+            numXtiles=numXtiles, numYtiles=numYtiles, timings=timings)
         del segds, segband
     else:
         readMgr = StatsReadManager(imgfile, imgbandnum, segfile=segfile,
             segbandnum=1, readCfg=readCfg, tileSize=tileSize,
-            numXtiles=numXtiles, numYtiles=numYtiles)
+            numXtiles=numXtiles, numYtiles=numYtiles, timings=timings)
 
     return (readMgr, openRat, copyColsToSeg, tempKEA)
 
@@ -1536,7 +1536,7 @@ def calcPerSegmentSpatialStatsTiled(imgfile, imgbandnum, segfile,
 
     (readMgr, openRat, copyColsToSeg, tempKEA) = openEverything(
         readCfg, outFile, outFileIsZarr, tileSize, numXtiles, numYtiles,
-        imgfile, imgbandnum, segfile)
+        imgfile, imgbandnum, segfile, timings)
 
     openRat.SetRowCount(segSize.size)
 
@@ -2366,7 +2366,7 @@ class StatsReadManager:
     """
     def __init__(self, imgfile, imgbandnum, segfile=None, segbandnum=1,
             segband=None, readCfg=None, tileSize=None,
-            numXtiles=None, numYtiles=None):
+            numXtiles=None, numYtiles=None, timings=None):
         self.imgfile = imgfile
         self.imgbandnum = imgbandnum
         self.segfile = segfile
@@ -2379,6 +2379,9 @@ class StatsReadManager:
         self.numYtiles = numYtiles
         self.nextRow = None
         self.nextCol = None
+        if timings is None:
+            timings = timinghooks.Timers()
+        self.timings = timings
 
         if readCfg.numWorkers > 0:
             self.startReadWorkers()
@@ -2447,8 +2450,9 @@ class StatsReadManager:
         xsize = min(self.tileSize, segBand.XSize - leftCol)
         ysize = min(self.tileSize, segBand.YSize - topRow)
 
-        tileSegments = segBand.ReadAsArray(leftCol, topRow, xsize, ysize)
-        tileImageData = imgBand.ReadAsArray(leftCol, topRow, xsize, ysize)
+        with self.timings.interval('reading'):
+            tileSegments = segBand.ReadAsArray(leftCol, topRow, xsize, ysize)
+            tileImageData = imgBand.ReadAsArray(leftCol, topRow, xsize, ysize)
 
         return (tileSegments, tileImageData)
 
