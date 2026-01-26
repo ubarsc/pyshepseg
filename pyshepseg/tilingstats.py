@@ -98,24 +98,20 @@ class TiledStatsResult:
 class OpenRatContainer:
     """
     Hold all data structures for an open RAT, hiding the distinction
-    between GDAL-based and Zarr-based RATs.
+    between GDAL-based and Zarr-based RATs. The constructor takes
+    either a single RatZarr object rz, or a pair of GDAL objects
+    ds & band.
+
+    Parameters
+    ----------
+      ds : gdal.Dataset or None
+        Open Dataset object
+      band : gdal.Band or None
+        Open band on ds
+      rz : ratzarr.RatZarr or None
+        Open RatZarr object
     """
     def __init__(self, ds=None, band=None, rz=None):
-        """
-        Hold all data structures for an open RAT, hiding the distinction
-        between GDAL-based and Zarr-based RATs. The constructor takes
-        either a single RatZarr object rz, or a pair of GDAL objects
-        ds & band.
-
-        Parameters
-        ----------
-          ds : gdal.Dataset or None
-            Open Dataset object
-          band : gdal.Band or None
-            Open band on ds
-          rz : ratzarr.RatZarr or None
-            Open RatZarr object
-        """
         allGDALobjects = ((ds is not None) and (band is not None))
         ratZarrGiven = (rz is not None)
         if not (allGDALobjects or ratZarrGiven):
@@ -2318,26 +2314,23 @@ def copyRatCols(srcRat, destRat):
 
 class StatsReadConfig:
     """
-    Configuration for running read workers in per-segment statistics
+    Set up configuration information for running read workers
+
+    Parameters
+    ----------
+      numWorkers : int
+        Number of read workers to use. If zero, reading of each tile is
+        done sequentially with processing.
+      bufferInsertTimeout : int
+        Number of seconds to wait to insert tile data into read buffer.
+        Only relevant if using read workers.
+      bufferPopTimeout : int
+        Number of seconds to wait to get tile data from read buffer.
+        Only relevant if using read workers.
+
     """
     def __init__(self, numWorkers=0, bufferInsertTimeout=60,
                  bufferPopTimeout=60):
-        """
-        Set up configuration information for running read workers
-
-        Parameters
-        ----------
-          numWorkers : int
-            Number of read workers to use. If zero, reading of each tile is
-            done sequentially with processing.
-          bufferInsertTimeout : int
-            Number of seconds to wait to insert tile data into read buffer.
-            Only relevant if using read workers.
-          bufferPopTimeout : int
-            Number of seconds to wait to get tile data from read buffer.
-            Only relevant if using read workers.
-
-        """
         self.numWorkers = numWorkers
         self.bufferInsertTimeout = bufferInsertTimeout
         self.bufferPopTimeout = bufferPopTimeout
@@ -2345,38 +2338,35 @@ class StatsReadConfig:
 
 class StatsReadManager:
     """
-    Manage reading data blocks for per-segment stats
+    Open the input imgfile and segfile, optionally starting some
+    read workers. It is assumed that the two rasters have same size/shape
+    and pixel alignment.
+
+    Parameters
+    ----------
+      imgfile : str or gdal.Dataset
+        Name or open gdal.Dataset of the imagery on which to collect
+        statistics.
+      imgbandnum : int
+        Band number (starts at 1) of imgfile on which to collect statistics
+      segfile : str or gdal.Dataset
+        Name or open gdal.Dataset of segmentation raster. This file
+        has the segment ID of each pixel.
+      segbandnum : int
+        Band number (starts at 1) of the band in segfile for the RAT.
+        Default is 1 (the usual case).
+      readCfg : Instance of StatsReadConfig
+        Configuration of read workers.
+      tileSize : int
+        Size (in pixels) of tiles i.e. shape is (tileSize, tileSize)
+      numXtiles : int
+        Number of tiles in X direction across the images
+      numYtiles : int
+        Number of tiles in Y direction across the images
     """
     def __init__(self, imgfile, imgbandnum, segfile=None, segbandnum=1,
             segband=None, readCfg=None, tileSize=None,
             numXtiles=None, numYtiles=None):
-        """
-        Open the input imgfile and segfile, optionally starting some
-        read workers. It is assumed that the two rasters have same size/shape
-        and pixel alignment.
-
-        Parameters
-        ----------
-          imgfile : str or gdal.Dataset
-            Name or open gdal.Dataset of the imagery on which to collect
-            statistics.
-          imgbandnum : int
-            Band number (starts at 1) of imgfile on which to collect statistics
-          segfile : str or gdal.Dataset
-            Name or open gdal.Dataset of segmentation raster. This file
-            has the segment ID of each pixel.
-          segbandnum : int
-            Band number (starts at 1) of the band in segfile for the RAT.
-            Default is 1 (the usual case).
-          readCfg : Instance of StatsReadConfig
-            Configuration of read workers.
-          tileSize : int
-            Size (in pixels) of tiles i.e. shape is (tileSize, tileSize)
-          numXtiles : int
-            Number of tiles in X direction across the images
-          numYtiles : int
-            Number of tiles in Y direction across the images
-        """
         self.imgfile = imgfile
         self.imgbandnum = imgbandnum
         self.segfile = segfile
