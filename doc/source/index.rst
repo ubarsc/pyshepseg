@@ -108,6 +108,9 @@ Once a segmentation has been completed, statistics can be gathered per segment o
 large rasters using the functions defined in the ``pyshepseg.tilingstats``
 module.
 
+See the Concurrency section below for possible speed-ups of both these
+operations.
+
 Command Line Scripts
 --------------------
 A few basic command line scripts are also provided as entry points.
@@ -175,16 +178,19 @@ original segments. For doing this, see the ``pyshepseg.subset`` module and the
 
 Concurrency
 -----------
-
-There is some support for performing segmentation in parallel using threads, subprocesses
-or AWS Fargate. See the docstrings
+There is some support for performing segmentation in parallel using threads,
+subprocesses or AWS Fargate. See the docstrings
 for :func:`pyshepseg.tiling.doTiledShepherdSegmentation` and :class:`pyshepseg.tiling.SegmentationConcurrencyConfig`
 for more information.
 
-In addition, **experimental** read concurrency is available when doing statistics from files with
-high latency (for instance, AWS S3) using `RIOS <https://www.rioshome.org/>`_. See the docstring for 
-:func:`pyshepseg.tilingstats.calcPerSegmentSpatialStatsRIOS` for more information.
-
+In addition, read concurrency is available when doing statistics from files
+with high latency (for instance, AWS S3). Both the routines for calculating
+per-segment statistics (calcPerSegmentStatsTiled and
+calcPerSegmentSpatialStatsTiled) accept an optional ``readCfg`` argument.
+This is an instance of :class:`pyshepseg.tilingstats.StatsReadConfig`,
+and allows the user to specify a number of read workers. Each worker
+runs in a separate thread and reads ahead, placing tiles of raster data
+into a buffer ready for the statistics calculation to use.
 
 Modules in this Package
 =======================
