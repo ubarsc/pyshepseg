@@ -326,45 +326,9 @@ def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile,
     numXtiles = int(numpy.ceil(npix / tileSize))
     numYtiles = int(numpy.ceil(nlines / tileSize))
 
-    if readCfg is None:
-        readCfg = StatsReadConfig()
-    copyColsToSeg = False
-    openForUpdate = False
-    if outFileIsZarr and outFile is not None:
-        preExisting = ratzarr.RatZarr.isValidRatZarr(outFile)
-        rz = ratzarr.RatZarr(outFile)
-        if not preExisting:
-            rz.setChunkSize(RAT_PAGE_SIZE)
-        openRat = OpenRatContainer(rz=rz)
-    elif outFile is not None:
-        if os.path.exists(outFile):
-            ds = gdal.Open(outFile, gdal.GA_Update)
-            openRat = OpenRatContainer(ds=ds, band=ds.GetRasterBand(1))
-            del ds
-        else:
-            openRat = makeOutRatKea(outFile)
-    elif readCfg.numWorkers > 0:
-        # Create a new temporary file for saving the new columns to
-        (fd, tempKEA) = tempfile.mkstemp(prefix='pyshepseg_tilingstats_',
-                                         suffix='.kea')
-        os.close(fd)
-        openRat = makeOutRatKea(tempKEA)
-        copyColsToSeg = True
-    else:
-        openForUpdate = True
-
-    if openForUpdate:
-        segds = gdal.Open(segfile, gdal.GA_Update)
-        segband = segds.GetRasterBand(1)
-        openRat = OpenRatContainer(ds=segds, band=segband)
-        readMgr = StatsReadManager(imgfile, imgbandnum, segfile=segds,
-            segband=segband, readCfg=readCfg, tileSize=tileSize,
-            numXtiles=numXtiles, numYtiles=numYtiles)
-        del segds, segband
-    else:
-        readMgr = StatsReadManager(imgfile, imgbandnum, segfile=segfile,
-            segbandnum=1, readCfg=readCfg, tileSize=tileSize,
-            numXtiles=numXtiles, numYtiles=numYtiles)
+    (readMgr, openRat, copyColsToSeg, tempKEA) = openEverything(
+        readCfg, outFile, outFileIsZarr, tileSize, numXtiles, numYtiles,
+        imgfile, imgbandnum, segfile)
 
     openRat.SetRowCount(segSize.size)
 
@@ -411,6 +375,56 @@ def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile,
     rtn = TiledStatsResult()
     rtn.timings = timings
     return rtn
+
+
+def openEverything(readCfg, outFile, outFileIsZarr, tileSize, numXtiles,
+        numYtiles, imgfile, imgbandnum, segfile):
+    """
+    Open all the input and output files, ready for the stats routines to
+    do their work.
+    """
+    if readCfg is None:
+        readCfg = StatsReadConfig()
+    copyColsToSeg = False
+    openForUpdate = False
+    tempKEA = None
+    if outFileIsZarr and outFile is not None:
+        preExisting = ratzarr.RatZarr.isValidRatZarr(outFile)
+        rz = ratzarr.RatZarr(outFile)
+        if not preExisting:
+            rz.setChunkSize(RAT_PAGE_SIZE)
+        openRat = OpenRatContainer(rz=rz)
+    elif outFile is not None:
+        if os.path.exists(outFile):
+            ds = gdal.Open(outFile, gdal.GA_Update)
+            openRat = OpenRatContainer(ds=ds, band=ds.GetRasterBand(1))
+            del ds
+        else:
+            openRat = makeOutRatKea(outFile)
+    elif readCfg.numWorkers > 0:
+        # Create a new temporary file for saving the new columns to
+        (fd, tempKEA) = tempfile.mkstemp(prefix='pyshepseg_tilingstats_',
+                                         suffix='.kea')
+        os.close(fd)
+        openRat = makeOutRatKea(tempKEA)
+        copyColsToSeg = True
+    else:
+        openForUpdate = True
+
+    if openForUpdate:
+        segds = gdal.Open(segfile, gdal.GA_Update)
+        segband = segds.GetRasterBand(1)
+        openRat = OpenRatContainer(ds=segds, band=segband)
+        readMgr = StatsReadManager(imgfile, imgbandnum, segfile=segds,
+            segband=segband, readCfg=readCfg, tileSize=tileSize,
+            numXtiles=numXtiles, numYtiles=numYtiles)
+        del segds, segband
+    else:
+        readMgr = StatsReadManager(imgfile, imgbandnum, segfile=segfile,
+            segbandnum=1, readCfg=readCfg, tileSize=tileSize,
+            numXtiles=numXtiles, numYtiles=numYtiles)
+
+    return (readMgr, openRat, copyColsToSeg, tempKEA)
 
 
 def calcPerSegmentStats_riosFunc(info, inputs, outputs, otherArgs):
@@ -1524,45 +1538,9 @@ def calcPerSegmentSpatialStatsTiled(imgfile, imgbandnum, segfile,
     if len(colNamesAndTypes) == 0:
         raise PyShepSegStatsError("Must specify one or more columns")
 
-    if readCfg is None:
-        readCfg = StatsReadConfig()
-    copyColsToSeg = False
-    openForUpdate = False
-    if outFileIsZarr and outFile is not None:
-        preExisting = ratzarr.RatZarr.isValidRatZarr(outFile)
-        rz = ratzarr.RatZarr(outFile)
-        if not preExisting:
-            rz.setChunkSize(RAT_PAGE_SIZE)
-        openRat = OpenRatContainer(rz=rz)
-    elif outFile is not None:
-        if os.path.exists(outFile):
-            ds = gdal.Open(outFile, gdal.GA_Update)
-            openRat = OpenRatContainer(ds=ds, band=ds.GetRasterBand(1))
-            del ds
-        else:
-            openRat = makeOutRatKea(outFile)
-    elif readCfg.numWorkers > 0:
-        # Create a new temporary file for saving the new columns to
-        (fd, tempKEA) = tempfile.mkstemp(prefix='pyshepseg_tilingstats_',
-                                         suffix='.kea')
-        os.close(fd)
-        openRat = makeOutRatKea(tempKEA)
-        copyColsToSeg = True
-    else:
-        openForUpdate = True
-
-    if openForUpdate:
-        segds = gdal.Open(segfile, gdal.GA_Update)
-        segband = segds.GetRasterBand(1)
-        openRat = OpenRatContainer(ds=segds, band=segband)
-        readMgr = StatsReadManager(imgfile, imgbandnum, segfile=segds,
-            segband=segband, readCfg=readCfg, tileSize=tileSize,
-            numXtiles=numXtiles, numYtiles=numYtiles)
-        del segds, segband
-    else:
-        readMgr = StatsReadManager(imgfile, imgbandnum, segfile=segfile,
-            segbandnum=1, readCfg=readCfg, tileSize=tileSize,
-            numXtiles=numXtiles, numYtiles=numYtiles)
+    (readMgr, openRat, copyColsToSeg, tempKEA) = openEverything(
+        readCfg, outFile, outFileIsZarr, tileSize, numXtiles, numYtiles,
+        imgfile, imgbandnum, segfile)
 
     openRat.SetRowCount(segSize.size)
 
