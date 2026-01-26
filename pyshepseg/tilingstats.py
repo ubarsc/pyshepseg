@@ -310,7 +310,8 @@ def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile,
       outFileIsZarr : bool
         Set to True if the outFile should be written as RatZarr format.
       readCfg : StatsReadConfig
-        Config for read manager. Default will run with no read workers.
+        Config for read manager, allowing multi-threaded reading.
+        Default will run with no read workers.
 
     """
     if outFileIsZarr and not HAVE_RATZARR:
@@ -432,6 +433,9 @@ def calcPerSegmentStatsRIOS(imgfile, imgbandnum, segfile,
             statsSelection, concurrencyStyle=None, 
             missingStatsValue=-9999, outFile=None, outFileIsZarr=False):
     """
+    This function is deprecated. Consider using calcPerSegmentStatsTiled
+    with a readCfg instead.
+
     Calculate selected per-segment statistics for the given band 
     of the imgfile, against the given segment raster file. 
     Calculated statistics are written to the segfile raster 
@@ -1498,7 +1502,8 @@ def calcPerSegmentSpatialStatsTiled(imgfile, imgbandnum, segfile,
       outFileIsZarr : bool
         Set to True if the outFile should be written as RatZarr format.
       readCfg : StatsReadConfig
-        Config for read manager. Default will run with no read workers.
+        Config for read manager, allowing multi-threaded reading.
+        Default will run with no read workers.
     
     """
     if outFileIsZarr and not HAVE_RATZARR:
@@ -1637,6 +1642,9 @@ def calcPerSegmentSpatialStatsRIOS(imgfile, imgbandnum, segfile,
         colNamesAndTypes, userFunc, userParam=None, concurrencyStyle=None, 
         missingStatsValue=-9999, outFile=None, outFileIsZarr=False):
     """
+    This function is deprecated. Consider using calcPerSegmentSpatialStatsTiled
+    with a readCfg instead.
+
     Similar to the :func:`calcPerSegmentStatsTiledRIOS` function 
     but allows the user to calculate spatial statistics on the data
     for each segment. This is done by recording the location and value
