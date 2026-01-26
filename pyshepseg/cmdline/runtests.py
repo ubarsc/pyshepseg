@@ -10,6 +10,7 @@ coded to behave sensibly.
 import sys
 import os
 import argparse
+import shutil
 
 import numpy
 
@@ -107,6 +108,11 @@ def main():
     # generated the original segments. 
     tiling.doTiledShepherdSegmentation(imagefile, outsegfile,
         numClusters=numClusters, fixedKMeansInit=True, fourConnected=False)
+
+    # Save the segfile for a later test
+    segfilecopy = "tmp_seg_copy.kea"
+    shutil.copy(outsegfile, segfilecopy)
+    tmpdatafiles.append(segfilecopy)
     
     # some columns that test the stats
     print('Make stats columns')
@@ -138,6 +144,15 @@ def main():
     makeRATcolumns(outsegfile, imagefile, outFile=tmpRatFile,
                    numReadWorkers=1)
     errMsgList = checkRatColumns(outsegfile, tmpRatFile, False, allStatsCols)
+    if len(errMsgList) > 0:
+        for msg in errMsgList:
+            print(msg)
+        errorStatus = 1
+
+    print('Make stats column in segfile, with readWorkers')
+    makeRATcolumns(segfilecopy, imagefile, numReadWorkers=1)
+    errMsgList = checkRatColumns(outsegfile, segfilecopy, False,
+        allStatsCols)
     if len(errMsgList) > 0:
         for msg in errMsgList:
             print(msg)
@@ -209,9 +224,9 @@ def main():
         tmpRatFile = 'tmp_statsReadWorkers.zarr'
         tmpdatafiles.append(tmpRatFile)
         makeRATcolumns(outsegfile, imagefile, outFile=tmpRatFile,
-                       numReadWorkers=1, outFileIsZarr=True)
+                numReadWorkers=1, outFileIsZarr=True)
         makeSpatialRATColumns(outsegfile, imagefile, outFile=tmpRatFile,
-                              numReadWorkers=1, outFileIsZarr=True)
+                numReadWorkers=1, outFileIsZarr=True)
         errMsgList = checkRatColumns(outsegfile, tmpRatFile, True,
             allSpatialCols)
         if len(errMsgList) > 0:
@@ -224,8 +239,8 @@ def main():
     if HAVE_RIOS and ratzarr is not None:
         print("Test Zarr stats output using RIOS (basic & spatial)")
         tmpZarrRIOSFile = "tmp_statsRIOS.zarr"
-        makeRATcolumns(outsegfile, imagefile,
-                       outFile=tmpZarrRIOSFile, outFileIsZarr=True)
+        makeRATcolumns(outsegfile, imagefile, outFile=tmpZarrRIOSFile,
+                       outFileIsZarr=True, useRIOS=True)
         makeSpatialRATColumns(outsegfile, imagefile, outFile=tmpZarrRIOSFile,
                        outFileIsZarr=True, useRIOS=True)
         allStatsCols = meanColNames + stdColNames + [eastingCol, northingCol]

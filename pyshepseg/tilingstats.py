@@ -344,8 +344,9 @@ def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile,
             openRat = makeOutRatKea(outFile)
     elif readCfg.numWorkers > 0:
         # Create a new temporary file for saving the new columns to
-        tempKEA = tempfile.mkstemp(prefix='pyshepseg_tilingstats_',
-                                   suffix='.kea')
+        (fd, tempKEA) = tempfile.mkstemp(prefix='pyshepseg_tilingstats_',
+                                         suffix='.kea')
+        os.close(fd)
         openRat = makeOutRatKea(tempKEA)
         copyColsToSeg = True
     else:
@@ -398,8 +399,9 @@ def calcPerSegmentStatsTiled(imgfile, imgbandnum, segfile,
         openRat.close()
 
     if copyColsToSeg:
-        # Copy the cols back from temp file
-        raise NotImplementedError(f"Can't copy cols back from {tempKEA}")
+        copyRatCols(tempKEA, segfile)
+        drvr = gdal.IdentifyDriver(tempKEA)
+        drvr.Delete(tempKEA)
 
     # all pages should now be written. Raise an error if this not the case.
     if len(pagedRat) > 0:
@@ -512,8 +514,8 @@ def calcPerSegmentStatsRIOS(imgfile, imgbandnum, segfile,
         msg = "outFileIsZarr requested, but ratzarr package unavailable"
         raise PyShepSegStatsError(msg)
     print("WARNING: calcPerSegmentStatsRIOS is deprecated, and likely",
-          "to be removed some time after Jan 2027")
-    print("See calcPerSegmentStatsTiled instead, with readCfg")
+          "to be removed some time after Jan 2027.",
+          "See calcPerSegmentStatsTiled instead, with readCfg")
 
     (imgNullVal, segSize, nlines, npix) = doImageChecks(
         segfile, imgfile, imgbandnum)
@@ -1536,8 +1538,9 @@ def calcPerSegmentSpatialStatsTiled(imgfile, imgbandnum, segfile,
             openRat = makeOutRatKea(outFile)
     elif readCfg.numWorkers > 0:
         # Create a new temporary file for saving the new columns to
-        tempKEA = tempfile.mkstemp(prefix='pyshepseg_tilingstats_',
-                                   suffix='.kea')
+        (fd, tempKEA) = tempfile.mkstemp(prefix='pyshepseg_tilingstats_',
+                                         suffix='.kea')
+        os.close(fd)
         openRat = makeOutRatKea(tempKEA)
         copyColsToSeg = True
     else:
@@ -1597,8 +1600,9 @@ def calcPerSegmentSpatialStatsTiled(imgfile, imgbandnum, segfile,
         openRat.close()
 
     if copyColsToSeg:
-        # Copy the cols back from temp file
-        raise NotImplementedError(f"Can't copy cols back from {tempKEA}")
+        copyRatCols(tempKEA, segfile)
+        drvr = gdal.IdentifyDriver(tempKEA)
+        drvr.Delete(tempKEA)
 
     # all pages should now be written. Raise an error if this not the case.
     if len(pagedRat) > 0:
@@ -1703,8 +1707,8 @@ def calcPerSegmentSpatialStatsRIOS(imgfile, imgbandnum, segfile,
         msg = "outFileIsZarr requested, but ratzarr package unavailable"
         raise PyShepSegStatsError(msg)
     print("WARNING: calcPerSegmentSpatialStatsRIOS is deprecated, and likely",
-          "to be removed some time after Jan 2027.")
-    print("See calcPerSegmentSpatialStatsTiled instead, with readCfg")
+          "to be removed some time after Jan 2027.",
+          "See calcPerSegmentSpatialStatsTiled instead, with readCfg")
 
     (imgNullVal, segSize, nlines, npix) = doImageChecks(
         segfile, imgfile, imgbandnum)
@@ -2272,6 +2276,58 @@ def makeOutRatKea(outFile):
     outKEABand.SetMetadataItem('LAYER_TYPE', 'thematic')
     openRat = OpenRatContainer(ds=outKEADS, band=outKEABand)
     return openRat
+
+
+def copyRatCols(srcRat, destRat):
+    """
+    Copy all columns from srcRat to dstRat.
+
+    This is intended only for use copying from a temporary RAT file, which
+    should only contain the columns to be copied. Use outside this could be
+    dangerous.
+
+    Copies each column in fixed-size blocks, so quite memory-efficient.
+
+    Parameters
+    ----------
+       srcRat : str
+         Name of temp KEA file with RAT to copy
+       destRat : str or gdal.Dataset
+         Name (or Dataset) of destination GDAL file to which RAT is copied
+    """
+    srcDs = gdal.Open(srcRat)
+    srcBand = srcDs.GetRasterBand(1)
+    srcTbl = srcBand.GetDefaultRAT()
+    if isinstance(destRat, gdal.Dataset):
+        destDs = destRat
+    else:
+        destDs = gdal.Open(destRat, gdal.GA_Update)
+    destBand = destDs.GetRasterBand(1)
+    destTbl = destBand.GetDefaultRAT()
+    existingCols = [destTbl.GetNameOfCol(i)
+                    for i in range(destTbl.GetColumnCount())]
+    blockSize = 100000
+    numRows = srcTbl.GetRowCount()
+    for i in range(srcTbl.GetColumnCount()):
+        colName = srcTbl.GetNameOfCol(i)
+        if colName not in existingCols:
+            colType = srcTbl.GetTypeOfCol(i)
+            usage = srcTbl.GetUsageOfCol(i)
+            destTbl.CreateColumn(colName, colType, usage)
+            destNdx = destTbl.GetColumnCount() - 1
+        else:
+            destNdx = existingCols.index(colName)
+        startRow = 0
+        while startRow < numRows:
+            length = min(blockSize, (numRows - startRow))
+            block = srcTbl.ReadAsArray(i, start=startRow, length=length)
+            destTbl.WriteArray(block, destNdx, start=startRow)
+            startRow += blockSize
+
+    del srcTbl, destTbl, srcBand, destBand
+    srcDs = None
+    destDs.FlushCache()
+    destDs = None
 
 
 class StatsReadConfig:
