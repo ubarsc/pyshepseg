@@ -2364,7 +2364,7 @@ class StatsReadManager:
       numYtiles : int
         Number of tiles in Y direction across the images
       timings : Timers
-        A Timers object in wihc read timings are recorded. Default will
+        A Timers object in which read timings are recorded. Default will
         discard timings.
     """
     def __init__(self, imgfile, imgbandnum, segfile=None, segbandnum=1,
