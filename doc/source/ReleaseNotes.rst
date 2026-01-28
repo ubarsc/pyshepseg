@@ -4,7 +4,7 @@ Pyshepseg Release Notes
 Version 2.0.5 (2026-01-28)
 --------------------------
 New Features
-  * Support for RatZarr format RAT files
+  * Support for RatZarr format RAT files for per-segment statistics columns
     (`#83 <https://github.com/ubarsc/pyshepseg/pull/83)>`_,
     `#84 <https://github.com/ubarsc/pyshepseg/pull/84)>`_,
     `#85 <https://github.com/ubarsc/pyshepseg/pull/85)>`_)
