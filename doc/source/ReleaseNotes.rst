@@ -1,6 +1,22 @@
 Pyshepseg Release Notes
 =======================
 
+Version 2.0.5 (2026-01-28)
+--------------------------
+New Features
+  * Support for RatZarr format RAT files
+    (`#83 <https://github.com/ubarsc/pyshepseg/pull/83)>`_,
+    `#84 <https://github.com/ubarsc/pyshepseg/pull/84)>`_,
+    `#85 <https://github.com/ubarsc/pyshepseg/pull/85)>`_)
+  * Built-in read worker support in per-segment statistics (i.e. no
+    dependency on RIOS) (`#86 <https://github.com/ubarsc/pyshepseg/pull/86)>`_,
+    `#87 <https://github.com/ubarsc/pyshepseg/pull/87)>`_,
+    `#88 <https://github.com/ubarsc/pyshepseg/pull/88)>`_)
+
+Deprecations
+  * Both ``calcPerSegmentStatsRIOS`` and ``calcPerSegmentSpatialStatsRIOS``
+    are now deprecated, to be removed at a later date.
+
 Version 2.0.4 (2025-10-17)
 --------------------------
 
