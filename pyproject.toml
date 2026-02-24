@@ -7,7 +7,7 @@
 # installed on the system by some other means.
 
 [build-system]
-requires = ["setuptools>=61.0", "wheel"]
+requires = ["setuptools>=77.0.3", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -19,7 +19,7 @@ authors = [
 ]
 description = "Python implementation of the image segmentation algorithm described by Shepherd et al"
 readme = "README.md"
-license = {file = "LICENSE.txt"}
+license = "MIT"
 
 dependencies = [
     "numba",
