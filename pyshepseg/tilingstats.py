@@ -123,12 +123,8 @@ class OpenRatContainer:
         if band is not None:
             self.attrTbl = band.GetDefaultRAT()
         self.rz = rz
-        self.colNdxLookup = {}
-        if rz is not None:
-            # Fake colNdx for existing column names
-            colNames = rz.getColumnNames()
-            for i in range(len(colNames)):
-                self.colNdxLookup[i] = colNames[i]
+        self.colNdxByName = {}
+        self.colNameByNdx = {}
         self.zarrColType = {
             gdal.GFT_Integer: numpy.int64, gdal.GFT_Real: numpy.float64}
 
@@ -162,9 +158,7 @@ class OpenRatContainer:
         """
         colNdx = None
         if self.rz is not None:
-            for (ndx, name) in self.colNdxLookup.items():
-                if name == colName:
-                    colNdx = ndx
+            colNdx = self.colNdxByName[colName]
         elif self.attrTbl is not None:
             nCols = self.attrTbl.GetColumnCount()
             for ndx in range(nCols):
@@ -199,9 +193,11 @@ class OpenRatContainer:
         """
         if self.rz is not None:
             numpyType = self.zarrColType[colType]
-            numCols = len(self.rz.getColumnNames())
+            numCols = len(self.colNdxByName)
             self.rz.createColumn(colName, numpyType)
-            self.colNdxLookup[numCols + 1] = colName
+            ndx = numCols + 1
+            self.colNameByNdx[ndx] = colName
+            self.colNdxByName[colName] = ndx
         elif self.attrTbl is not None:
             self.attrTbl.CreateColumn(colName, colType, gdal.GFU_Generic)
 
@@ -215,7 +211,7 @@ class OpenRatContainer:
 
         """
         if self.rz is not None:
-            colName = self.colNdxLookup[colNumber]
+            colName = self.colNameByNdx[colNumber]
             self.rz.writeBlock(colName, colArr, start)
         elif self.attrTbl is not None:
             self.attrTbl.WriteArray(colArr, colNumber, start=start)

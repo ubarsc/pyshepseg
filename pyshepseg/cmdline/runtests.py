@@ -236,9 +236,9 @@ def main():
     else:
         print("Skipped Zarr tests")
 
+    tmpZarrRIOSFile = "tmp_statsRIOS.zarr"
     if HAVE_RIOS and ratzarr is not None:
         print("Test Zarr stats output using RIOS (basic & spatial)")
-        tmpZarrRIOSFile = "tmp_statsRIOS.zarr"
         makeRATcolumns(outsegfile, imagefile, outFile=tmpZarrRIOSFile,
                        outFileIsZarr=True, useRIOS=True)
         makeSpatialRATColumns(outsegfile, imagefile, outFile=tmpZarrRIOSFile,
