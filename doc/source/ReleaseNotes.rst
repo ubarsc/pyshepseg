@@ -1,6 +1,16 @@
 Pyshepseg Release Notes
 =======================
 
+Version 2.0.6 (2026-09-16)
+--------------------------
+New Features
+  * Updated pyproject.toml to handle new license specification format
+    (`#90 <https://github.com/ubarsc/pyshepseg/pull/90)>`_)
+
+Bug Fixes
+  * More efficient handling of output RatZarr columns with a very large number of columns
+    (`#92 <https://github.com/ubarsc/pyshepseg/pull/92)>`_)
+
 Version 2.0.5 (2026-01-28)
 --------------------------
 New Features
